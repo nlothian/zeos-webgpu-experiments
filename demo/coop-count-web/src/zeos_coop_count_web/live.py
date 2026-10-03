@@ -29,6 +29,7 @@ from typing import Any
 
 from zeos.core.events import Event
 from zeos.core.ids import PipeName
+from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.core.kernel import KernelConfig
 from zeos.core.pipes import PipeFull
 from zeos.debugger.payload import build_payload
@@ -55,6 +56,7 @@ class LiveRun:
         seed: int = 0,
         max_ticks: int = 100_000,
         trace: bool = False,
+        theta_read: float = DEFAULT_THETA_READ,
     ) -> None:
         self.bundle = bundle
         self.machine = machine
@@ -63,7 +65,9 @@ class LiveRun:
             bundle,
             machine=machine,
             journal_sink=self.events,
-            config=KernelConfig(seed=seed, case=bundle.name, max_ticks=max_ticks),
+            config=KernelConfig(
+                seed=seed, case=bundle.name, max_ticks=max_ticks, theta_read=theta_read
+            ),
         )
         self.journal = Journal()
         self.trace = RawTrace() if trace and isinstance(machine, TracesRaw) else None

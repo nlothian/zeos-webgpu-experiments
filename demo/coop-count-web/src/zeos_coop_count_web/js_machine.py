@@ -49,10 +49,12 @@ How this class uses it, which is what a worker has to get right:
 * **Residency.** The worker's tokens for a context are always a prefix of the ids this
   class holds for it. Before each ``decodeStep`` it appends whatever lies past
   ``length()``, so the context is never empty when a step is asked for.
-* **A decode step does not change the context.** The chosen id is appended by the
-  ``append`` before the next step, as ``LlamaMachine`` feeds a sampled token on its
-  next decode. The step computes the next-token distribution at the last resident
-  position, attending only the allowed blocks, and reports that query's attention.
+* **A decode step** computes the next-token distribution at the last resident
+  position, attending only the allowed blocks, and reports that query's attention. A
+  worker may append the chosen id itself (the Transformers.js worker does, as the
+  interface specifies) or leave it out (the fake does); this class asks ``length()``
+  before every step and appends whatever the worker lacks, so either keeps its ids a
+  prefix of this class's.
 * **Blocks** in ``allowedBlocks`` and in ``attention`` are the worker's own:
   ``info().blockSize`` model tokens each, block ``b`` covering token positions
   ``[b * blockSize, (b + 1) * blockSize)``, one entry per block of the resident
@@ -61,7 +63,22 @@ How this class uses it, which is what a worker has to get right:
   word with a token in it lies in a kernel block the mask allows, so a block straddling
   a hidden segment is hidden whole; the mask fails closed. Measured mass on a worker
   block is shared among the kernel blocks with tokens in it, in proportion to how many.
-  Both are exact when every word is one model token, as with the stub worker.
+  Both are exact when every word is one model token, as with the stub worker, and
+  when the worker's blocks are single positions, as with the Transformers.js worker.
+* **Blocks the mask has not seen are not hidden from the model.** The kernel installs a
+  mask at each block boundary and after every inject, splice and fork, as the union of
+  the blocks of readable segments. At a boundary the job's next output segment has not
+  been opened, so the block it is about to write is in no mask until the following
+  boundary, and a backend enforcing ``visible_blocks`` to the letter hides the job's own
+  newest words from it for most of every block. Over a real model that is not a subtle
+  effect: the coop-count agents lose count within a turn. So the worker is given a
+  block as hidden only if it existed when the mask was installed and the mask leaves it
+  out; a block created since can hold only what the job has decoded and padding.
+  ``visible_blocks`` still answers by the mask alone (ZEOS-AM §3), so the kernel drops
+  any mass the step puts on such a block and journals ``mask.denied`` for it, as it does
+  over every other backend. This departs from AM-I3 and AM-I7 for exactly those blocks,
+  and only until the next mask; the kernel-side remedy is a bitmap that covers the open
+  output segment's block.
 * **Token reservation.** ``allowedTokens`` has one entry per vocabulary id. The pad id
   and the end-of-sequence id are always 0, and the ``controlIds`` are 0 unless the
   kernel enabled control tokens for the step; that is the sampler-side reservation the
@@ -194,6 +211,8 @@ class _Context:
     #: ``framing[i]`` is how many of those ids are chat framing, before and after the word.
     framing: list[tuple[int, int]] = field(default_factory=list[tuple[int, int]])
     mask: frozenset[int] | None = None
+    #: Kernel blocks the context had when ``mask`` was installed; later ones are visible.
+    horizon: int = 0
     #: Where the current round stands in the command language.
     round: RoundState = ()
     tags: tuple[str, ...] = ("descriptor",)
@@ -418,7 +437,8 @@ class JsMachine(SyscallSeat):
         hidden: set[int] = set()
         at = 0
         for index, span in enumerate(ctx.spans):
-            if span and index // self._block_size not in ctx.mask:
+            block = index // self._block_size
+            if span and block < ctx.horizon and block not in ctx.mask:
                 hidden.update(range(at // size, (at + span - 1) // size + 1))
             at += span
         return bytes(0 if b in hidden else 1 for b in range(count))
@@ -555,6 +575,8 @@ class JsMachine(SyscallSeat):
         del ctx.ids[kv_at:]
         del ctx.spans[at:]
         del ctx.framing[at:]
+        # Blocks rebuilt past the cut are new content the installed mask never saw.
+        ctx.horizon = min(ctx.horizon, self._block_count(at))
         if ctx.turn_index is not None and at <= ctx.turn_index:
             ctx.turn_index = None
             ctx.turn_open = False
@@ -586,6 +608,7 @@ class JsMachine(SyscallSeat):
         existing.spoken = src.spoken
         # A child starts from the parent's visibility and can only lose ground from there.
         existing.mask = src.mask
+        existing.horizon = src.horizon
         return len(src.tokens)
 
     def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
@@ -617,7 +640,9 @@ class JsMachine(SyscallSeat):
 
     def set_mask(self, job: JobId, allowed_blocks: frozenset[int]) -> None:
         """Install the allowed-block bitmap. The worker enforces it on every decode step."""
-        self._ctx_of(job).mask = allowed_blocks
+        ctx = self._ctx_of(job)
+        ctx.mask = allowed_blocks
+        ctx.horizon = self._block_count(len(ctx.tokens))
 
     def visible_blocks(self, job: JobId) -> frozenset[int]:
         ctx = self._ctx_of(job)

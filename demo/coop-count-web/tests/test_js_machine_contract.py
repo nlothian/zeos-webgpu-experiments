@@ -9,13 +9,15 @@
 A copy of ``demo/coop-count/tests/test_machine_contract.py`` with the llama backend
 swapped for ``JsMachine`` over the Python fake worker, twice: once as the stub is, with
 no attention, and once over a worker that measures, so that the two attention clauses
-bind rather than skip. The clauses themselves, and why each matters, are documented in
+bind rather than skip. A third ``JsMachine`` runs over the real model worker
+(``web/transformers_worker.js``) under Node, where the attention is measured by the
+exported decode graph; it is skipped when Node, the npm packages or the export are absent. The clauses themselves, and why each matters, are documented in
 ``tests/contract/test_machine_contract.py`` at the repository root.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
 import pytest
@@ -26,6 +28,7 @@ from zeos.machine.scripted import Script, ScriptedMachine
 
 from zeos_coop_count_web.fake_worker import FakeWorker
 from zeos_coop_count_web.js_machine import JsMachine
+from zeos_coop_count_web.node_worker import DEFAULT_MODEL, NodeWorker, node_available
 
 JOB = JobId(1)
 CHILD = JobId(2)
@@ -66,17 +69,50 @@ def _js(worker_class: type[FakeWorker]) -> Callable[..., tuple[MachineBackend, J
     return build
 
 
-BACKENDS = ["M0-scripted", "js-fake", "js-measuring"]
+BACKENDS = ["M0-scripted", "js-fake", "js-measuring", "js-transformers"]
+
+
+@pytest.fixture(scope="module")
+def node_worker() -> Iterator[NodeWorker]:
+    if not node_available():
+        pytest.skip("needs node and `npm install` in demo/coop-count-web")
+    if not (DEFAULT_MODEL / "meta.json").is_file():
+        pytest.skip(f"no export at {DEFAULT_MODEL}; run export/export_model.py")
+    with NodeWorker() as worker:
+        yield worker
+
+
+def _transformers(
+    worker: NodeWorker, machines: list[JsMachine]
+) -> Callable[..., tuple[MachineBackend, JobId]]:
+    def build(*, block_size: int, emits: Sequence[str], **_: object):
+        # ``emits`` is ignored: a real model decodes what the weights and the mask allow.
+        # ``other`` binds no pipe, so its rounds can only say and exit.
+        machine = JsMachine(
+            worker, descriptors={"d": ("stdin", "stdout"), "other": ()}, block_size=block_size
+        )
+        machines.append(machine)
+        machine.create_context(JOB, "d")
+        return machine, JOB
+
+    return build
 
 
 @pytest.fixture
-def backend(request: pytest.FixtureRequest) -> Backend:
+def backend(request: pytest.FixtureRequest) -> Iterator[Backend]:
     name = request.param  # pyright: ignore[reportAny]
     if name == "M0-scripted":
-        return Backend(name, _scripted)
-    if name == "js-fake":
-        return Backend(name, _js(FakeWorker))
-    return Backend(name, _js(MeasuringWorker))
+        yield Backend(name, _scripted)
+    elif name == "js-fake":
+        yield Backend(name, _js(FakeWorker))
+    elif name == "js-measuring":
+        yield Backend(name, _js(MeasuringWorker))
+    else:
+        worker: NodeWorker = request.getfixturevalue("node_worker")
+        machines: list[JsMachine] = []
+        yield Backend(name, _transformers(worker, machines))
+        for machine in machines:
+            machine.close()
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -207,6 +243,19 @@ def test_fork_into_an_existing_context_keeps_the_childs_own_behaviour(backend: B
         return
 
     assert isinstance(m, JsMachine)
+    if backend.name == "js-transformers":
+        m.create_context(CHILD, "other")  # a descriptor binding no pipes at all
+        m.inject(job, tokens_from_text("shared"))
+        assert m.fork(job, CHILD) == 1
+        assert render(m.transcript(CHILD)) == "shared"
+        for _ in range(6):
+            m.decode(CHILD, allow_control=False)
+        said = "".join(t.text for t in m.transcript(CHILD)[1:])
+        assert "write" not in said and "read" not in said, (
+            f"the child spoke with its own language, which has no pipe verbs: {said!r}"
+        )
+        return
+
     m.create_context(CHILD, "child")
     m.inject(job, tokens_from_text("shared"))
 
