@@ -464,8 +464,8 @@ desktop app's browser pane, Apple silicon) and under Node 22, 400 ticks of each 
 | `coop-count-vector` | `f8bf68a3e554f155528cdce373618b95666ad5808de3da813734d9eed6b90578` |
 
 `coop-count-scripted` ran twice in the page, in two page loads, with the same digest.
-The same holds with Pyodide in Node over the model thread (`tests/pyodide_run.mjs
---model`), whose journal for 40 ticks of `coop-count-scripted` matched CPython's.
+The same holds with Pyodide in Node over the model thread: `tests/test_pyodide_model.py`
+runs 40 ticks of `coop-count-scripted` that way and requires CPython's bytes.
 
 WebGPU was checked on one device only, with the q4 export, on twenty greedy steps of a
 short chat prompt: three runs in the same browser chose the same tokens and reported
@@ -504,7 +504,9 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   worker's interface under Node, directly and through the synchronous channel.
 - `test_js_machine_contract.py` also runs the contract suite over the real model worker
   (`js-transformers`), driven from Node.
-- These four and the `js-transformers` backend skip without Node, `npm install` or the
+- `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model
+  on a thread of its own behind `SyncModelWorker`) writes CPython's journal.
+- These five and the `js-transformers` backend skip without Node, `npm install` or the
   export.
 - `test_pyodide_determinism.py` — the smoke fixture, the seat and the stub, each under
   Pyodide in Node and under CPython, compared byte for byte. It builds both wheels with
