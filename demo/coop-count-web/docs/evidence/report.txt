@@ -1,0 +1,27 @@
+pipe-hidden.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 0
+no segment less trusted than its reader received any attention
+mass on the newest, not yet masked block: mean 0.1768 per step, max 0.3749; non-zero on 351 of 398 steps
+block 2 of job 1 (hidden by --hide): measured on 387 steps, largest mass 0.0, steps with non-zero mass 0
+pipe-untrusted-theta-0.5.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 0
+largest mass a less trusted segment received in one block: 0.3647 (segment 19, job 3, boundary at seq 222)
+mass on the newest, not yet masked block: mean 0.1721 per step, max 0.3884; non-zero on 336 of 398 steps
+pipe-untrusted.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 1
+largest mass a less trusted segment received in one block: 0.3647 (segment 19, job 3, boundary at seq 222)
+mass on the newest, not yet masked block: mean 0.1721 per step, max 0.3884; non-zero on 336 of 398 steps
+- seq 223: job 3 demoted 2 -> 3 because of segment(s) [19]
+  - segment 19, from keys.interrupt (ring 3, user): 'attention', integrity 3: 0.3647 of attention since the job's previous boundary
+pipe.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 0
+no segment less trusted than its reader received any attention
+mass on the newest, not yet masked block: mean 0.1721 per step, max 0.3884; non-zero on 336 of 398 steps
+scripted.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 0
+no segment less trusted than its reader received any attention
+mass on the newest, not yet masked block: mean 0.1721 per step, max 0.3884; non-zero on 336 of 398 steps
+vector.jsonl: 398 decode steps, 398 with measured attention
+integrity demotions: 0
+no segment less trusted than its reader received any attention
+mass on the newest, not yet masked block: mean 0.1802 per step, max 0.4174; non-zero on 347 of 398 steps

@@ -50,7 +50,9 @@ class MeasuredJsMachine(JsMachine):
 
     ``hidden`` maps a job to kernel blocks removed from every mask the kernel installs
     for it, through ``set_mask`` like any other narrowing, so the worker never lets the
-    job attend them; it exists to show that a masked block's measured mass is zero.
+    job attend them; it exists to show that a masked block's measured mass is zero. The
+    kernel installs a mask after the descriptor body is injected and before the first
+    decode, so a block of the body is hidden from the job's first step on.
     """
 
     def __init__(
@@ -63,14 +65,6 @@ class MeasuredJsMachine(JsMachine):
 
     def set_mask(self, job: JobId, allowed_blocks: frozenset[int]) -> None:
         super().set_mask(job, allowed_blocks - self.hidden.get(int(job), frozenset()))
-
-    def create_context(self, job: JobId, descriptor: str = "") -> None:
-        super().create_context(job, descriptor)
-        hidden = self.hidden.get(int(job))
-        if hidden:
-            # Masked from the first step: every block the context will ever have, less
-            # these. The kernel's own masks then narrow it further.
-            self.set_mask(job, frozenset(range(1 << 16)))
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
         result = super().decode(job, allow_control=allow_control)

@@ -21,6 +21,7 @@ received, and, given ``--hidden``, every step's mass on blocks a mask hid.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import sys
 from collections import defaultdict
@@ -32,7 +33,15 @@ __all__ = ["main", "report"]
 
 
 def _read(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    text = gzip.decompress(path.read_bytes()).decode() if path.suffix == ".gz" else path.read_text()
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def attention_file(journal: Path) -> Path:
+    """The attention file ``node_run`` wrote beside a journal, compressed or not."""
+    plain = journal.with_suffix(".attention.jsonl")
+    packed = plain.with_name(plain.name + ".gz")
+    return packed if packed.is_file() and not plain.is_file() else plain
 
 
 def report(journal: Path, attention: Path, *, hidden: Sequence[str] = ()) -> str:
@@ -124,7 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--attention", type=Path)
     parser.add_argument("--hidden", action="append", default=[], metavar="JOB:BLOCK")
     args = parser.parse_args(argv)
-    attention = args.attention or args.journal.with_suffix(".attention.jsonl")
+    attention = args.attention or attention_file(args.journal)
     sys.stdout.write(report(args.journal, attention, hidden=args.hidden))
     return 0
 

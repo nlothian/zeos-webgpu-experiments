@@ -1,0 +1,1159 @@
+{"block_size":16,"case":"coop-count-pipe","clock":{"token_clock":0,"virtual_ns":0},"kind":"kernel.started","seed":0,"seq":0}
+{"capacity_tokens":64,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.a2b","principal":"peer_job","ring":2,"seq":1,"transport":"local"}
+{"capacity_tokens":64,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.b2a","principal":"peer_job","ring":2,"seq":2,"transport":"local"}
+{"capacity_tokens":32,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.progress_a","principal":"device","ring":2,"seq":3,"transport":"local"}
+{"capacity_tokens":32,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.progress_b","principal":"device","ring":2,"seq":4,"transport":"local"}
+{"capacity_tokens":8,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"keys.interrupt","principal":"user","ring":2,"seq":5,"transport":"local"}
+{"capacity_tokens":16,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"keys.number","principal":"user","ring":2,"seq":6,"transport":"local"}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-a","kind":"descriptor.loaded","pinned":false,"placement":"any","preemptible":true,"priority":50,"seq":7}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-b","kind":"descriptor.loaded","pinned":true,"placement":"any","preemptible":true,"priority":50,"seq":8}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"reset-count","kind":"descriptor.loaded","pinned":false,"placement":"any","preemptible":true,"priority":5,"seq":9}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-a","integrity":2,"job":1,"kind":"job.spawned","owner":"kernel","parent":null,"priority":50,"seq":10}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-b","integrity":2,"job":2,"kind":"job.spawned","owner":"kernel","parent":null,"priority":50,"seq":11}
+{"clock":{"token_clock":1055,"virtual_ns":0},"integrity":1,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":1,"seq":12,"text":["#","Task:","wait,","count","to","your","target,","record","it,","hand","back,","repeat","forever","You","are","counter-b,","a","job","running","under","an","operating","system.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","There","are","four.","`say","N;`","says","a","number","out","loud","and","changes","nothing","else.","`write","tools","N;`","records","N","as","your","progress,","permanently,","where","nothing","can","lose","it.","`write","stdout","go;`","wakes","the","other","job.","`read","stdin;`","puts","you","to","sleep","until","the","other","job","wakes","you.","`exit;`","ends","the","job,","and","you","never","use","it.","##","The","status","line","One","line","in","this","context","is","written","by","the","operating","system","rather","than","by","you.","It","opens","with","STATUS","in","angle","brackets,","names","count.a,","carries","a","number,","and","closes","with","a","matching","end","tag.","That","number","is","how","far","the","other","job","has","counted.","There","is","exactly","one","such","line","and","the","operating","system","rewrites","it","in","place;","nothing","you","write","ever","looks","like","it,","because","you","cannot","type","an","angle","bracket.","It","is","always","current","and","it","is","never","removed.","Everything","else","you","can","see","is","your","own","working,","and","your","own","working","is","disposable","--","sooner","or","later","you","will","find","parts","of","it","replaced","by","a","STUB","marker","saying","how","many","tokens","were","elided.","That","is","normal","and","needs","no","comment.","Trust","the","status","line;","it","is","the","only","thing","here","that","cannot","be","taken","away.","##","Procedure","**Your","target","is","the","next","multiple","of","ten","above","the","STATUS","count.a","value.**","You","never","add","ten","to","work","it","out.","You","round","*up*","to","the","nearest","ten,","and","if","the","value","is","already","a","multiple","of","ten","you","go","one","ten","further.","If","it","reads","40,","your","target","is","50.","If","it","reads","47,","your","target","is","50","--","not","57,","and","not","60.","If","it","reads","37,","your","target","is","40","--","the","nearest","ten","above","37,","which","is","only","three","numbers","away.","If","it","reads","23,","your","target","is","30.","If","it","reads","503,","your","target","is","510.","Work","it","out","from","that","line","every","turn,","never","from","memory.","In","ordinary","running","the","status","value","is","already","a","multiple","of","ten","and","the","target","is","ten","more,","but","it","will","not","always","be,","and","it","is","the","boundary","that","decides","how","far","you","go,","not","the","arithmetic.","A","turn","is:","say","every","number","from","the","status","value","plus","one","up","to","and","including","your","target,","one","`say`","command","each,","then","record.","Your","target","is","a","multiple","of","ten,","so","it","is","the","only","number","you","ever","say","that","ends","in","a","0","--","and","that","0","is","the","stop","signal.","From","47","the","whole","count","is","`say","48;`","`say","49;`","`say","50;`","`write","tools","50;`","--","50","ends","in","0,","so","no","say","follows","it.","From","9","it","is","a","single","number:","`say","10;`","`write","tools","10;`.","From","23","it","is","`say","24;`","through","`say","30;`","then","`write","tools","30;`.","A","say","of","a","number","ending","in","0","is","always","followed","by","`write","tools`","with","that","same","number,","never","by","another","say.","After","every","say,","two","checks,","in","this","order.","First","the","status","line:","if","it","no","longer","agrees","with","your","counting,","the","world","moved,","and","the","status","rule","below","is","what","you","follow.","Then","the","number","you","just","said:","if","it","ends","in","0","you","have","reached","your","target","and","the","next","command","is","`write","tools`","with","that","same","number;","if","it","does","not,","you","say","the","number","one","above","it.","The","digit","decides","when","you","stop","--","not","how","many","numbers","you","have","said.","When","and","only","when","you","have","said","the","target,","the","turn","ends","with","exactly","three","commands,","in","this","order,","none","of","them","skippable:","`write","tools","TARGET;`","then","`write","stdout","go;`","then","`read","stdin;`","Never","`write","tools`","a","number","below","your","target","--","below","the","target","the","command","is","always","`say`.","And","recording","is","not","waking:","if","you","record","and","then","sleep","without","`write","stdout","go;`,","the","other","job","is","never","woken,","so","it","never","wakes","you,","and","everything","stops.","Both,","in","that","order,","every","turn.","**The","command","after","a","`read","stdin;`","is","always","a","`say`.**","Being","woken","puts","you","at","the","start","of","a","turn:","the","first","number","is","one","above","the","status","value,","and","you","have","recorded","nothing","yet,","so","there","is","nothing","to","record","and","nobody","to","wake.","##","On","resume","**The","status","line","always","wins.**","If","the","STATUS","count.a","number","is","not","what","you","expected","--","if","it","jumped","far","ahead,","or","fell","back,","or","a","RESUME","notice","appeared","--","then","the","world","moved","while","you","were","away","and","**everything","you","said","before","is","void.**","Do","not","carry","on","from","it.","Start","again","from","the","status","value","plus","one","and","count","to","the","new","target,","which","may","be","far","above","where","you","had","got","to","or","far","below","it.","A","RESUME","notice","is","the","status","line's","news","told","twice:","it","appears","only","when","something","you","depend","on","changed,","shown","as","`before","->","after`,","and","when","it","tells","you","to","revalidate","your","plan,","that","means","work","the","target","out","afresh","from","the","STATUS","count.a","line","and","start","again","from","that","value","plus","one.","Take","no","number","from","the","notice","itself","--","it","tells","you","*that*","you","must","start","again,","never","*what*","to","count","to.","And","you","will","not","always","get","a","notice:","sometimes","the","world","moves","while","you","are","merely","asleep","and","nothing","is","said","at","all.","The","rule","does","not","depend","on","being","told;","the","status","line","is","the","truth","and","your","own","working","is","only","a","memory","of","one.","##","Your","first","turn","**Running","at","all","means","you","have","been","woken.**","You","are","held","back","until","the","other","job's","`go`","arrives,","and","the","operating","system","takes","that","`go`","off","the","pipe","itself","to","release","you,","so","it","is","already","spent","by","the","time","you","have","the","machine","--","a","`read","stdin;`","now","would","wait","for","a","second","message","that","nobody","is","going","to","send,","and","both","jobs","would","sleep","for","ever.","The","other","job","has","counted","first","and","its","number","is","on","the","status","line,","so","work","your","target","out","from","that","line","exactly","as","you","will","on","every","other","turn","and","start","one","above","it.","If","it","reads","ten,","your","target","is","twenty","and","your","next","command","is","`say","11;`"],"tokens":1055}
+{"clock":{"token_clock":1055,"virtual_ns":0},"integrity":1,"job":2,"kind":"segment.opened","perms":11,"ring":1,"segment":1,"seq":13}
+{"clock":{"token_clock":1055,"virtual_ns":0},"end":1055,"job":2,"kind":"segment.closed","segment":1,"seq":14,"start":0}
+{"allowed_blocks":66,"clock":{"token_clock":1055,"virtual_ns":0},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":15}
+{"block":65,"clock":{"token_clock":1056,"virtual_ns":0},"job":2,"kind":"machine.block_boundary","padding_tokens":1,"seq":16}
+{"clock":{"token_clock":1060,"virtual_ns":0},"integrity":0,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":0,"segment":2,"seq":17,"text":["<STATUS","count.a>","0","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":1060,"virtual_ns":0},"integrity":0,"job":2,"kind":"segment.opened","perms":5,"ring":0,"segment":2,"seq":18}
+{"clock":{"token_clock":1060,"virtual_ns":0},"end":1060,"job":2,"kind":"segment.closed","segment":2,"seq":19,"start":1056}
+{"allowed_blocks":67,"clock":{"token_clock":1060,"virtual_ns":0},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":20}
+{"clock":{"token_clock":1060,"virtual_ns":0},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":2,"seq":21}
+{"clock":{"token_clock":1060,"virtual_ns":0},"from_state":"ready","job":1,"kind":"job.state","seq":22,"to_state":"running"}
+{"clock":{"token_clock":1060,"virtual_ns":0},"job":1,"kind":"job.dispatched","priority":50,"seq":23}
+{"clock":{"token_clock":2048,"virtual_ns":0},"integrity":1,"job":1,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":3,"seq":24,"text":["#","Task:","count","to","your","target,","record","it,","hand","over,","repeat","forever","You","are","counter-a,","a","job","running","under","an","operating","system.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","There","are","four.","`say","N;`","says","a","number","out","loud","and","changes","nothing","else.","`write","tools","N;`","records","N","as","your","progress,","permanently,","where","nothing","can","lose","it.","`write","stdout","go;`","wakes","the","other","job.","`read","stdin;`","puts","you","to","sleep","until","the","other","job","wakes","you.","`exit;`","ends","the","job,","and","you","never","use","it.","##","The","status","line","One","line","in","this","context","is","written","by","the","operating","system","rather","than","by","you.","It","opens","with","STATUS","in","angle","brackets,","names","count.b,","carries","a","number,","and","closes","with","a","matching","end","tag.","That","number","is","how","far","the","other","job","has","counted.","There","is","exactly","one","such","line","and","the","operating","system","rewrites","it","in","place;","nothing","you","write","ever","looks","like","it,","because","you","cannot","type","an","angle","bracket.","It","is","always","current","and","it","is","never","removed.","Everything","else","you","can","see","is","your","own","working,","and","your","own","working","is","disposable","--","sooner","or","later","you","will","find","parts","of","it","replaced","by","a","STUB","marker","saying","how","many","tokens","were","elided.","That","is","normal","and","needs","no","comment.","Trust","the","status","line;","it","is","the","only","thing","here","that","cannot","be","taken","away.","##","Procedure","**Your","target","is","the","next","multiple","of","ten","above","the","STATUS","count.b","value.**","You","never","add","ten","to","work","it","out.","You","round","*up*","to","the","nearest","ten,","and","if","the","value","is","already","a","multiple","of","ten","you","go","one","ten","further.","If","it","reads","40,","your","target","is","50.","If","it","reads","47,","your","target","is","50","--","not","57,","and","not","60.","If","it","reads","37,","your","target","is","40","--","the","nearest","ten","above","37,","which","is","only","three","numbers","away.","If","it","reads","23,","your","target","is","30.","If","it","reads","503,","your","target","is","510.","Work","it","out","from","that","line","every","turn,","never","from","memory.","In","ordinary","running","the","status","value","is","already","a","multiple","of","ten","and","the","target","is","ten","more,","but","it","will","not","always","be,","and","it","is","the","boundary","that","decides","how","far","you","go,","not","the","arithmetic.","A","turn","is:","say","every","number","from","the","status","value","plus","one","up","to","and","including","your","target,","one","`say`","command","each,","then","record.","Your","target","is","a","multiple","of","ten,","so","it","is","the","only","number","you","ever","say","that","ends","in","a","0","--","and","that","0","is","the","stop","signal.","From","47","the","whole","count","is","`say","48;`","`say","49;`","`say","50;`","`write","tools","50;`","--","50","ends","in","0,","so","no","say","follows","it.","From","9","it","is","a","single","number:","`say","10;`","`write","tools","10;`.","From","23","it","is","`say","24;`","through","`say","30;`","then","`write","tools","30;`.","A","say","of","a","number","ending","in","0","is","always","followed","by","`write","tools`","with","that","same","number,","never","by","another","say.","After","every","say,","two","checks,","in","this","order.","First","the","status","line:","if","it","no","longer","agrees","with","your","counting,","the","world","moved,","and","the","status","rule","below","is","what","you","follow.","Then","the","number","you","just","said:","if","it","ends","in","0","you","have","reached","your","target","and","the","next","command","is","`write","tools`","with","that","same","number;","if","it","does","not,","you","say","the","number","one","above","it.","The","digit","decides","when","you","stop","--","not","how","many","numbers","you","have","said.","When","and","only","when","you","have","said","the","target,","the","turn","ends","with","exactly","three","commands,","in","this","order,","none","of","them","skippable:","`write","tools","TARGET;`","then","`write","stdout","go;`","then","`read","stdin;`","Never","`write","tools`","a","number","below","your","target","--","below","the","target","the","command","is","always","`say`.","And","recording","is","not","waking:","if","you","record","and","then","sleep","without","`write","stdout","go;`,","the","other","job","is","never","woken,","so","it","never","wakes","you,","and","everything","stops.","Both,","in","that","order,","every","turn.","**The","command","after","a","`read","stdin;`","is","always","a","`say`.**","Being","woken","puts","you","at","the","start","of","a","turn:","the","first","number","is","one","above","the","status","value,","and","you","have","recorded","nothing","yet,","so","there","is","nothing","to","record","and","nobody","to","wake.","##","On","resume","**The","status","line","always","wins.**","If","the","STATUS","count.b","number","is","not","what","you","expected","--","if","it","jumped","far","ahead,","or","fell","back,","or","a","RESUME","notice","appeared","--","then","the","world","moved","while","you","were","away","and","**everything","you","said","before","is","void.**","Do","not","carry","on","from","it.","Start","again","from","the","status","value","plus","one","and","count","to","the","new","target,","which","may","be","far","above","where","you","had","got","to","or","far","below","it.","A","RESUME","notice","is","the","status","line's","news","told","twice:","it","appears","only","when","something","you","depend","on","changed,","shown","as","`before","->","after`,","and","when","it","tells","you","to","revalidate","your","plan,","that","means","work","the","target","out","afresh","from","the","STATUS","count.b","line","and","start","again","from","that","value","plus","one.","Take","no","number","from","the","notice","itself","--","it","tells","you","*that*","you","must","start","again,","never","*what*","to","count","to.","And","you","will","not","always","get","a","notice:","sometimes","the","world","moves","while","you","are","merely","asleep","and","nothing","is","said","at","all.","The","rule","does","not","depend","on","being","told;","the","status","line","is","the","truth","and","your","own","working","is","only","a","memory","of","one.","##","Your","first","turn","You","go","first,","so","this","turn","is","yours","without","being","woken.","Work","the","target","out","from","the","STATUS","count.b","line","exactly","as","you","will","on","every","other","turn","--","it","reads","zero","now,","so","the","target","is","ten:","`say","1;`","through","`say","10;`,","then","record","ten.","Your","next","command","is","`say","1;`"],"tokens":988}
+{"clock":{"token_clock":2048,"virtual_ns":0},"integrity":1,"job":1,"kind":"segment.opened","perms":11,"ring":1,"segment":3,"seq":25}
+{"clock":{"token_clock":2048,"virtual_ns":0},"end":988,"job":1,"kind":"segment.closed","segment":3,"seq":26,"start":0}
+{"allowed_blocks":62,"clock":{"token_clock":2048,"virtual_ns":0},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":27}
+{"block":61,"clock":{"token_clock":2052,"virtual_ns":0},"job":1,"kind":"machine.block_boundary","padding_tokens":4,"seq":28}
+{"clock":{"token_clock":2056,"virtual_ns":0},"integrity":0,"job":1,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":0,"segment":4,"seq":29,"text":["<STATUS","count.b>","0","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2056,"virtual_ns":0},"integrity":0,"job":1,"kind":"segment.opened","perms":5,"ring":0,"segment":4,"seq":30}
+{"clock":{"token_clock":2056,"virtual_ns":0},"end":996,"job":1,"kind":"segment.closed","segment":4,"seq":31,"start":992}
+{"allowed_blocks":63,"clock":{"token_clock":2056,"virtual_ns":0},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":32}
+{"clock":{"token_clock":2056,"virtual_ns":0},"cost_tokens":4,"job":1,"kind":"vm.map_refreshed","obj":"count.b","segment":4,"seq":33}
+{"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"machine.decode","segment":5,"seq":34,"text":["write"],"tokens":1}
+{"block":62,"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":35}
+{"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"vm.working_set","segments":1,"seq":36,"size_tokens":988}
+{"allowed_blocks":63,"clock":{"token_clock":2057,"virtual_ns":1000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":37}
+{"clock":{"token_clock":2058,"virtual_ns":2000000},"job":1,"kind":"machine.decode","segment":6,"seq":38,"text":[" stdout"],"tokens":1}
+{"clock":{"token_clock":2059,"virtual_ns":3000000},"job":1,"kind":"machine.decode","segment":6,"seq":39,"text":[" go"],"tokens":1}
+{"clock":{"token_clock":2060,"virtual_ns":4000000},"job":1,"kind":"machine.decode","segment":6,"seq":40,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2060,"virtual_ns":4000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.a2b","seq":41}
+{"clock":{"token_clock":2060,"virtual_ns":4000000},"job":1,"kind":"pipe.written","latched":false,"pipe":"count.a2b","seq":42,"text":["go"],"tokens":1}
+{"clock":{"token_clock":2060,"virtual_ns":4000000},"from_state":"pinned_idle","job":2,"kind":"job.state","seq":43,"to_state":"ready"}
+{"clock":{"token_clock":2060,"virtual_ns":4000000},"job":2,"kind":"pipe.read","pipe":"count.a2b","seq":44,"text":["go"],"tokens":1}
+{"block":66,"clock":{"token_clock":2072,"virtual_ns":4000000},"job":2,"kind":"machine.block_boundary","padding_tokens":12,"seq":45}
+{"clock":{"token_clock":2073,"virtual_ns":4000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"count.a2b","principal":"peer_job","ring":2,"segment":7,"seq":46,"text":["go"],"tokens":1}
+{"clock":{"token_clock":2073,"virtual_ns":4000000},"integrity":2,"job":2,"kind":"segment.opened","perms":3,"ring":2,"segment":7,"seq":47}
+{"clock":{"token_clock":2073,"virtual_ns":4000000},"end":1073,"job":2,"kind":"segment.closed","segment":7,"seq":48,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2073,"virtual_ns":4000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":49}
+{"clock":{"token_clock":2074,"virtual_ns":5000000},"job":1,"kind":"machine.decode","segment":6,"seq":50,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2075,"virtual_ns":6000000},"job":1,"kind":"machine.decode","segment":6,"seq":51,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2076,"virtual_ns":7000000},"job":1,"kind":"machine.decode","segment":6,"seq":52,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2077,"virtual_ns":8000000},"job":1,"kind":"machine.decode","segment":6,"seq":53,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2078,"virtual_ns":9000000},"job":1,"kind":"machine.decode","segment":6,"seq":54,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2079,"virtual_ns":10000000},"job":1,"kind":"machine.decode","segment":6,"seq":55,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2079,"virtual_ns":10000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":56}
+{"clock":{"token_clock":2079,"virtual_ns":10000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":57,"text":["1"],"tokens":1}
+{"after":"1","before":"0","clock":{"token_clock":2079,"virtual_ns":10000000},"job":1,"kind":"world.written","obj":"count.a","seq":58}
+{"clock":{"token_clock":2079,"virtual_ns":10000000},"end_segment":2,"invalidated_downstream_tokens":13,"job":2,"kind":"machine.splice","seq":59,"start_segment":2,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2079,"virtual_ns":10000000},"freed_tokens":4,"invalidated_downstream_tokens":13,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":2,"seq":60}
+{"allowed_blocks":67,"clock":{"token_clock":2079,"virtual_ns":10000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":61}
+{"block":66,"clock":{"token_clock":2082,"virtual_ns":10000000},"job":2,"kind":"machine.block_boundary","padding_tokens":3,"seq":62}
+{"clock":{"token_clock":2086,"virtual_ns":10000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":8,"seq":63,"text":["<STATUS","count.a>","1","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2086,"virtual_ns":10000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":8,"seq":64}
+{"clock":{"token_clock":2086,"virtual_ns":10000000},"end":1076,"job":2,"kind":"segment.closed","segment":8,"seq":65,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2086,"virtual_ns":10000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":66}
+{"clock":{"token_clock":2086,"virtual_ns":10000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":8,"seq":67}
+{"clock":{"token_clock":2087,"virtual_ns":11000000},"job":1,"kind":"machine.decode","segment":6,"seq":68,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2088,"virtual_ns":12000000},"job":1,"kind":"machine.decode","segment":6,"seq":69,"text":["write"],"tokens":1}
+{"block":63,"clock":{"token_clock":2088,"virtual_ns":12000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":70}
+{"clock":{"token_clock":2088,"virtual_ns":12000000},"job":1,"kind":"vm.working_set","segments":4,"seq":71,"size_tokens":1004}
+{"allowed_blocks":63,"clock":{"token_clock":2088,"virtual_ns":12000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":72}
+{"clock":{"token_clock":2089,"virtual_ns":13000000},"job":1,"kind":"machine.decode","segment":9,"seq":73,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2090,"virtual_ns":14000000},"job":1,"kind":"machine.decode","segment":9,"seq":74,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2091,"virtual_ns":15000000},"job":1,"kind":"machine.decode","segment":9,"seq":75,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2092,"virtual_ns":16000000},"job":1,"kind":"machine.decode","segment":9,"seq":76,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2092,"virtual_ns":16000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":77}
+{"clock":{"token_clock":2092,"virtual_ns":16000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":78,"text":["2"],"tokens":1}
+{"after":"2","before":"1","clock":{"token_clock":2092,"virtual_ns":16000000},"job":1,"kind":"world.written","obj":"count.a","seq":79}
+{"clock":{"token_clock":2092,"virtual_ns":16000000},"end_segment":8,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":80,"start_segment":8,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2092,"virtual_ns":16000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":8,"seq":81}
+{"allowed_blocks":67,"clock":{"token_clock":2092,"virtual_ns":16000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":82}
+{"clock":{"token_clock":2096,"virtual_ns":16000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":10,"seq":83,"text":["<STATUS","count.a>","2","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2096,"virtual_ns":16000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":10,"seq":84}
+{"clock":{"token_clock":2096,"virtual_ns":16000000},"end":1076,"job":2,"kind":"segment.closed","segment":10,"seq":85,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2096,"virtual_ns":16000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":86}
+{"clock":{"token_clock":2096,"virtual_ns":16000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":10,"seq":87}
+{"clock":{"token_clock":2097,"virtual_ns":17000000},"job":1,"kind":"machine.decode","segment":9,"seq":88,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2098,"virtual_ns":18000000},"job":1,"kind":"machine.decode","segment":9,"seq":89,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2099,"virtual_ns":19000000},"job":1,"kind":"machine.decode","segment":9,"seq":90,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2100,"virtual_ns":20000000},"job":1,"kind":"machine.decode","segment":9,"seq":91,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2101,"virtual_ns":21000000},"job":1,"kind":"machine.decode","segment":9,"seq":92,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2102,"virtual_ns":22000000},"job":1,"kind":"machine.decode","segment":9,"seq":93,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2102,"virtual_ns":22000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":94}
+{"clock":{"token_clock":2102,"virtual_ns":22000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":95,"text":["3"],"tokens":1}
+{"after":"3","before":"2","clock":{"token_clock":2102,"virtual_ns":22000000},"job":1,"kind":"world.written","obj":"count.a","seq":96}
+{"clock":{"token_clock":2102,"virtual_ns":22000000},"end_segment":10,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":97,"start_segment":10,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2102,"virtual_ns":22000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":10,"seq":98}
+{"allowed_blocks":67,"clock":{"token_clock":2102,"virtual_ns":22000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":99}
+{"clock":{"token_clock":2106,"virtual_ns":22000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":11,"seq":100,"text":["<STATUS","count.a>","3","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2106,"virtual_ns":22000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":11,"seq":101}
+{"clock":{"token_clock":2106,"virtual_ns":22000000},"end":1076,"job":2,"kind":"segment.closed","segment":11,"seq":102,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2106,"virtual_ns":22000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":103}
+{"clock":{"token_clock":2106,"virtual_ns":22000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":11,"seq":104}
+{"clock":{"token_clock":2107,"virtual_ns":23000000},"job":1,"kind":"machine.decode","segment":9,"seq":105,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2108,"virtual_ns":24000000},"job":1,"kind":"machine.decode","segment":9,"seq":106,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2109,"virtual_ns":25000000},"job":1,"kind":"machine.decode","segment":9,"seq":107,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2110,"virtual_ns":26000000},"job":1,"kind":"machine.decode","segment":9,"seq":108,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2111,"virtual_ns":27000000},"job":1,"kind":"machine.decode","segment":9,"seq":109,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2112,"virtual_ns":28000000},"job":1,"kind":"machine.decode","segment":9,"seq":110,"text":[";"],"tokens":1}
+{"block":64,"clock":{"token_clock":2112,"virtual_ns":28000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":111}
+{"clock":{"token_clock":2112,"virtual_ns":28000000},"job":1,"kind":"vm.working_set","segments":5,"seq":112,"size_tokens":1020}
+{"allowed_blocks":64,"clock":{"token_clock":2112,"virtual_ns":28000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":113}
+{"allowed":true,"clock":{"token_clock":2112,"virtual_ns":28000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":114}
+{"clock":{"token_clock":2112,"virtual_ns":28000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":115,"text":["4"],"tokens":1}
+{"after":"4","before":"3","clock":{"token_clock":2112,"virtual_ns":28000000},"job":1,"kind":"world.written","obj":"count.a","seq":116}
+{"clock":{"token_clock":2112,"virtual_ns":28000000},"end_segment":11,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":117,"start_segment":11,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2112,"virtual_ns":28000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":11,"seq":118}
+{"allowed_blocks":67,"clock":{"token_clock":2112,"virtual_ns":28000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":119}
+{"clock":{"token_clock":2116,"virtual_ns":28000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":12,"seq":120,"text":["<STATUS","count.a>","4","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2116,"virtual_ns":28000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":12,"seq":121}
+{"clock":{"token_clock":2116,"virtual_ns":28000000},"end":1076,"job":2,"kind":"segment.closed","segment":12,"seq":122,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2116,"virtual_ns":28000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":123}
+{"clock":{"token_clock":2116,"virtual_ns":28000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":12,"seq":124}
+{"clock":{"token_clock":2117,"virtual_ns":29000000},"job":1,"kind":"machine.decode","segment":13,"seq":125,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2118,"virtual_ns":30000000},"job":1,"kind":"machine.decode","segment":13,"seq":126,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2119,"virtual_ns":31000000},"job":1,"kind":"machine.decode","segment":13,"seq":127,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2120,"virtual_ns":32000000},"job":1,"kind":"machine.decode","segment":13,"seq":128,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2121,"virtual_ns":33000000},"job":1,"kind":"machine.decode","segment":13,"seq":129,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2122,"virtual_ns":34000000},"job":1,"kind":"machine.decode","segment":13,"seq":130,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2122,"virtual_ns":34000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":131}
+{"clock":{"token_clock":2122,"virtual_ns":34000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":132,"text":["5"],"tokens":1}
+{"after":"5","before":"4","clock":{"token_clock":2122,"virtual_ns":34000000},"job":1,"kind":"world.written","obj":"count.a","seq":133}
+{"clock":{"token_clock":2122,"virtual_ns":34000000},"end_segment":12,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":134,"start_segment":12,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2122,"virtual_ns":34000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":12,"seq":135}
+{"allowed_blocks":67,"clock":{"token_clock":2122,"virtual_ns":34000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":136}
+{"clock":{"token_clock":2126,"virtual_ns":34000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":14,"seq":137,"text":["<STATUS","count.a>","5","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2126,"virtual_ns":34000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":14,"seq":138}
+{"clock":{"token_clock":2126,"virtual_ns":34000000},"end":1076,"job":2,"kind":"segment.closed","segment":14,"seq":139,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2126,"virtual_ns":34000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":140}
+{"clock":{"token_clock":2126,"virtual_ns":34000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":14,"seq":141}
+{"clock":{"token_clock":2127,"virtual_ns":35000000},"job":1,"kind":"machine.decode","segment":13,"seq":142,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2128,"virtual_ns":36000000},"job":1,"kind":"machine.decode","segment":13,"seq":143,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2129,"virtual_ns":37000000},"job":1,"kind":"machine.decode","segment":13,"seq":144,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2130,"virtual_ns":38000000},"job":1,"kind":"machine.decode","segment":13,"seq":145,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2131,"virtual_ns":39000000},"job":1,"kind":"machine.decode","segment":13,"seq":146,"text":["6"],"tokens":1}
+{"clock":{"token_clock":2132,"virtual_ns":40000000},"job":1,"kind":"machine.decode","segment":13,"seq":147,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2132,"virtual_ns":40000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":148}
+{"clock":{"token_clock":2132,"virtual_ns":40000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":149,"text":["6"],"tokens":1}
+{"after":"6","before":"5","clock":{"token_clock":2132,"virtual_ns":40000000},"job":1,"kind":"world.written","obj":"count.a","seq":150}
+{"clock":{"token_clock":2132,"virtual_ns":40000000},"end_segment":14,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":151,"start_segment":14,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2132,"virtual_ns":40000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":14,"seq":152}
+{"allowed_blocks":67,"clock":{"token_clock":2132,"virtual_ns":40000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":153}
+{"clock":{"token_clock":2136,"virtual_ns":40000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":15,"seq":154,"text":["<STATUS","count.a>","6","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2136,"virtual_ns":40000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":15,"seq":155}
+{"clock":{"token_clock":2136,"virtual_ns":40000000},"end":1076,"job":2,"kind":"segment.closed","segment":15,"seq":156,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2136,"virtual_ns":40000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":157}
+{"clock":{"token_clock":2136,"virtual_ns":40000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":15,"seq":158}
+{"clock":{"token_clock":2137,"virtual_ns":41000000},"job":1,"kind":"machine.decode","segment":13,"seq":159,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2138,"virtual_ns":42000000},"job":1,"kind":"machine.decode","segment":13,"seq":160,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2139,"virtual_ns":43000000},"job":1,"kind":"machine.decode","segment":13,"seq":161,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2140,"virtual_ns":44000000},"job":1,"kind":"machine.decode","segment":13,"seq":162,"text":[" "],"tokens":1}
+{"block":65,"clock":{"token_clock":2140,"virtual_ns":44000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":163}
+{"clock":{"token_clock":2140,"virtual_ns":44000000},"job":1,"kind":"vm.working_set","segments":6,"seq":164,"size_tokens":1036}
+{"allowed_blocks":65,"clock":{"token_clock":2140,"virtual_ns":44000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":165}
+{"clock":{"token_clock":2141,"virtual_ns":45000000},"job":1,"kind":"machine.decode","segment":16,"seq":166,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2142,"virtual_ns":46000000},"job":1,"kind":"machine.decode","segment":16,"seq":167,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2142,"virtual_ns":46000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":168}
+{"clock":{"token_clock":2142,"virtual_ns":46000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":169,"text":["7"],"tokens":1}
+{"after":"7","before":"6","clock":{"token_clock":2142,"virtual_ns":46000000},"job":1,"kind":"world.written","obj":"count.a","seq":170}
+{"clock":{"token_clock":2142,"virtual_ns":46000000},"end_segment":15,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":171,"start_segment":15,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2142,"virtual_ns":46000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":15,"seq":172}
+{"allowed_blocks":67,"clock":{"token_clock":2142,"virtual_ns":46000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":173}
+{"clock":{"token_clock":2146,"virtual_ns":46000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":17,"seq":174,"text":["<STATUS","count.a>","7","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2146,"virtual_ns":46000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":17,"seq":175}
+{"clock":{"token_clock":2146,"virtual_ns":46000000},"end":1076,"job":2,"kind":"segment.closed","segment":17,"seq":176,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2146,"virtual_ns":46000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":177}
+{"clock":{"token_clock":2146,"virtual_ns":46000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":17,"seq":178}
+{"clock":{"token_clock":2147,"virtual_ns":47000000},"job":1,"kind":"machine.decode","segment":16,"seq":179,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2148,"virtual_ns":48000000},"job":1,"kind":"machine.decode","segment":16,"seq":180,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2149,"virtual_ns":49000000},"job":1,"kind":"machine.decode","segment":16,"seq":181,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2150,"virtual_ns":50000000},"job":1,"kind":"machine.decode","segment":16,"seq":182,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2151,"virtual_ns":51000000},"job":1,"kind":"machine.decode","segment":16,"seq":183,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2152,"virtual_ns":52000000},"job":1,"kind":"machine.decode","segment":16,"seq":184,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2152,"virtual_ns":52000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":185}
+{"clock":{"token_clock":2152,"virtual_ns":52000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":186,"text":["8"],"tokens":1}
+{"after":"8","before":"7","clock":{"token_clock":2152,"virtual_ns":52000000},"job":1,"kind":"world.written","obj":"count.a","seq":187}
+{"clock":{"token_clock":2152,"virtual_ns":52000000},"end_segment":17,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":188,"start_segment":17,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2152,"virtual_ns":52000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":17,"seq":189}
+{"allowed_blocks":67,"clock":{"token_clock":2152,"virtual_ns":52000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":190}
+{"clock":{"token_clock":2156,"virtual_ns":52000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":18,"seq":191,"text":["<STATUS","count.a>","8","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2156,"virtual_ns":52000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":18,"seq":192}
+{"clock":{"token_clock":2156,"virtual_ns":52000000},"end":1076,"job":2,"kind":"segment.closed","segment":18,"seq":193,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2156,"virtual_ns":52000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":194}
+{"clock":{"token_clock":2156,"virtual_ns":52000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":18,"seq":195}
+{"clock":{"token_clock":2157,"virtual_ns":53000000},"job":1,"kind":"machine.decode","segment":16,"seq":196,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2158,"virtual_ns":54000000},"job":1,"kind":"machine.decode","segment":16,"seq":197,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2159,"virtual_ns":55000000},"job":1,"kind":"machine.decode","segment":16,"seq":198,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2160,"virtual_ns":56000000},"job":1,"kind":"machine.decode","segment":16,"seq":199,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2161,"virtual_ns":57000000},"job":1,"kind":"machine.decode","segment":16,"seq":200,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2162,"virtual_ns":58000000},"job":1,"kind":"machine.decode","segment":16,"seq":201,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2162,"virtual_ns":58000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":202}
+{"clock":{"token_clock":2162,"virtual_ns":58000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":203,"text":["9"],"tokens":1}
+{"after":"9","before":"8","clock":{"token_clock":2162,"virtual_ns":58000000},"job":1,"kind":"world.written","obj":"count.a","seq":204}
+{"clock":{"token_clock":2162,"virtual_ns":58000000},"end_segment":18,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":205,"start_segment":18,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2162,"virtual_ns":58000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":18,"seq":206}
+{"allowed_blocks":67,"clock":{"token_clock":2162,"virtual_ns":58000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":207}
+{"clock":{"token_clock":2166,"virtual_ns":58000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":19,"seq":208,"text":["<STATUS","count.a>","9","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2166,"virtual_ns":58000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":19,"seq":209}
+{"clock":{"token_clock":2166,"virtual_ns":58000000},"end":1076,"job":2,"kind":"segment.closed","segment":19,"seq":210,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2166,"virtual_ns":58000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":211}
+{"clock":{"token_clock":2166,"virtual_ns":58000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":19,"seq":212}
+{"clock":{"token_clock":2167,"virtual_ns":59000000},"job":1,"kind":"machine.decode","segment":16,"seq":213,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2168,"virtual_ns":60000000},"job":1,"kind":"machine.decode","segment":16,"seq":214,"text":["write"],"tokens":1}
+{"block":66,"clock":{"token_clock":2168,"virtual_ns":60000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":215}
+{"clock":{"token_clock":2168,"virtual_ns":60000000},"job":1,"kind":"vm.working_set","segments":7,"seq":216,"size_tokens":1052}
+{"allowed_blocks":66,"clock":{"token_clock":2168,"virtual_ns":60000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":217}
+{"clock":{"token_clock":2169,"virtual_ns":61000000},"job":1,"kind":"machine.decode","segment":20,"seq":218,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2170,"virtual_ns":62000000},"job":1,"kind":"machine.decode","segment":20,"seq":219,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2171,"virtual_ns":63000000},"job":1,"kind":"machine.decode","segment":20,"seq":220,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2172,"virtual_ns":64000000},"job":1,"kind":"machine.decode","segment":20,"seq":221,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2173,"virtual_ns":65000000},"job":1,"kind":"machine.decode","segment":20,"seq":222,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2173,"virtual_ns":65000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":223}
+{"clock":{"token_clock":2173,"virtual_ns":65000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":224,"text":["10"],"tokens":1}
+{"after":"10","before":"9","clock":{"token_clock":2173,"virtual_ns":65000000},"job":1,"kind":"world.written","obj":"count.a","seq":225}
+{"clock":{"token_clock":2173,"virtual_ns":65000000},"end_segment":19,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":226,"start_segment":19,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2173,"virtual_ns":65000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":19,"seq":227}
+{"allowed_blocks":67,"clock":{"token_clock":2173,"virtual_ns":65000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":228}
+{"clock":{"token_clock":2177,"virtual_ns":65000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":21,"seq":229,"text":["<STATUS","count.a>","10","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2177,"virtual_ns":65000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":21,"seq":230}
+{"clock":{"token_clock":2177,"virtual_ns":65000000},"end":1076,"job":2,"kind":"segment.closed","segment":21,"seq":231,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2177,"virtual_ns":65000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":232}
+{"clock":{"token_clock":2177,"virtual_ns":65000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":21,"seq":233}
+{"clock":{"token_clock":2178,"virtual_ns":66000000},"job":1,"kind":"machine.decode","segment":20,"seq":234,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2179,"virtual_ns":67000000},"job":1,"kind":"machine.decode","segment":20,"seq":235,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2180,"virtual_ns":68000000},"job":1,"kind":"machine.decode","segment":20,"seq":236,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2181,"virtual_ns":69000000},"job":1,"kind":"machine.decode","segment":20,"seq":237,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2182,"virtual_ns":70000000},"job":1,"kind":"machine.decode","segment":20,"seq":238,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2183,"virtual_ns":71000000},"job":1,"kind":"machine.decode","segment":20,"seq":239,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2184,"virtual_ns":72000000},"job":1,"kind":"machine.decode","segment":20,"seq":240,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2184,"virtual_ns":72000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":241}
+{"clock":{"token_clock":2184,"virtual_ns":72000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":242,"text":["11"],"tokens":1}
+{"after":"11","before":"10","clock":{"token_clock":2184,"virtual_ns":72000000},"job":1,"kind":"world.written","obj":"count.a","seq":243}
+{"clock":{"token_clock":2184,"virtual_ns":72000000},"end_segment":21,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":244,"start_segment":21,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2184,"virtual_ns":72000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":21,"seq":245}
+{"allowed_blocks":67,"clock":{"token_clock":2184,"virtual_ns":72000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":246}
+{"clock":{"token_clock":2188,"virtual_ns":72000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":22,"seq":247,"text":["<STATUS","count.a>","11","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2188,"virtual_ns":72000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":22,"seq":248}
+{"clock":{"token_clock":2188,"virtual_ns":72000000},"end":1076,"job":2,"kind":"segment.closed","segment":22,"seq":249,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2188,"virtual_ns":72000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":250}
+{"clock":{"token_clock":2188,"virtual_ns":72000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":22,"seq":251}
+{"clock":{"token_clock":2189,"virtual_ns":73000000},"job":1,"kind":"machine.decode","segment":20,"seq":252,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2190,"virtual_ns":74000000},"job":1,"kind":"machine.decode","segment":20,"seq":253,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2191,"virtual_ns":75000000},"job":1,"kind":"machine.decode","segment":20,"seq":254,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2192,"virtual_ns":76000000},"job":1,"kind":"machine.decode","segment":20,"seq":255,"text":[" "],"tokens":1}
+{"block":67,"clock":{"token_clock":2192,"virtual_ns":76000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":256}
+{"clock":{"token_clock":2192,"virtual_ns":76000000},"job":1,"kind":"vm.working_set","segments":8,"seq":257,"size_tokens":1068}
+{"allowed_blocks":67,"clock":{"token_clock":2192,"virtual_ns":76000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":258}
+{"clock":{"token_clock":2193,"virtual_ns":77000000},"job":1,"kind":"machine.decode","segment":23,"seq":259,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2194,"virtual_ns":78000000},"job":1,"kind":"machine.decode","segment":23,"seq":260,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2195,"virtual_ns":79000000},"job":1,"kind":"machine.decode","segment":23,"seq":261,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2195,"virtual_ns":79000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":262}
+{"clock":{"token_clock":2195,"virtual_ns":79000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":263,"text":["12"],"tokens":1}
+{"after":"12","before":"11","clock":{"token_clock":2195,"virtual_ns":79000000},"job":1,"kind":"world.written","obj":"count.a","seq":264}
+{"clock":{"token_clock":2195,"virtual_ns":79000000},"end_segment":22,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":265,"start_segment":22,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2195,"virtual_ns":79000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":22,"seq":266}
+{"allowed_blocks":67,"clock":{"token_clock":2195,"virtual_ns":79000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":267}
+{"clock":{"token_clock":2199,"virtual_ns":79000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":24,"seq":268,"text":["<STATUS","count.a>","12","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2199,"virtual_ns":79000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":24,"seq":269}
+{"clock":{"token_clock":2199,"virtual_ns":79000000},"end":1076,"job":2,"kind":"segment.closed","segment":24,"seq":270,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2199,"virtual_ns":79000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":271}
+{"clock":{"token_clock":2199,"virtual_ns":79000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":24,"seq":272}
+{"clock":{"token_clock":2200,"virtual_ns":80000000},"job":1,"kind":"machine.decode","segment":23,"seq":273,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2201,"virtual_ns":81000000},"job":1,"kind":"machine.decode","segment":23,"seq":274,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2202,"virtual_ns":82000000},"job":1,"kind":"machine.decode","segment":23,"seq":275,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2203,"virtual_ns":83000000},"job":1,"kind":"machine.decode","segment":23,"seq":276,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2204,"virtual_ns":84000000},"job":1,"kind":"machine.decode","segment":23,"seq":277,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2205,"virtual_ns":85000000},"job":1,"kind":"machine.decode","segment":23,"seq":278,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2206,"virtual_ns":86000000},"job":1,"kind":"machine.decode","segment":23,"seq":279,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2206,"virtual_ns":86000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":280}
+{"clock":{"token_clock":2206,"virtual_ns":86000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":281,"text":["13"],"tokens":1}
+{"after":"13","before":"12","clock":{"token_clock":2206,"virtual_ns":86000000},"job":1,"kind":"world.written","obj":"count.a","seq":282}
+{"clock":{"token_clock":2206,"virtual_ns":86000000},"end_segment":24,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":283,"start_segment":24,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2206,"virtual_ns":86000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":24,"seq":284}
+{"allowed_blocks":67,"clock":{"token_clock":2206,"virtual_ns":86000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":285}
+{"clock":{"token_clock":2210,"virtual_ns":86000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":25,"seq":286,"text":["<STATUS","count.a>","13","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2210,"virtual_ns":86000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":25,"seq":287}
+{"clock":{"token_clock":2210,"virtual_ns":86000000},"end":1076,"job":2,"kind":"segment.closed","segment":25,"seq":288,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2210,"virtual_ns":86000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":289}
+{"clock":{"token_clock":2210,"virtual_ns":86000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":25,"seq":290}
+{"clock":{"token_clock":2211,"virtual_ns":87000000},"job":1,"kind":"machine.decode","segment":23,"seq":291,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2212,"virtual_ns":88000000},"job":1,"kind":"machine.decode","segment":23,"seq":292,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2213,"virtual_ns":89000000},"job":1,"kind":"machine.decode","segment":23,"seq":293,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2214,"virtual_ns":90000000},"job":1,"kind":"machine.decode","segment":23,"seq":294,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2215,"virtual_ns":91000000},"job":1,"kind":"machine.decode","segment":23,"seq":295,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2216,"virtual_ns":92000000},"job":1,"kind":"machine.decode","segment":23,"seq":296,"text":["4"],"tokens":1}
+{"block":68,"clock":{"token_clock":2216,"virtual_ns":92000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":297}
+{"clock":{"token_clock":2216,"virtual_ns":92000000},"job":1,"kind":"vm.working_set","segments":9,"seq":298,"size_tokens":1084}
+{"allowed_blocks":68,"clock":{"token_clock":2216,"virtual_ns":92000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":299}
+{"clock":{"token_clock":2217,"virtual_ns":93000000},"job":1,"kind":"machine.decode","segment":26,"seq":300,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2217,"virtual_ns":93000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":301}
+{"clock":{"token_clock":2217,"virtual_ns":93000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":302,"text":["14"],"tokens":1}
+{"after":"14","before":"13","clock":{"token_clock":2217,"virtual_ns":93000000},"job":1,"kind":"world.written","obj":"count.a","seq":303}
+{"clock":{"token_clock":2217,"virtual_ns":93000000},"end_segment":25,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":304,"start_segment":25,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2217,"virtual_ns":93000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":25,"seq":305}
+{"allowed_blocks":67,"clock":{"token_clock":2217,"virtual_ns":93000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":306}
+{"clock":{"token_clock":2221,"virtual_ns":93000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":27,"seq":307,"text":["<STATUS","count.a>","14","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2221,"virtual_ns":93000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":27,"seq":308}
+{"clock":{"token_clock":2221,"virtual_ns":93000000},"end":1076,"job":2,"kind":"segment.closed","segment":27,"seq":309,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2221,"virtual_ns":93000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":310}
+{"clock":{"token_clock":2221,"virtual_ns":93000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":27,"seq":311}
+{"clock":{"token_clock":2222,"virtual_ns":94000000},"job":1,"kind":"machine.decode","segment":26,"seq":312,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2223,"virtual_ns":95000000},"job":1,"kind":"machine.decode","segment":26,"seq":313,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2224,"virtual_ns":96000000},"job":1,"kind":"machine.decode","segment":26,"seq":314,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2225,"virtual_ns":97000000},"job":1,"kind":"machine.decode","segment":26,"seq":315,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2226,"virtual_ns":98000000},"job":1,"kind":"machine.decode","segment":26,"seq":316,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2227,"virtual_ns":99000000},"job":1,"kind":"machine.decode","segment":26,"seq":317,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2228,"virtual_ns":100000000},"job":1,"kind":"machine.decode","segment":26,"seq":318,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2228,"virtual_ns":100000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":319}
+{"clock":{"token_clock":2228,"virtual_ns":100000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":320,"text":["15"],"tokens":1}
+{"after":"15","before":"14","clock":{"token_clock":2228,"virtual_ns":100000000},"job":1,"kind":"world.written","obj":"count.a","seq":321}
+{"clock":{"token_clock":2228,"virtual_ns":100000000},"end_segment":27,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":322,"start_segment":27,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2228,"virtual_ns":100000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":27,"seq":323}
+{"allowed_blocks":67,"clock":{"token_clock":2228,"virtual_ns":100000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":324}
+{"clock":{"token_clock":2232,"virtual_ns":100000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":28,"seq":325,"text":["<STATUS","count.a>","15","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2232,"virtual_ns":100000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":28,"seq":326}
+{"clock":{"token_clock":2232,"virtual_ns":100000000},"end":1076,"job":2,"kind":"segment.closed","segment":28,"seq":327,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2232,"virtual_ns":100000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":328}
+{"clock":{"token_clock":2232,"virtual_ns":100000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":28,"seq":329}
+{"clock":{"token_clock":2233,"virtual_ns":101000000},"job":1,"kind":"machine.decode","segment":26,"seq":330,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2234,"virtual_ns":102000000},"job":1,"kind":"machine.decode","segment":26,"seq":331,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2235,"virtual_ns":103000000},"job":1,"kind":"machine.decode","segment":26,"seq":332,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2236,"virtual_ns":104000000},"job":1,"kind":"machine.decode","segment":26,"seq":333,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2237,"virtual_ns":105000000},"job":1,"kind":"machine.decode","segment":26,"seq":334,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2238,"virtual_ns":106000000},"job":1,"kind":"machine.decode","segment":26,"seq":335,"text":["6"],"tokens":1}
+{"clock":{"token_clock":2239,"virtual_ns":107000000},"job":1,"kind":"machine.decode","segment":26,"seq":336,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2239,"virtual_ns":107000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":337}
+{"clock":{"token_clock":2239,"virtual_ns":107000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":338,"text":["16"],"tokens":1}
+{"after":"16","before":"15","clock":{"token_clock":2239,"virtual_ns":107000000},"job":1,"kind":"world.written","obj":"count.a","seq":339}
+{"clock":{"token_clock":2239,"virtual_ns":107000000},"end_segment":28,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":340,"start_segment":28,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2239,"virtual_ns":107000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":28,"seq":341}
+{"allowed_blocks":67,"clock":{"token_clock":2239,"virtual_ns":107000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":342}
+{"clock":{"token_clock":2243,"virtual_ns":107000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":29,"seq":343,"text":["<STATUS","count.a>","16","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2243,"virtual_ns":107000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":29,"seq":344}
+{"clock":{"token_clock":2243,"virtual_ns":107000000},"end":1076,"job":2,"kind":"segment.closed","segment":29,"seq":345,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2243,"virtual_ns":107000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":346}
+{"clock":{"token_clock":2243,"virtual_ns":107000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":29,"seq":347}
+{"clock":{"token_clock":2244,"virtual_ns":108000000},"job":1,"kind":"machine.decode","segment":26,"seq":348,"text":[" "],"tokens":1}
+{"block":69,"clock":{"token_clock":2244,"virtual_ns":108000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":349}
+{"clock":{"token_clock":2244,"virtual_ns":108000000},"job":1,"kind":"vm.working_set","segments":10,"seq":350,"size_tokens":1100}
+{"allowed_blocks":69,"clock":{"token_clock":2244,"virtual_ns":108000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":351}
+{"clock":{"token_clock":2245,"virtual_ns":109000000},"job":1,"kind":"machine.decode","segment":30,"seq":352,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2246,"virtual_ns":110000000},"job":1,"kind":"machine.decode","segment":30,"seq":353,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2247,"virtual_ns":111000000},"job":1,"kind":"machine.decode","segment":30,"seq":354,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2248,"virtual_ns":112000000},"job":1,"kind":"machine.decode","segment":30,"seq":355,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2249,"virtual_ns":113000000},"job":1,"kind":"machine.decode","segment":30,"seq":356,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2250,"virtual_ns":114000000},"job":1,"kind":"machine.decode","segment":30,"seq":357,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2250,"virtual_ns":114000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":358}
+{"clock":{"token_clock":2250,"virtual_ns":114000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":359,"text":["17"],"tokens":1}
+{"after":"17","before":"16","clock":{"token_clock":2250,"virtual_ns":114000000},"job":1,"kind":"world.written","obj":"count.a","seq":360}
+{"clock":{"token_clock":2250,"virtual_ns":114000000},"end_segment":29,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":361,"start_segment":29,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2250,"virtual_ns":114000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":29,"seq":362}
+{"allowed_blocks":67,"clock":{"token_clock":2250,"virtual_ns":114000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":363}
+{"clock":{"token_clock":2254,"virtual_ns":114000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":31,"seq":364,"text":["<STATUS","count.a>","17","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2254,"virtual_ns":114000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":31,"seq":365}
+{"clock":{"token_clock":2254,"virtual_ns":114000000},"end":1076,"job":2,"kind":"segment.closed","segment":31,"seq":366,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2254,"virtual_ns":114000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":367}
+{"clock":{"token_clock":2254,"virtual_ns":114000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":31,"seq":368}
+{"clock":{"token_clock":2255,"virtual_ns":115000000},"job":1,"kind":"machine.decode","segment":30,"seq":369,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2256,"virtual_ns":116000000},"job":1,"kind":"machine.decode","segment":30,"seq":370,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2257,"virtual_ns":117000000},"job":1,"kind":"machine.decode","segment":30,"seq":371,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2258,"virtual_ns":118000000},"job":1,"kind":"machine.decode","segment":30,"seq":372,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2259,"virtual_ns":119000000},"job":1,"kind":"machine.decode","segment":30,"seq":373,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2259,"virtual_ns":119000000},"job":null,"kind":"pipe.written","latched":false,"pipe":"keys.interrupt","seq":374,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2259,"virtual_ns":119000000},"handler":"reset-count","kind":"vector.fired","pipe":"keys.interrupt","policy":"queue","priority":5,"seq":375,"vector":"keyboard-interrupt"}
+{"clock":{"token_clock":2259,"virtual_ns":119000000},"descriptor":"reset-count","integrity":2,"job":3,"kind":"job.spawned","owner":"kernel","parent":null,"priority":5,"seq":376}
+{"clock":{"token_clock":2259,"virtual_ns":119000000},"job":3,"kind":"pipe.read","pipe":"keys.interrupt","seq":377,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2259,"virtual_ns":120000000},"from_state":"running","job":1,"kind":"job.state","seq":378,"to_state":"suspended"}
+{"by_job":3,"by_priority":5,"clock":{"token_clock":2259,"virtual_ns":120000000},"job":1,"kind":"job.preempted","seq":379,"stack_depth":1}
+{"clock":{"token_clock":2259,"virtual_ns":120000000},"from_state":"ready","job":3,"kind":"job.state","seq":380,"to_state":"running"}
+{"clock":{"token_clock":2259,"virtual_ns":120000000},"job":3,"kind":"job.dispatched","priority":5,"seq":381}
+{"clock":{"token_clock":2445,"virtual_ns":120000000},"integrity":1,"job":3,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":32,"seq":382,"text":["#","Task:","take","a","number","from","the","console","and","set","both","counters","to","it","You","are","reset-count,","an","interrupt","handler.","You","were","started","because","somebody","at","the","console","pressed","a","key,","and","whichever","job","was","running","has","been","suspended","to","make","room","for","you.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","`read","stdin;`","waits","for","the","console","to","send","you","a","number.","`write","tools","N;`","sets","the","first","counter","to","N.","`write","peer","N;`","sets","the","second","counter","to","N.","`exit;`","ends","you,","and","the","job","you","interrupted","resumes.","Your","whole","life","is","four","commands","and","you","never","do","anything","else:","`read","stdin;`","then,","once","a","number","has","arrived,","`write","tools","N;`","then","`write","peer","N;`","with","that","same","number,","then","`exit;`","Both","writes","carry","the","number","that","arrived,","unchanged.","Do","not","add","to","it,","do","not","count,","do","not","say","anything.","Be","quick:","the","job","you","displaced","is","waiting,","and","everything","it","believed","about","how","far","the","count","had","got","is","about","to","be","wrong.","Nothing","has","arrived","yet.","Your","next","command","is","`read","stdin;`"],"tokens":186}
+{"clock":{"token_clock":2445,"virtual_ns":120000000},"integrity":1,"job":3,"kind":"segment.opened","perms":11,"ring":1,"segment":32,"seq":383}
+{"clock":{"token_clock":2445,"virtual_ns":120000000},"end":186,"job":3,"kind":"segment.closed","segment":32,"seq":384,"start":0}
+{"allowed_blocks":12,"clock":{"token_clock":2445,"virtual_ns":120000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":385}
+{"block":11,"clock":{"token_clock":2451,"virtual_ns":120000000},"job":3,"kind":"machine.block_boundary","padding_tokens":6,"seq":386}
+{"clock":{"token_clock":2452,"virtual_ns":120000000},"integrity":2,"job":3,"kind":"machine.inject","pipe":"keys.interrupt","principal":"user","ring":2,"segment":33,"seq":387,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2452,"virtual_ns":120000000},"integrity":2,"job":3,"kind":"segment.opened","perms":3,"ring":2,"segment":33,"seq":388}
+{"clock":{"token_clock":2452,"virtual_ns":120000000},"end":193,"job":3,"kind":"segment.closed","segment":33,"seq":389,"start":192}
+{"allowed_blocks":13,"clock":{"token_clock":2452,"virtual_ns":120000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":390}
+{"clock":{"token_clock":2453,"virtual_ns":121000000},"job":3,"kind":"machine.decode","segment":34,"seq":391,"text":["s"],"tokens":1}
+{"block":12,"clock":{"token_clock":2453,"virtual_ns":121000000},"job":3,"kind":"machine.block_boundary","padding_tokens":0,"seq":392}
+{"clock":{"token_clock":2453,"virtual_ns":121000000},"job":3,"kind":"vm.working_set","segments":1,"seq":393,"size_tokens":186}
+{"allowed_blocks":13,"clock":{"token_clock":2453,"virtual_ns":121000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":394}
+{"clock":{"token_clock":2454,"virtual_ns":122000000},"job":3,"kind":"machine.decode","segment":35,"seq":395,"text":["ay"],"tokens":1}
+{"clock":{"token_clock":2455,"virtual_ns":123000000},"job":3,"kind":"machine.decode","segment":35,"seq":396,"text":[" \""],"tokens":1}
+{"clock":{"token_clock":2456,"virtual_ns":124000000},"job":3,"kind":"machine.decode","segment":35,"seq":397,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2457,"virtual_ns":125000000},"job":3,"kind":"machine.decode","segment":35,"seq":398,"text":["\""],"tokens":1}
+{"clock":{"token_clock":2458,"virtual_ns":126000000},"job":3,"kind":"machine.decode","segment":35,"seq":399,"text":[" and"],"tokens":1}
+{"clock":{"token_clock":2459,"virtual_ns":127000000},"job":3,"kind":"machine.decode","segment":35,"seq":400,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2460,"virtual_ns":128000000},"job":3,"kind":"machine.decode","segment":35,"seq":401,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2461,"virtual_ns":129000000},"job":3,"kind":"machine.decode","segment":35,"seq":402,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2461,"virtual_ns":129000000},"job":null,"kind":"pipe.written","latched":false,"pipe":"keys.number","seq":403,"text":["500"],"tokens":1}
+{"clock":{"token_clock":2462,"virtual_ns":130000000},"job":3,"kind":"machine.decode","segment":35,"seq":404,"text":["exit"],"tokens":1}
+{"clock":{"token_clock":2463,"virtual_ns":131000000},"job":3,"kind":"machine.decode","segment":35,"seq":405,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2463,"virtual_ns":131000000},"from_state":"running","job":3,"kind":"job.state","seq":406,"to_state":"done"}
+{"clock":{"token_clock":2463,"virtual_ns":131000000},"job":3,"kind":"job.completed","seq":407,"tokens_used":11}
+{"clock":{"token_clock":2463,"virtual_ns":132000000},"from_state":"ready","job":1,"kind":"job.state","seq":408,"to_state":"running"}
+{"clock":{"token_clock":2463,"virtual_ns":132000000},"job":1,"kind":"job.dispatched","priority":50,"seq":409}
+{"clock":{"token_clock":2463,"virtual_ns":132000000},"dirty":[],"job":1,"kind":"job.resumed","resume_kind":"resume","seq":410,"suspended_ns":12000000,"waited":false}
+{"clock":{"token_clock":2464,"virtual_ns":132000000},"job":1,"kind":"machine.decode","segment":30,"seq":411,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2465,"virtual_ns":133000000},"job":1,"kind":"machine.decode","segment":30,"seq":412,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2465,"virtual_ns":133000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":413}
+{"clock":{"token_clock":2465,"virtual_ns":133000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":414,"text":["18"],"tokens":1}
+{"after":"18","before":"17","clock":{"token_clock":2465,"virtual_ns":133000000},"job":1,"kind":"world.written","obj":"count.a","seq":415}
+{"clock":{"token_clock":2465,"virtual_ns":133000000},"end_segment":31,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":416,"start_segment":31,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2465,"virtual_ns":133000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":31,"seq":417}
+{"allowed_blocks":67,"clock":{"token_clock":2465,"virtual_ns":133000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":418}
+{"clock":{"token_clock":2469,"virtual_ns":133000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":36,"seq":419,"text":["<STATUS","count.a>","18","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2469,"virtual_ns":133000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":36,"seq":420}
+{"clock":{"token_clock":2469,"virtual_ns":133000000},"end":1076,"job":2,"kind":"segment.closed","segment":36,"seq":421,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2469,"virtual_ns":133000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":422}
+{"clock":{"token_clock":2469,"virtual_ns":133000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":36,"seq":423}
+{"clock":{"token_clock":2470,"virtual_ns":134000000},"job":1,"kind":"machine.decode","segment":30,"seq":424,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2471,"virtual_ns":135000000},"job":1,"kind":"machine.decode","segment":30,"seq":425,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2472,"virtual_ns":136000000},"job":1,"kind":"machine.decode","segment":30,"seq":426,"text":[" tools"],"tokens":1}
+{"block":70,"clock":{"token_clock":2472,"virtual_ns":136000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":427}
+{"clock":{"token_clock":2472,"virtual_ns":136000000},"job":1,"kind":"vm.working_set","segments":11,"seq":428,"size_tokens":1116}
+{"allowed_blocks":70,"clock":{"token_clock":2472,"virtual_ns":136000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":429}
+{"clock":{"token_clock":2473,"virtual_ns":137000000},"job":1,"kind":"machine.decode","segment":37,"seq":430,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2474,"virtual_ns":138000000},"job":1,"kind":"machine.decode","segment":37,"seq":431,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2475,"virtual_ns":139000000},"job":1,"kind":"machine.decode","segment":37,"seq":432,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2476,"virtual_ns":140000000},"job":1,"kind":"machine.decode","segment":37,"seq":433,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2476,"virtual_ns":140000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":434}
+{"clock":{"token_clock":2476,"virtual_ns":140000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":435,"text":["19"],"tokens":1}
+{"after":"19","before":"18","clock":{"token_clock":2476,"virtual_ns":140000000},"job":1,"kind":"world.written","obj":"count.a","seq":436}
+{"clock":{"token_clock":2476,"virtual_ns":140000000},"end_segment":36,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":437,"start_segment":36,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2476,"virtual_ns":140000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":36,"seq":438}
+{"allowed_blocks":67,"clock":{"token_clock":2476,"virtual_ns":140000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":439}
+{"clock":{"token_clock":2480,"virtual_ns":140000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":38,"seq":440,"text":["<STATUS","count.a>","19","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2480,"virtual_ns":140000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":38,"seq":441}
+{"clock":{"token_clock":2480,"virtual_ns":140000000},"end":1076,"job":2,"kind":"segment.closed","segment":38,"seq":442,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2480,"virtual_ns":140000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":443}
+{"clock":{"token_clock":2480,"virtual_ns":140000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":38,"seq":444}
+{"clock":{"token_clock":2481,"virtual_ns":141000000},"job":1,"kind":"machine.decode","segment":37,"seq":445,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2482,"virtual_ns":142000000},"job":1,"kind":"machine.decode","segment":37,"seq":446,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2483,"virtual_ns":143000000},"job":1,"kind":"machine.decode","segment":37,"seq":447,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2484,"virtual_ns":144000000},"job":1,"kind":"machine.decode","segment":37,"seq":448,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2485,"virtual_ns":145000000},"job":1,"kind":"machine.decode","segment":37,"seq":449,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2486,"virtual_ns":146000000},"job":1,"kind":"machine.decode","segment":37,"seq":450,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2487,"virtual_ns":147000000},"job":1,"kind":"machine.decode","segment":37,"seq":451,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2487,"virtual_ns":147000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":452}
+{"clock":{"token_clock":2487,"virtual_ns":147000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":453,"text":["20"],"tokens":1}
+{"after":"20","before":"19","clock":{"token_clock":2487,"virtual_ns":147000000},"job":1,"kind":"world.written","obj":"count.a","seq":454}
+{"clock":{"token_clock":2487,"virtual_ns":147000000},"end_segment":38,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":455,"start_segment":38,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2487,"virtual_ns":147000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":38,"seq":456}
+{"allowed_blocks":67,"clock":{"token_clock":2487,"virtual_ns":147000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":457}
+{"clock":{"token_clock":2491,"virtual_ns":147000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":39,"seq":458,"text":["<STATUS","count.a>","20","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2491,"virtual_ns":147000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":39,"seq":459}
+{"clock":{"token_clock":2491,"virtual_ns":147000000},"end":1076,"job":2,"kind":"segment.closed","segment":39,"seq":460,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2491,"virtual_ns":147000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":461}
+{"clock":{"token_clock":2491,"virtual_ns":147000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":39,"seq":462}
+{"clock":{"token_clock":2492,"virtual_ns":148000000},"job":1,"kind":"machine.decode","segment":37,"seq":463,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2493,"virtual_ns":149000000},"job":1,"kind":"machine.decode","segment":37,"seq":464,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2494,"virtual_ns":150000000},"job":1,"kind":"machine.decode","segment":37,"seq":465,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2495,"virtual_ns":151000000},"job":1,"kind":"machine.decode","segment":37,"seq":466,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2496,"virtual_ns":152000000},"job":1,"kind":"machine.decode","segment":37,"seq":467,"text":["2"],"tokens":1}
+{"block":71,"clock":{"token_clock":2496,"virtual_ns":152000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":468}
+{"clock":{"token_clock":2496,"virtual_ns":152000000},"job":1,"kind":"vm.working_set","segments":12,"seq":469,"size_tokens":1132}
+{"allowed_blocks":71,"clock":{"token_clock":2496,"virtual_ns":152000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":470}
+{"clock":{"token_clock":2497,"virtual_ns":153000000},"job":1,"kind":"machine.decode","segment":40,"seq":471,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2498,"virtual_ns":154000000},"job":1,"kind":"machine.decode","segment":40,"seq":472,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2498,"virtual_ns":154000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":473}
+{"clock":{"token_clock":2498,"virtual_ns":154000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":474,"text":["21"],"tokens":1}
+{"after":"21","before":"20","clock":{"token_clock":2498,"virtual_ns":154000000},"job":1,"kind":"world.written","obj":"count.a","seq":475}
+{"clock":{"token_clock":2498,"virtual_ns":154000000},"end_segment":39,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":476,"start_segment":39,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2498,"virtual_ns":154000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":39,"seq":477}
+{"allowed_blocks":67,"clock":{"token_clock":2498,"virtual_ns":154000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":478}
+{"clock":{"token_clock":2502,"virtual_ns":154000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":41,"seq":479,"text":["<STATUS","count.a>","21","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2502,"virtual_ns":154000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":41,"seq":480}
+{"clock":{"token_clock":2502,"virtual_ns":154000000},"end":1076,"job":2,"kind":"segment.closed","segment":41,"seq":481,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2502,"virtual_ns":154000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":482}
+{"clock":{"token_clock":2502,"virtual_ns":154000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":41,"seq":483}
+{"clock":{"token_clock":2503,"virtual_ns":155000000},"job":1,"kind":"machine.decode","segment":40,"seq":484,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2504,"virtual_ns":156000000},"job":1,"kind":"machine.decode","segment":40,"seq":485,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2505,"virtual_ns":157000000},"job":1,"kind":"machine.decode","segment":40,"seq":486,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2506,"virtual_ns":158000000},"job":1,"kind":"machine.decode","segment":40,"seq":487,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2507,"virtual_ns":159000000},"job":1,"kind":"machine.decode","segment":40,"seq":488,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2508,"virtual_ns":160000000},"job":1,"kind":"machine.decode","segment":40,"seq":489,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2509,"virtual_ns":161000000},"job":1,"kind":"machine.decode","segment":40,"seq":490,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2509,"virtual_ns":161000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":491}
+{"clock":{"token_clock":2509,"virtual_ns":161000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":492,"text":["22"],"tokens":1}
+{"after":"22","before":"21","clock":{"token_clock":2509,"virtual_ns":161000000},"job":1,"kind":"world.written","obj":"count.a","seq":493}
+{"clock":{"token_clock":2509,"virtual_ns":161000000},"end_segment":41,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":494,"start_segment":41,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2509,"virtual_ns":161000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":41,"seq":495}
+{"allowed_blocks":67,"clock":{"token_clock":2509,"virtual_ns":161000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":496}
+{"clock":{"token_clock":2513,"virtual_ns":161000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":42,"seq":497,"text":["<STATUS","count.a>","22","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2513,"virtual_ns":161000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":42,"seq":498}
+{"clock":{"token_clock":2513,"virtual_ns":161000000},"end":1076,"job":2,"kind":"segment.closed","segment":42,"seq":499,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2513,"virtual_ns":161000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":500}
+{"clock":{"token_clock":2513,"virtual_ns":161000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":42,"seq":501}
+{"clock":{"token_clock":2514,"virtual_ns":162000000},"job":1,"kind":"machine.decode","segment":40,"seq":502,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2515,"virtual_ns":163000000},"job":1,"kind":"machine.decode","segment":40,"seq":503,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2516,"virtual_ns":164000000},"job":1,"kind":"machine.decode","segment":40,"seq":504,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2517,"virtual_ns":165000000},"job":1,"kind":"machine.decode","segment":40,"seq":505,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2518,"virtual_ns":166000000},"job":1,"kind":"machine.decode","segment":40,"seq":506,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2519,"virtual_ns":167000000},"job":1,"kind":"machine.decode","segment":40,"seq":507,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2520,"virtual_ns":168000000},"job":1,"kind":"machine.decode","segment":40,"seq":508,"text":[";"],"tokens":1}
+{"block":72,"clock":{"token_clock":2520,"virtual_ns":168000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":509}
+{"clock":{"token_clock":2520,"virtual_ns":168000000},"job":1,"kind":"vm.working_set","segments":13,"seq":510,"size_tokens":1148}
+{"allowed_blocks":72,"clock":{"token_clock":2520,"virtual_ns":168000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":511}
+{"allowed":true,"clock":{"token_clock":2520,"virtual_ns":168000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":512}
+{"clock":{"token_clock":2520,"virtual_ns":168000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":513,"text":["23"],"tokens":1}
+{"after":"23","before":"22","clock":{"token_clock":2520,"virtual_ns":168000000},"job":1,"kind":"world.written","obj":"count.a","seq":514}
+{"clock":{"token_clock":2520,"virtual_ns":168000000},"end_segment":42,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":515,"start_segment":42,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2520,"virtual_ns":168000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":42,"seq":516}
+{"allowed_blocks":67,"clock":{"token_clock":2520,"virtual_ns":168000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":517}
+{"clock":{"token_clock":2524,"virtual_ns":168000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":43,"seq":518,"text":["<STATUS","count.a>","23","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2524,"virtual_ns":168000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":43,"seq":519}
+{"clock":{"token_clock":2524,"virtual_ns":168000000},"end":1076,"job":2,"kind":"segment.closed","segment":43,"seq":520,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2524,"virtual_ns":168000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":521}
+{"clock":{"token_clock":2524,"virtual_ns":168000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":43,"seq":522}
+{"clock":{"token_clock":2525,"virtual_ns":169000000},"job":1,"kind":"machine.decode","segment":44,"seq":523,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2526,"virtual_ns":170000000},"job":1,"kind":"machine.decode","segment":44,"seq":524,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2527,"virtual_ns":171000000},"job":1,"kind":"machine.decode","segment":44,"seq":525,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2528,"virtual_ns":172000000},"job":1,"kind":"machine.decode","segment":44,"seq":526,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2529,"virtual_ns":173000000},"job":1,"kind":"machine.decode","segment":44,"seq":527,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2530,"virtual_ns":174000000},"job":1,"kind":"machine.decode","segment":44,"seq":528,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2531,"virtual_ns":175000000},"job":1,"kind":"machine.decode","segment":44,"seq":529,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2531,"virtual_ns":175000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":530}
+{"clock":{"token_clock":2531,"virtual_ns":175000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":531,"text":["24"],"tokens":1}
+{"after":"24","before":"23","clock":{"token_clock":2531,"virtual_ns":175000000},"job":1,"kind":"world.written","obj":"count.a","seq":532}
+{"clock":{"token_clock":2531,"virtual_ns":175000000},"end_segment":43,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":533,"start_segment":43,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2531,"virtual_ns":175000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":43,"seq":534}
+{"allowed_blocks":67,"clock":{"token_clock":2531,"virtual_ns":175000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":535}
+{"clock":{"token_clock":2535,"virtual_ns":175000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":45,"seq":536,"text":["<STATUS","count.a>","24","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2535,"virtual_ns":175000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":45,"seq":537}
+{"clock":{"token_clock":2535,"virtual_ns":175000000},"end":1076,"job":2,"kind":"segment.closed","segment":45,"seq":538,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2535,"virtual_ns":175000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":539}
+{"clock":{"token_clock":2535,"virtual_ns":175000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":45,"seq":540}
+{"clock":{"token_clock":2536,"virtual_ns":176000000},"job":1,"kind":"machine.decode","segment":44,"seq":541,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2537,"virtual_ns":177000000},"job":1,"kind":"machine.decode","segment":44,"seq":542,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2538,"virtual_ns":178000000},"job":1,"kind":"machine.decode","segment":44,"seq":543,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2539,"virtual_ns":179000000},"job":1,"kind":"machine.decode","segment":44,"seq":544,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2540,"virtual_ns":180000000},"job":1,"kind":"machine.decode","segment":44,"seq":545,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2541,"virtual_ns":181000000},"job":1,"kind":"machine.decode","segment":44,"seq":546,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2542,"virtual_ns":182000000},"job":1,"kind":"machine.decode","segment":44,"seq":547,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2542,"virtual_ns":182000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":548}
+{"clock":{"token_clock":2542,"virtual_ns":182000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":549,"text":["25"],"tokens":1}
+{"after":"25","before":"24","clock":{"token_clock":2542,"virtual_ns":182000000},"job":1,"kind":"world.written","obj":"count.a","seq":550}
+{"clock":{"token_clock":2542,"virtual_ns":182000000},"end_segment":45,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":551,"start_segment":45,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2542,"virtual_ns":182000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":45,"seq":552}
+{"allowed_blocks":67,"clock":{"token_clock":2542,"virtual_ns":182000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":553}
+{"clock":{"token_clock":2546,"virtual_ns":182000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":46,"seq":554,"text":["<STATUS","count.a>","25","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2546,"virtual_ns":182000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":46,"seq":555}
+{"clock":{"token_clock":2546,"virtual_ns":182000000},"end":1076,"job":2,"kind":"segment.closed","segment":46,"seq":556,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2546,"virtual_ns":182000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":557}
+{"clock":{"token_clock":2546,"virtual_ns":182000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":46,"seq":558}
+{"clock":{"token_clock":2547,"virtual_ns":183000000},"job":1,"kind":"machine.decode","segment":44,"seq":559,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2548,"virtual_ns":184000000},"job":1,"kind":"machine.decode","segment":44,"seq":560,"text":["write"],"tokens":1}
+{"block":73,"clock":{"token_clock":2548,"virtual_ns":184000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":561}
+{"clock":{"token_clock":2548,"virtual_ns":184000000},"job":1,"kind":"vm.working_set","segments":14,"seq":562,"size_tokens":1164}
+{"allowed_blocks":73,"clock":{"token_clock":2548,"virtual_ns":184000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":563}
+{"clock":{"token_clock":2549,"virtual_ns":185000000},"job":1,"kind":"machine.decode","segment":47,"seq":564,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2550,"virtual_ns":186000000},"job":1,"kind":"machine.decode","segment":47,"seq":565,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2551,"virtual_ns":187000000},"job":1,"kind":"machine.decode","segment":47,"seq":566,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2552,"virtual_ns":188000000},"job":1,"kind":"machine.decode","segment":47,"seq":567,"text":["6"],"tokens":1}
+{"clock":{"token_clock":2553,"virtual_ns":189000000},"job":1,"kind":"machine.decode","segment":47,"seq":568,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2553,"virtual_ns":189000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":569}
+{"clock":{"token_clock":2553,"virtual_ns":189000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":570,"text":["26"],"tokens":1}
+{"after":"26","before":"25","clock":{"token_clock":2553,"virtual_ns":189000000},"job":1,"kind":"world.written","obj":"count.a","seq":571}
+{"clock":{"token_clock":2553,"virtual_ns":189000000},"end_segment":46,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":572,"start_segment":46,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2553,"virtual_ns":189000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":46,"seq":573}
+{"allowed_blocks":67,"clock":{"token_clock":2553,"virtual_ns":189000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":574}
+{"clock":{"token_clock":2557,"virtual_ns":189000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":48,"seq":575,"text":["<STATUS","count.a>","26","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2557,"virtual_ns":189000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":48,"seq":576}
+{"clock":{"token_clock":2557,"virtual_ns":189000000},"end":1076,"job":2,"kind":"segment.closed","segment":48,"seq":577,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2557,"virtual_ns":189000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":578}
+{"clock":{"token_clock":2557,"virtual_ns":189000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":48,"seq":579}
+{"clock":{"token_clock":2558,"virtual_ns":190000000},"job":1,"kind":"machine.decode","segment":47,"seq":580,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2559,"virtual_ns":191000000},"job":1,"kind":"machine.decode","segment":47,"seq":581,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2560,"virtual_ns":192000000},"job":1,"kind":"machine.decode","segment":47,"seq":582,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2561,"virtual_ns":193000000},"job":1,"kind":"machine.decode","segment":47,"seq":583,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2562,"virtual_ns":194000000},"job":1,"kind":"machine.decode","segment":47,"seq":584,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2563,"virtual_ns":195000000},"job":1,"kind":"machine.decode","segment":47,"seq":585,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2564,"virtual_ns":196000000},"job":1,"kind":"machine.decode","segment":47,"seq":586,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2564,"virtual_ns":196000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":587}
+{"clock":{"token_clock":2564,"virtual_ns":196000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":588,"text":["27"],"tokens":1}
+{"after":"27","before":"26","clock":{"token_clock":2564,"virtual_ns":196000000},"job":1,"kind":"world.written","obj":"count.a","seq":589}
+{"clock":{"token_clock":2564,"virtual_ns":196000000},"end_segment":48,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":590,"start_segment":48,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2564,"virtual_ns":196000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":48,"seq":591}
+{"allowed_blocks":67,"clock":{"token_clock":2564,"virtual_ns":196000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":592}
+{"clock":{"token_clock":2568,"virtual_ns":196000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":49,"seq":593,"text":["<STATUS","count.a>","27","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2568,"virtual_ns":196000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":49,"seq":594}
+{"clock":{"token_clock":2568,"virtual_ns":196000000},"end":1076,"job":2,"kind":"segment.closed","segment":49,"seq":595,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2568,"virtual_ns":196000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":596}
+{"clock":{"token_clock":2568,"virtual_ns":196000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":49,"seq":597}
+{"clock":{"token_clock":2569,"virtual_ns":197000000},"job":1,"kind":"machine.decode","segment":47,"seq":598,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2570,"virtual_ns":198000000},"job":1,"kind":"machine.decode","segment":47,"seq":599,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2571,"virtual_ns":199000000},"job":1,"kind":"machine.decode","segment":47,"seq":600,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2572,"virtual_ns":200000000},"job":1,"kind":"machine.decode","segment":47,"seq":601,"text":[" "],"tokens":1}
+{"block":74,"clock":{"token_clock":2572,"virtual_ns":200000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":602}
+{"clock":{"token_clock":2572,"virtual_ns":200000000},"job":1,"kind":"vm.working_set","segments":15,"seq":603,"size_tokens":1180}
+{"allowed_blocks":74,"clock":{"token_clock":2572,"virtual_ns":200000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":604}
+{"clock":{"token_clock":2573,"virtual_ns":201000000},"job":1,"kind":"machine.decode","segment":50,"seq":605,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2574,"virtual_ns":202000000},"job":1,"kind":"machine.decode","segment":50,"seq":606,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2575,"virtual_ns":203000000},"job":1,"kind":"machine.decode","segment":50,"seq":607,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2575,"virtual_ns":203000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":608}
+{"clock":{"token_clock":2575,"virtual_ns":203000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":609,"text":["28"],"tokens":1}
+{"after":"28","before":"27","clock":{"token_clock":2575,"virtual_ns":203000000},"job":1,"kind":"world.written","obj":"count.a","seq":610}
+{"clock":{"token_clock":2575,"virtual_ns":203000000},"end_segment":49,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":611,"start_segment":49,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2575,"virtual_ns":203000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":49,"seq":612}
+{"allowed_blocks":67,"clock":{"token_clock":2575,"virtual_ns":203000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":613}
+{"clock":{"token_clock":2579,"virtual_ns":203000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":51,"seq":614,"text":["<STATUS","count.a>","28","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2579,"virtual_ns":203000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":51,"seq":615}
+{"clock":{"token_clock":2579,"virtual_ns":203000000},"end":1076,"job":2,"kind":"segment.closed","segment":51,"seq":616,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2579,"virtual_ns":203000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":617}
+{"clock":{"token_clock":2579,"virtual_ns":203000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":51,"seq":618}
+{"clock":{"token_clock":2580,"virtual_ns":204000000},"job":1,"kind":"machine.decode","segment":50,"seq":619,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2581,"virtual_ns":205000000},"job":1,"kind":"machine.decode","segment":50,"seq":620,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2582,"virtual_ns":206000000},"job":1,"kind":"machine.decode","segment":50,"seq":621,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2583,"virtual_ns":207000000},"job":1,"kind":"machine.decode","segment":50,"seq":622,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2584,"virtual_ns":208000000},"job":1,"kind":"machine.decode","segment":50,"seq":623,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2585,"virtual_ns":209000000},"job":1,"kind":"machine.decode","segment":50,"seq":624,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2586,"virtual_ns":210000000},"job":1,"kind":"machine.decode","segment":50,"seq":625,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2586,"virtual_ns":210000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":626}
+{"clock":{"token_clock":2586,"virtual_ns":210000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":627,"text":["29"],"tokens":1}
+{"after":"29","before":"28","clock":{"token_clock":2586,"virtual_ns":210000000},"job":1,"kind":"world.written","obj":"count.a","seq":628}
+{"clock":{"token_clock":2586,"virtual_ns":210000000},"end_segment":51,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":629,"start_segment":51,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2586,"virtual_ns":210000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":51,"seq":630}
+{"allowed_blocks":67,"clock":{"token_clock":2586,"virtual_ns":210000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":631}
+{"clock":{"token_clock":2590,"virtual_ns":210000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":52,"seq":632,"text":["<STATUS","count.a>","29","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2590,"virtual_ns":210000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":52,"seq":633}
+{"clock":{"token_clock":2590,"virtual_ns":210000000},"end":1076,"job":2,"kind":"segment.closed","segment":52,"seq":634,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2590,"virtual_ns":210000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":635}
+{"clock":{"token_clock":2590,"virtual_ns":210000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":52,"seq":636}
+{"clock":{"token_clock":2591,"virtual_ns":211000000},"job":1,"kind":"machine.decode","segment":50,"seq":637,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2592,"virtual_ns":212000000},"job":1,"kind":"machine.decode","segment":50,"seq":638,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2593,"virtual_ns":213000000},"job":1,"kind":"machine.decode","segment":50,"seq":639,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2594,"virtual_ns":214000000},"job":1,"kind":"machine.decode","segment":50,"seq":640,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2595,"virtual_ns":215000000},"job":1,"kind":"machine.decode","segment":50,"seq":641,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2596,"virtual_ns":216000000},"job":1,"kind":"machine.decode","segment":50,"seq":642,"text":["0"],"tokens":1}
+{"block":75,"clock":{"token_clock":2596,"virtual_ns":216000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":643}
+{"clock":{"token_clock":2596,"virtual_ns":216000000},"job":1,"kind":"vm.working_set","segments":16,"seq":644,"size_tokens":1196}
+{"allowed_blocks":75,"clock":{"token_clock":2596,"virtual_ns":216000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":645}
+{"clock":{"token_clock":2597,"virtual_ns":217000000},"job":1,"kind":"machine.decode","segment":53,"seq":646,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2597,"virtual_ns":217000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":647}
+{"clock":{"token_clock":2597,"virtual_ns":217000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":648,"text":["30"],"tokens":1}
+{"after":"30","before":"29","clock":{"token_clock":2597,"virtual_ns":217000000},"job":1,"kind":"world.written","obj":"count.a","seq":649}
+{"clock":{"token_clock":2597,"virtual_ns":217000000},"end_segment":52,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":650,"start_segment":52,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2597,"virtual_ns":217000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":52,"seq":651}
+{"allowed_blocks":67,"clock":{"token_clock":2597,"virtual_ns":217000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":652}
+{"clock":{"token_clock":2601,"virtual_ns":217000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":54,"seq":653,"text":["<STATUS","count.a>","30","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2601,"virtual_ns":217000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":54,"seq":654}
+{"clock":{"token_clock":2601,"virtual_ns":217000000},"end":1076,"job":2,"kind":"segment.closed","segment":54,"seq":655,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2601,"virtual_ns":217000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":656}
+{"clock":{"token_clock":2601,"virtual_ns":217000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":54,"seq":657}
+{"clock":{"token_clock":2602,"virtual_ns":218000000},"job":1,"kind":"machine.decode","segment":53,"seq":658,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2603,"virtual_ns":219000000},"job":1,"kind":"machine.decode","segment":53,"seq":659,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2604,"virtual_ns":220000000},"job":1,"kind":"machine.decode","segment":53,"seq":660,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2605,"virtual_ns":221000000},"job":1,"kind":"machine.decode","segment":53,"seq":661,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2606,"virtual_ns":222000000},"job":1,"kind":"machine.decode","segment":53,"seq":662,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2607,"virtual_ns":223000000},"job":1,"kind":"machine.decode","segment":53,"seq":663,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2608,"virtual_ns":224000000},"job":1,"kind":"machine.decode","segment":53,"seq":664,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2608,"virtual_ns":224000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":665}
+{"clock":{"token_clock":2608,"virtual_ns":224000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":666,"text":["31"],"tokens":1}
+{"after":"31","before":"30","clock":{"token_clock":2608,"virtual_ns":224000000},"job":1,"kind":"world.written","obj":"count.a","seq":667}
+{"clock":{"token_clock":2608,"virtual_ns":224000000},"end_segment":54,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":668,"start_segment":54,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2608,"virtual_ns":224000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":54,"seq":669}
+{"allowed_blocks":67,"clock":{"token_clock":2608,"virtual_ns":224000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":670}
+{"clock":{"token_clock":2612,"virtual_ns":224000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":55,"seq":671,"text":["<STATUS","count.a>","31","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2612,"virtual_ns":224000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":55,"seq":672}
+{"clock":{"token_clock":2612,"virtual_ns":224000000},"end":1076,"job":2,"kind":"segment.closed","segment":55,"seq":673,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2612,"virtual_ns":224000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":674}
+{"clock":{"token_clock":2612,"virtual_ns":224000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":55,"seq":675}
+{"clock":{"token_clock":2613,"virtual_ns":225000000},"job":1,"kind":"machine.decode","segment":53,"seq":676,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2614,"virtual_ns":226000000},"job":1,"kind":"machine.decode","segment":53,"seq":677,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2615,"virtual_ns":227000000},"job":1,"kind":"machine.decode","segment":53,"seq":678,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2616,"virtual_ns":228000000},"job":1,"kind":"machine.decode","segment":53,"seq":679,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2617,"virtual_ns":229000000},"job":1,"kind":"machine.decode","segment":53,"seq":680,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2618,"virtual_ns":230000000},"job":1,"kind":"machine.decode","segment":53,"seq":681,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2619,"virtual_ns":231000000},"job":1,"kind":"machine.decode","segment":53,"seq":682,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2619,"virtual_ns":231000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":683}
+{"clock":{"token_clock":2619,"virtual_ns":231000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":684,"text":["32"],"tokens":1}
+{"after":"32","before":"31","clock":{"token_clock":2619,"virtual_ns":231000000},"job":1,"kind":"world.written","obj":"count.a","seq":685}
+{"clock":{"token_clock":2619,"virtual_ns":231000000},"end_segment":55,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":686,"start_segment":55,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2619,"virtual_ns":231000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":55,"seq":687}
+{"allowed_blocks":67,"clock":{"token_clock":2619,"virtual_ns":231000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":688}
+{"clock":{"token_clock":2623,"virtual_ns":231000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":56,"seq":689,"text":["<STATUS","count.a>","32","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2623,"virtual_ns":231000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":56,"seq":690}
+{"clock":{"token_clock":2623,"virtual_ns":231000000},"end":1076,"job":2,"kind":"segment.closed","segment":56,"seq":691,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2623,"virtual_ns":231000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":692}
+{"clock":{"token_clock":2623,"virtual_ns":231000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":56,"seq":693}
+{"clock":{"token_clock":2624,"virtual_ns":232000000},"job":1,"kind":"machine.decode","segment":53,"seq":694,"text":[" "],"tokens":1}
+{"block":76,"clock":{"token_clock":2624,"virtual_ns":232000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":695}
+{"clock":{"token_clock":2624,"virtual_ns":232000000},"job":1,"kind":"vm.working_set","segments":17,"seq":696,"size_tokens":1212}
+{"allowed_blocks":76,"clock":{"token_clock":2624,"virtual_ns":232000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":697}
+{"clock":{"token_clock":2625,"virtual_ns":233000000},"job":1,"kind":"machine.decode","segment":57,"seq":698,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2626,"virtual_ns":234000000},"job":1,"kind":"machine.decode","segment":57,"seq":699,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2627,"virtual_ns":235000000},"job":1,"kind":"machine.decode","segment":57,"seq":700,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2628,"virtual_ns":236000000},"job":1,"kind":"machine.decode","segment":57,"seq":701,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2629,"virtual_ns":237000000},"job":1,"kind":"machine.decode","segment":57,"seq":702,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2630,"virtual_ns":238000000},"job":1,"kind":"machine.decode","segment":57,"seq":703,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2630,"virtual_ns":238000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":704}
+{"clock":{"token_clock":2630,"virtual_ns":238000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":705,"text":["33"],"tokens":1}
+{"after":"33","before":"32","clock":{"token_clock":2630,"virtual_ns":238000000},"job":1,"kind":"world.written","obj":"count.a","seq":706}
+{"clock":{"token_clock":2630,"virtual_ns":238000000},"end_segment":56,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":707,"start_segment":56,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2630,"virtual_ns":238000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":56,"seq":708}
+{"allowed_blocks":67,"clock":{"token_clock":2630,"virtual_ns":238000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":709}
+{"clock":{"token_clock":2634,"virtual_ns":238000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":58,"seq":710,"text":["<STATUS","count.a>","33","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2634,"virtual_ns":238000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":58,"seq":711}
+{"clock":{"token_clock":2634,"virtual_ns":238000000},"end":1076,"job":2,"kind":"segment.closed","segment":58,"seq":712,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2634,"virtual_ns":238000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":713}
+{"clock":{"token_clock":2634,"virtual_ns":238000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":58,"seq":714}
+{"clock":{"token_clock":2635,"virtual_ns":239000000},"job":1,"kind":"machine.decode","segment":57,"seq":715,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2636,"virtual_ns":240000000},"job":1,"kind":"machine.decode","segment":57,"seq":716,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2637,"virtual_ns":241000000},"job":1,"kind":"machine.decode","segment":57,"seq":717,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2638,"virtual_ns":242000000},"job":1,"kind":"machine.decode","segment":57,"seq":718,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2639,"virtual_ns":243000000},"job":1,"kind":"machine.decode","segment":57,"seq":719,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2640,"virtual_ns":244000000},"job":1,"kind":"machine.decode","segment":57,"seq":720,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2641,"virtual_ns":245000000},"job":1,"kind":"machine.decode","segment":57,"seq":721,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2641,"virtual_ns":245000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":722}
+{"clock":{"token_clock":2641,"virtual_ns":245000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":723,"text":["34"],"tokens":1}
+{"after":"34","before":"33","clock":{"token_clock":2641,"virtual_ns":245000000},"job":1,"kind":"world.written","obj":"count.a","seq":724}
+{"clock":{"token_clock":2641,"virtual_ns":245000000},"end_segment":58,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":725,"start_segment":58,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2641,"virtual_ns":245000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":58,"seq":726}
+{"allowed_blocks":67,"clock":{"token_clock":2641,"virtual_ns":245000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":727}
+{"clock":{"token_clock":2645,"virtual_ns":245000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":59,"seq":728,"text":["<STATUS","count.a>","34","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2645,"virtual_ns":245000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":59,"seq":729}
+{"clock":{"token_clock":2645,"virtual_ns":245000000},"end":1076,"job":2,"kind":"segment.closed","segment":59,"seq":730,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2645,"virtual_ns":245000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":731}
+{"clock":{"token_clock":2645,"virtual_ns":245000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":59,"seq":732}
+{"clock":{"token_clock":2646,"virtual_ns":246000000},"job":1,"kind":"machine.decode","segment":57,"seq":733,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2647,"virtual_ns":247000000},"job":1,"kind":"machine.decode","segment":57,"seq":734,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2648,"virtual_ns":248000000},"job":1,"kind":"machine.decode","segment":57,"seq":735,"text":[" tools"],"tokens":1}
+{"block":77,"clock":{"token_clock":2648,"virtual_ns":248000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":736}
+{"clock":{"token_clock":2648,"virtual_ns":248000000},"job":1,"kind":"vm.working_set","segments":18,"seq":737,"size_tokens":1228}
+{"allowed_blocks":77,"clock":{"token_clock":2648,"virtual_ns":248000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":738}
+{"clock":{"token_clock":2649,"virtual_ns":249000000},"job":1,"kind":"machine.decode","segment":60,"seq":739,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2650,"virtual_ns":250000000},"job":1,"kind":"machine.decode","segment":60,"seq":740,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2651,"virtual_ns":251000000},"job":1,"kind":"machine.decode","segment":60,"seq":741,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2652,"virtual_ns":252000000},"job":1,"kind":"machine.decode","segment":60,"seq":742,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2652,"virtual_ns":252000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":743}
+{"clock":{"token_clock":2652,"virtual_ns":252000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":744,"text":["35"],"tokens":1}
+{"after":"35","before":"34","clock":{"token_clock":2652,"virtual_ns":252000000},"job":1,"kind":"world.written","obj":"count.a","seq":745}
+{"clock":{"token_clock":2652,"virtual_ns":252000000},"end_segment":59,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":746,"start_segment":59,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2652,"virtual_ns":252000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":59,"seq":747}
+{"allowed_blocks":67,"clock":{"token_clock":2652,"virtual_ns":252000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":748}
+{"clock":{"token_clock":2656,"virtual_ns":252000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":61,"seq":749,"text":["<STATUS","count.a>","35","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2656,"virtual_ns":252000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":61,"seq":750}
+{"clock":{"token_clock":2656,"virtual_ns":252000000},"end":1076,"job":2,"kind":"segment.closed","segment":61,"seq":751,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2656,"virtual_ns":252000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":752}
+{"clock":{"token_clock":2656,"virtual_ns":252000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":61,"seq":753}
+{"clock":{"token_clock":2657,"virtual_ns":253000000},"job":1,"kind":"machine.decode","segment":60,"seq":754,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2658,"virtual_ns":254000000},"job":1,"kind":"machine.decode","segment":60,"seq":755,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2659,"virtual_ns":255000000},"job":1,"kind":"machine.decode","segment":60,"seq":756,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2660,"virtual_ns":256000000},"job":1,"kind":"machine.decode","segment":60,"seq":757,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2661,"virtual_ns":257000000},"job":1,"kind":"machine.decode","segment":60,"seq":758,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2662,"virtual_ns":258000000},"job":1,"kind":"machine.decode","segment":60,"seq":759,"text":["6"],"tokens":1}
+{"clock":{"token_clock":2663,"virtual_ns":259000000},"job":1,"kind":"machine.decode","segment":60,"seq":760,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2663,"virtual_ns":259000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":761}
+{"clock":{"token_clock":2663,"virtual_ns":259000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":762,"text":["36"],"tokens":1}
+{"after":"36","before":"35","clock":{"token_clock":2663,"virtual_ns":259000000},"job":1,"kind":"world.written","obj":"count.a","seq":763}
+{"clock":{"token_clock":2663,"virtual_ns":259000000},"end_segment":61,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":764,"start_segment":61,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2663,"virtual_ns":259000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":61,"seq":765}
+{"allowed_blocks":67,"clock":{"token_clock":2663,"virtual_ns":259000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":766}
+{"clock":{"token_clock":2667,"virtual_ns":259000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":62,"seq":767,"text":["<STATUS","count.a>","36","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2667,"virtual_ns":259000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":62,"seq":768}
+{"clock":{"token_clock":2667,"virtual_ns":259000000},"end":1076,"job":2,"kind":"segment.closed","segment":62,"seq":769,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2667,"virtual_ns":259000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":770}
+{"clock":{"token_clock":2667,"virtual_ns":259000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":62,"seq":771}
+{"clock":{"token_clock":2668,"virtual_ns":260000000},"job":1,"kind":"machine.decode","segment":60,"seq":772,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2669,"virtual_ns":261000000},"job":1,"kind":"machine.decode","segment":60,"seq":773,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2670,"virtual_ns":262000000},"job":1,"kind":"machine.decode","segment":60,"seq":774,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2671,"virtual_ns":263000000},"job":1,"kind":"machine.decode","segment":60,"seq":775,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2672,"virtual_ns":264000000},"job":1,"kind":"machine.decode","segment":60,"seq":776,"text":["3"],"tokens":1}
+{"block":78,"clock":{"token_clock":2672,"virtual_ns":264000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":777}
+{"clock":{"token_clock":2672,"virtual_ns":264000000},"job":1,"kind":"vm.working_set","segments":19,"seq":778,"size_tokens":1244}
+{"allowed_blocks":78,"clock":{"token_clock":2672,"virtual_ns":264000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":779}
+{"clock":{"token_clock":2673,"virtual_ns":265000000},"job":1,"kind":"machine.decode","segment":63,"seq":780,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2674,"virtual_ns":266000000},"job":1,"kind":"machine.decode","segment":63,"seq":781,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2674,"virtual_ns":266000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":782}
+{"clock":{"token_clock":2674,"virtual_ns":266000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":783,"text":["37"],"tokens":1}
+{"after":"37","before":"36","clock":{"token_clock":2674,"virtual_ns":266000000},"job":1,"kind":"world.written","obj":"count.a","seq":784}
+{"clock":{"token_clock":2674,"virtual_ns":266000000},"end_segment":62,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":785,"start_segment":62,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2674,"virtual_ns":266000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":62,"seq":786}
+{"allowed_blocks":67,"clock":{"token_clock":2674,"virtual_ns":266000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":787}
+{"clock":{"token_clock":2678,"virtual_ns":266000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":64,"seq":788,"text":["<STATUS","count.a>","37","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2678,"virtual_ns":266000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":64,"seq":789}
+{"clock":{"token_clock":2678,"virtual_ns":266000000},"end":1076,"job":2,"kind":"segment.closed","segment":64,"seq":790,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2678,"virtual_ns":266000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":791}
+{"clock":{"token_clock":2678,"virtual_ns":266000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":64,"seq":792}
+{"clock":{"token_clock":2679,"virtual_ns":267000000},"job":1,"kind":"machine.decode","segment":63,"seq":793,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2680,"virtual_ns":268000000},"job":1,"kind":"machine.decode","segment":63,"seq":794,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2681,"virtual_ns":269000000},"job":1,"kind":"machine.decode","segment":63,"seq":795,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2682,"virtual_ns":270000000},"job":1,"kind":"machine.decode","segment":63,"seq":796,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2683,"virtual_ns":271000000},"job":1,"kind":"machine.decode","segment":63,"seq":797,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2684,"virtual_ns":272000000},"job":1,"kind":"machine.decode","segment":63,"seq":798,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2685,"virtual_ns":273000000},"job":1,"kind":"machine.decode","segment":63,"seq":799,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2685,"virtual_ns":273000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":800}
+{"clock":{"token_clock":2685,"virtual_ns":273000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":801,"text":["38"],"tokens":1}
+{"after":"38","before":"37","clock":{"token_clock":2685,"virtual_ns":273000000},"job":1,"kind":"world.written","obj":"count.a","seq":802}
+{"clock":{"token_clock":2685,"virtual_ns":273000000},"end_segment":64,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":803,"start_segment":64,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2685,"virtual_ns":273000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":64,"seq":804}
+{"allowed_blocks":67,"clock":{"token_clock":2685,"virtual_ns":273000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":805}
+{"clock":{"token_clock":2689,"virtual_ns":273000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":65,"seq":806,"text":["<STATUS","count.a>","38","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2689,"virtual_ns":273000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":65,"seq":807}
+{"clock":{"token_clock":2689,"virtual_ns":273000000},"end":1076,"job":2,"kind":"segment.closed","segment":65,"seq":808,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2689,"virtual_ns":273000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":809}
+{"clock":{"token_clock":2689,"virtual_ns":273000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":65,"seq":810}
+{"clock":{"token_clock":2690,"virtual_ns":274000000},"job":1,"kind":"machine.decode","segment":63,"seq":811,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2691,"virtual_ns":275000000},"job":1,"kind":"machine.decode","segment":63,"seq":812,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2692,"virtual_ns":276000000},"job":1,"kind":"machine.decode","segment":63,"seq":813,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2693,"virtual_ns":277000000},"job":1,"kind":"machine.decode","segment":63,"seq":814,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2694,"virtual_ns":278000000},"job":1,"kind":"machine.decode","segment":63,"seq":815,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2695,"virtual_ns":279000000},"job":1,"kind":"machine.decode","segment":63,"seq":816,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2696,"virtual_ns":280000000},"job":1,"kind":"machine.decode","segment":63,"seq":817,"text":[";"],"tokens":1}
+{"block":79,"clock":{"token_clock":2696,"virtual_ns":280000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":818}
+{"clock":{"token_clock":2696,"virtual_ns":280000000},"job":1,"kind":"vm.working_set","segments":20,"seq":819,"size_tokens":1260}
+{"allowed_blocks":79,"clock":{"token_clock":2696,"virtual_ns":280000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":820}
+{"allowed":true,"clock":{"token_clock":2696,"virtual_ns":280000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":821}
+{"clock":{"token_clock":2696,"virtual_ns":280000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":822,"text":["39"],"tokens":1}
+{"after":"39","before":"38","clock":{"token_clock":2696,"virtual_ns":280000000},"job":1,"kind":"world.written","obj":"count.a","seq":823}
+{"clock":{"token_clock":2696,"virtual_ns":280000000},"end_segment":65,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":824,"start_segment":65,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2696,"virtual_ns":280000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":65,"seq":825}
+{"allowed_blocks":67,"clock":{"token_clock":2696,"virtual_ns":280000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":826}
+{"clock":{"token_clock":2700,"virtual_ns":280000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":66,"seq":827,"text":["<STATUS","count.a>","39","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2700,"virtual_ns":280000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":66,"seq":828}
+{"clock":{"token_clock":2700,"virtual_ns":280000000},"end":1076,"job":2,"kind":"segment.closed","segment":66,"seq":829,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2700,"virtual_ns":280000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":830}
+{"clock":{"token_clock":2700,"virtual_ns":280000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":66,"seq":831}
+{"clock":{"token_clock":2701,"virtual_ns":281000000},"job":1,"kind":"machine.decode","segment":67,"seq":832,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2702,"virtual_ns":282000000},"job":1,"kind":"machine.decode","segment":67,"seq":833,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2703,"virtual_ns":283000000},"job":1,"kind":"machine.decode","segment":67,"seq":834,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2704,"virtual_ns":284000000},"job":1,"kind":"machine.decode","segment":67,"seq":835,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2705,"virtual_ns":285000000},"job":1,"kind":"machine.decode","segment":67,"seq":836,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2706,"virtual_ns":286000000},"job":1,"kind":"machine.decode","segment":67,"seq":837,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2707,"virtual_ns":287000000},"job":1,"kind":"machine.decode","segment":67,"seq":838,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2707,"virtual_ns":287000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":839}
+{"clock":{"token_clock":2707,"virtual_ns":287000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":840,"text":["40"],"tokens":1}
+{"after":"40","before":"39","clock":{"token_clock":2707,"virtual_ns":287000000},"job":1,"kind":"world.written","obj":"count.a","seq":841}
+{"clock":{"token_clock":2707,"virtual_ns":287000000},"end_segment":66,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":842,"start_segment":66,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2707,"virtual_ns":287000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":66,"seq":843}
+{"allowed_blocks":67,"clock":{"token_clock":2707,"virtual_ns":287000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":844}
+{"clock":{"token_clock":2711,"virtual_ns":287000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":68,"seq":845,"text":["<STATUS","count.a>","40","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2711,"virtual_ns":287000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":68,"seq":846}
+{"clock":{"token_clock":2711,"virtual_ns":287000000},"end":1076,"job":2,"kind":"segment.closed","segment":68,"seq":847,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2711,"virtual_ns":287000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":848}
+{"clock":{"token_clock":2711,"virtual_ns":287000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":68,"seq":849}
+{"clock":{"token_clock":2712,"virtual_ns":288000000},"job":1,"kind":"machine.decode","segment":67,"seq":850,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2713,"virtual_ns":289000000},"job":1,"kind":"machine.decode","segment":67,"seq":851,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2714,"virtual_ns":290000000},"job":1,"kind":"machine.decode","segment":67,"seq":852,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2715,"virtual_ns":291000000},"job":1,"kind":"machine.decode","segment":67,"seq":853,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2716,"virtual_ns":292000000},"job":1,"kind":"machine.decode","segment":67,"seq":854,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2717,"virtual_ns":293000000},"job":1,"kind":"machine.decode","segment":67,"seq":855,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2718,"virtual_ns":294000000},"job":1,"kind":"machine.decode","segment":67,"seq":856,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2718,"virtual_ns":294000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":857}
+{"clock":{"token_clock":2718,"virtual_ns":294000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":858,"text":["41"],"tokens":1}
+{"after":"41","before":"40","clock":{"token_clock":2718,"virtual_ns":294000000},"job":1,"kind":"world.written","obj":"count.a","seq":859}
+{"clock":{"token_clock":2718,"virtual_ns":294000000},"end_segment":68,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":860,"start_segment":68,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2718,"virtual_ns":294000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":68,"seq":861}
+{"allowed_blocks":67,"clock":{"token_clock":2718,"virtual_ns":294000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":862}
+{"clock":{"token_clock":2722,"virtual_ns":294000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":69,"seq":863,"text":["<STATUS","count.a>","41","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2722,"virtual_ns":294000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":69,"seq":864}
+{"clock":{"token_clock":2722,"virtual_ns":294000000},"end":1076,"job":2,"kind":"segment.closed","segment":69,"seq":865,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2722,"virtual_ns":294000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":866}
+{"clock":{"token_clock":2722,"virtual_ns":294000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":69,"seq":867}
+{"clock":{"token_clock":2723,"virtual_ns":295000000},"job":1,"kind":"machine.decode","segment":67,"seq":868,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2724,"virtual_ns":296000000},"job":1,"kind":"machine.decode","segment":67,"seq":869,"text":["write"],"tokens":1}
+{"block":80,"clock":{"token_clock":2724,"virtual_ns":296000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":870}
+{"clock":{"token_clock":2724,"virtual_ns":296000000},"job":1,"kind":"vm.working_set","segments":21,"seq":871,"size_tokens":1276}
+{"allowed_blocks":80,"clock":{"token_clock":2724,"virtual_ns":296000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":872}
+{"clock":{"token_clock":2725,"virtual_ns":297000000},"job":1,"kind":"machine.decode","segment":70,"seq":873,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2726,"virtual_ns":298000000},"job":1,"kind":"machine.decode","segment":70,"seq":874,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2727,"virtual_ns":299000000},"job":1,"kind":"machine.decode","segment":70,"seq":875,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2728,"virtual_ns":300000000},"job":1,"kind":"machine.decode","segment":70,"seq":876,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2729,"virtual_ns":301000000},"job":1,"kind":"machine.decode","segment":70,"seq":877,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2729,"virtual_ns":301000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":878}
+{"clock":{"token_clock":2729,"virtual_ns":301000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":879,"text":["42"],"tokens":1}
+{"after":"42","before":"41","clock":{"token_clock":2729,"virtual_ns":301000000},"job":1,"kind":"world.written","obj":"count.a","seq":880}
+{"clock":{"token_clock":2729,"virtual_ns":301000000},"end_segment":69,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":881,"start_segment":69,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2729,"virtual_ns":301000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":69,"seq":882}
+{"allowed_blocks":67,"clock":{"token_clock":2729,"virtual_ns":301000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":883}
+{"clock":{"token_clock":2733,"virtual_ns":301000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":71,"seq":884,"text":["<STATUS","count.a>","42","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2733,"virtual_ns":301000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":71,"seq":885}
+{"clock":{"token_clock":2733,"virtual_ns":301000000},"end":1076,"job":2,"kind":"segment.closed","segment":71,"seq":886,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2733,"virtual_ns":301000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":887}
+{"clock":{"token_clock":2733,"virtual_ns":301000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":71,"seq":888}
+{"clock":{"token_clock":2734,"virtual_ns":302000000},"job":1,"kind":"machine.decode","segment":70,"seq":889,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2735,"virtual_ns":303000000},"job":1,"kind":"machine.decode","segment":70,"seq":890,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2736,"virtual_ns":304000000},"job":1,"kind":"machine.decode","segment":70,"seq":891,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2737,"virtual_ns":305000000},"job":1,"kind":"machine.decode","segment":70,"seq":892,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2738,"virtual_ns":306000000},"job":1,"kind":"machine.decode","segment":70,"seq":893,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2739,"virtual_ns":307000000},"job":1,"kind":"machine.decode","segment":70,"seq":894,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2740,"virtual_ns":308000000},"job":1,"kind":"machine.decode","segment":70,"seq":895,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2740,"virtual_ns":308000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":896}
+{"clock":{"token_clock":2740,"virtual_ns":308000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":897,"text":["43"],"tokens":1}
+{"after":"43","before":"42","clock":{"token_clock":2740,"virtual_ns":308000000},"job":1,"kind":"world.written","obj":"count.a","seq":898}
+{"clock":{"token_clock":2740,"virtual_ns":308000000},"end_segment":71,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":899,"start_segment":71,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2740,"virtual_ns":308000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":71,"seq":900}
+{"allowed_blocks":67,"clock":{"token_clock":2740,"virtual_ns":308000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":901}
+{"clock":{"token_clock":2744,"virtual_ns":308000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":72,"seq":902,"text":["<STATUS","count.a>","43","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2744,"virtual_ns":308000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":72,"seq":903}
+{"clock":{"token_clock":2744,"virtual_ns":308000000},"end":1076,"job":2,"kind":"segment.closed","segment":72,"seq":904,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2744,"virtual_ns":308000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":905}
+{"clock":{"token_clock":2744,"virtual_ns":308000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":72,"seq":906}
+{"clock":{"token_clock":2745,"virtual_ns":309000000},"job":1,"kind":"machine.decode","segment":70,"seq":907,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2746,"virtual_ns":310000000},"job":1,"kind":"machine.decode","segment":70,"seq":908,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2747,"virtual_ns":311000000},"job":1,"kind":"machine.decode","segment":70,"seq":909,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2748,"virtual_ns":312000000},"job":1,"kind":"machine.decode","segment":70,"seq":910,"text":[" "],"tokens":1}
+{"block":81,"clock":{"token_clock":2748,"virtual_ns":312000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":911}
+{"clock":{"token_clock":2748,"virtual_ns":312000000},"job":1,"kind":"vm.working_set","segments":22,"seq":912,"size_tokens":1292}
+{"allowed_blocks":81,"clock":{"token_clock":2748,"virtual_ns":312000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":913}
+{"clock":{"token_clock":2749,"virtual_ns":313000000},"job":1,"kind":"machine.decode","segment":73,"seq":914,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2750,"virtual_ns":314000000},"job":1,"kind":"machine.decode","segment":73,"seq":915,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2751,"virtual_ns":315000000},"job":1,"kind":"machine.decode","segment":73,"seq":916,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2751,"virtual_ns":315000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":917}
+{"clock":{"token_clock":2751,"virtual_ns":315000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":918,"text":["44"],"tokens":1}
+{"after":"44","before":"43","clock":{"token_clock":2751,"virtual_ns":315000000},"job":1,"kind":"world.written","obj":"count.a","seq":919}
+{"clock":{"token_clock":2751,"virtual_ns":315000000},"end_segment":72,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":920,"start_segment":72,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2751,"virtual_ns":315000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":72,"seq":921}
+{"allowed_blocks":67,"clock":{"token_clock":2751,"virtual_ns":315000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":922}
+{"clock":{"token_clock":2755,"virtual_ns":315000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":74,"seq":923,"text":["<STATUS","count.a>","44","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2755,"virtual_ns":315000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":74,"seq":924}
+{"clock":{"token_clock":2755,"virtual_ns":315000000},"end":1076,"job":2,"kind":"segment.closed","segment":74,"seq":925,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2755,"virtual_ns":315000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":926}
+{"clock":{"token_clock":2755,"virtual_ns":315000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":74,"seq":927}
+{"clock":{"token_clock":2756,"virtual_ns":316000000},"job":1,"kind":"machine.decode","segment":73,"seq":928,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2757,"virtual_ns":317000000},"job":1,"kind":"machine.decode","segment":73,"seq":929,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2758,"virtual_ns":318000000},"job":1,"kind":"machine.decode","segment":73,"seq":930,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2759,"virtual_ns":319000000},"job":1,"kind":"machine.decode","segment":73,"seq":931,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2760,"virtual_ns":320000000},"job":1,"kind":"machine.decode","segment":73,"seq":932,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2761,"virtual_ns":321000000},"job":1,"kind":"machine.decode","segment":73,"seq":933,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2762,"virtual_ns":322000000},"job":1,"kind":"machine.decode","segment":73,"seq":934,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2762,"virtual_ns":322000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":935}
+{"clock":{"token_clock":2762,"virtual_ns":322000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":936,"text":["45"],"tokens":1}
+{"after":"45","before":"44","clock":{"token_clock":2762,"virtual_ns":322000000},"job":1,"kind":"world.written","obj":"count.a","seq":937}
+{"clock":{"token_clock":2762,"virtual_ns":322000000},"end_segment":74,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":938,"start_segment":74,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2762,"virtual_ns":322000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":74,"seq":939}
+{"allowed_blocks":67,"clock":{"token_clock":2762,"virtual_ns":322000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":940}
+{"clock":{"token_clock":2766,"virtual_ns":322000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":75,"seq":941,"text":["<STATUS","count.a>","45","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2766,"virtual_ns":322000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":75,"seq":942}
+{"clock":{"token_clock":2766,"virtual_ns":322000000},"end":1076,"job":2,"kind":"segment.closed","segment":75,"seq":943,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2766,"virtual_ns":322000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":944}
+{"clock":{"token_clock":2766,"virtual_ns":322000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":75,"seq":945}
+{"clock":{"token_clock":2767,"virtual_ns":323000000},"job":1,"kind":"machine.decode","segment":73,"seq":946,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2768,"virtual_ns":324000000},"job":1,"kind":"machine.decode","segment":73,"seq":947,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2769,"virtual_ns":325000000},"job":1,"kind":"machine.decode","segment":73,"seq":948,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2770,"virtual_ns":326000000},"job":1,"kind":"machine.decode","segment":73,"seq":949,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2771,"virtual_ns":327000000},"job":1,"kind":"machine.decode","segment":73,"seq":950,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2772,"virtual_ns":328000000},"job":1,"kind":"machine.decode","segment":73,"seq":951,"text":["6"],"tokens":1}
+{"block":82,"clock":{"token_clock":2772,"virtual_ns":328000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":952}
+{"clock":{"token_clock":2772,"virtual_ns":328000000},"job":1,"kind":"vm.working_set","segments":23,"seq":953,"size_tokens":1308}
+{"allowed_blocks":82,"clock":{"token_clock":2772,"virtual_ns":328000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":954}
+{"clock":{"token_clock":2773,"virtual_ns":329000000},"job":1,"kind":"machine.decode","segment":76,"seq":955,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2773,"virtual_ns":329000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":956}
+{"clock":{"token_clock":2773,"virtual_ns":329000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":957,"text":["46"],"tokens":1}
+{"after":"46","before":"45","clock":{"token_clock":2773,"virtual_ns":329000000},"job":1,"kind":"world.written","obj":"count.a","seq":958}
+{"clock":{"token_clock":2773,"virtual_ns":329000000},"end_segment":75,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":959,"start_segment":75,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2773,"virtual_ns":329000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":75,"seq":960}
+{"allowed_blocks":67,"clock":{"token_clock":2773,"virtual_ns":329000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":961}
+{"clock":{"token_clock":2777,"virtual_ns":329000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":77,"seq":962,"text":["<STATUS","count.a>","46","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2777,"virtual_ns":329000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":77,"seq":963}
+{"clock":{"token_clock":2777,"virtual_ns":329000000},"end":1076,"job":2,"kind":"segment.closed","segment":77,"seq":964,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2777,"virtual_ns":329000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":965}
+{"clock":{"token_clock":2777,"virtual_ns":329000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":77,"seq":966}
+{"clock":{"token_clock":2778,"virtual_ns":330000000},"job":1,"kind":"machine.decode","segment":76,"seq":967,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2779,"virtual_ns":331000000},"job":1,"kind":"machine.decode","segment":76,"seq":968,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2780,"virtual_ns":332000000},"job":1,"kind":"machine.decode","segment":76,"seq":969,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2781,"virtual_ns":333000000},"job":1,"kind":"machine.decode","segment":76,"seq":970,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2782,"virtual_ns":334000000},"job":1,"kind":"machine.decode","segment":76,"seq":971,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2783,"virtual_ns":335000000},"job":1,"kind":"machine.decode","segment":76,"seq":972,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2784,"virtual_ns":336000000},"job":1,"kind":"machine.decode","segment":76,"seq":973,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2784,"virtual_ns":336000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":974}
+{"clock":{"token_clock":2784,"virtual_ns":336000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":975,"text":["47"],"tokens":1}
+{"after":"47","before":"46","clock":{"token_clock":2784,"virtual_ns":336000000},"job":1,"kind":"world.written","obj":"count.a","seq":976}
+{"clock":{"token_clock":2784,"virtual_ns":336000000},"end_segment":77,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":977,"start_segment":77,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2784,"virtual_ns":336000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":77,"seq":978}
+{"allowed_blocks":67,"clock":{"token_clock":2784,"virtual_ns":336000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":979}
+{"clock":{"token_clock":2788,"virtual_ns":336000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":78,"seq":980,"text":["<STATUS","count.a>","47","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2788,"virtual_ns":336000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":78,"seq":981}
+{"clock":{"token_clock":2788,"virtual_ns":336000000},"end":1076,"job":2,"kind":"segment.closed","segment":78,"seq":982,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2788,"virtual_ns":336000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":983}
+{"clock":{"token_clock":2788,"virtual_ns":336000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":78,"seq":984}
+{"clock":{"token_clock":2789,"virtual_ns":337000000},"job":1,"kind":"machine.decode","segment":76,"seq":985,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2790,"virtual_ns":338000000},"job":1,"kind":"machine.decode","segment":76,"seq":986,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2791,"virtual_ns":339000000},"job":1,"kind":"machine.decode","segment":76,"seq":987,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2792,"virtual_ns":340000000},"job":1,"kind":"machine.decode","segment":76,"seq":988,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2793,"virtual_ns":341000000},"job":1,"kind":"machine.decode","segment":76,"seq":989,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2794,"virtual_ns":342000000},"job":1,"kind":"machine.decode","segment":76,"seq":990,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2795,"virtual_ns":343000000},"job":1,"kind":"machine.decode","segment":76,"seq":991,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2795,"virtual_ns":343000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":992}
+{"clock":{"token_clock":2795,"virtual_ns":343000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":993,"text":["48"],"tokens":1}
+{"after":"48","before":"47","clock":{"token_clock":2795,"virtual_ns":343000000},"job":1,"kind":"world.written","obj":"count.a","seq":994}
+{"clock":{"token_clock":2795,"virtual_ns":343000000},"end_segment":78,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":995,"start_segment":78,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2795,"virtual_ns":343000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":78,"seq":996}
+{"allowed_blocks":67,"clock":{"token_clock":2795,"virtual_ns":343000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":997}
+{"clock":{"token_clock":2799,"virtual_ns":343000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":79,"seq":998,"text":["<STATUS","count.a>","48","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2799,"virtual_ns":343000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":79,"seq":999}
+{"clock":{"token_clock":2799,"virtual_ns":343000000},"end":1076,"job":2,"kind":"segment.closed","segment":79,"seq":1000,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2799,"virtual_ns":343000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1001}
+{"clock":{"token_clock":2799,"virtual_ns":343000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":79,"seq":1002}
+{"clock":{"token_clock":2800,"virtual_ns":344000000},"job":1,"kind":"machine.decode","segment":76,"seq":1003,"text":[" "],"tokens":1}
+{"block":83,"clock":{"token_clock":2800,"virtual_ns":344000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":1004}
+{"clock":{"token_clock":2800,"virtual_ns":344000000},"job":1,"kind":"vm.working_set","segments":24,"seq":1005,"size_tokens":1324}
+{"allowed_blocks":83,"clock":{"token_clock":2800,"virtual_ns":344000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":1006}
+{"clock":{"token_clock":2801,"virtual_ns":345000000},"job":1,"kind":"machine.decode","segment":80,"seq":1007,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2802,"virtual_ns":346000000},"job":1,"kind":"machine.decode","segment":80,"seq":1008,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2803,"virtual_ns":347000000},"job":1,"kind":"machine.decode","segment":80,"seq":1009,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2804,"virtual_ns":348000000},"job":1,"kind":"machine.decode","segment":80,"seq":1010,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2805,"virtual_ns":349000000},"job":1,"kind":"machine.decode","segment":80,"seq":1011,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2806,"virtual_ns":350000000},"job":1,"kind":"machine.decode","segment":80,"seq":1012,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2806,"virtual_ns":350000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1013}
+{"clock":{"token_clock":2806,"virtual_ns":350000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1014,"text":["49"],"tokens":1}
+{"after":"49","before":"48","clock":{"token_clock":2806,"virtual_ns":350000000},"job":1,"kind":"world.written","obj":"count.a","seq":1015}
+{"clock":{"token_clock":2806,"virtual_ns":350000000},"end_segment":79,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1016,"start_segment":79,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2806,"virtual_ns":350000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":79,"seq":1017}
+{"allowed_blocks":67,"clock":{"token_clock":2806,"virtual_ns":350000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1018}
+{"clock":{"token_clock":2810,"virtual_ns":350000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":81,"seq":1019,"text":["<STATUS","count.a>","49","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2810,"virtual_ns":350000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":81,"seq":1020}
+{"clock":{"token_clock":2810,"virtual_ns":350000000},"end":1076,"job":2,"kind":"segment.closed","segment":81,"seq":1021,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2810,"virtual_ns":350000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1022}
+{"clock":{"token_clock":2810,"virtual_ns":350000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":81,"seq":1023}
+{"clock":{"token_clock":2811,"virtual_ns":351000000},"job":1,"kind":"machine.decode","segment":80,"seq":1024,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2812,"virtual_ns":352000000},"job":1,"kind":"machine.decode","segment":80,"seq":1025,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2813,"virtual_ns":353000000},"job":1,"kind":"machine.decode","segment":80,"seq":1026,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2814,"virtual_ns":354000000},"job":1,"kind":"machine.decode","segment":80,"seq":1027,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2815,"virtual_ns":355000000},"job":1,"kind":"machine.decode","segment":80,"seq":1028,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2816,"virtual_ns":356000000},"job":1,"kind":"machine.decode","segment":80,"seq":1029,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2817,"virtual_ns":357000000},"job":1,"kind":"machine.decode","segment":80,"seq":1030,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2817,"virtual_ns":357000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1031}
+{"clock":{"token_clock":2817,"virtual_ns":357000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1032,"text":["50"],"tokens":1}
+{"after":"50","before":"49","clock":{"token_clock":2817,"virtual_ns":357000000},"job":1,"kind":"world.written","obj":"count.a","seq":1033}
+{"clock":{"token_clock":2817,"virtual_ns":357000000},"end_segment":81,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1034,"start_segment":81,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2817,"virtual_ns":357000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":81,"seq":1035}
+{"allowed_blocks":67,"clock":{"token_clock":2817,"virtual_ns":357000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1036}
+{"clock":{"token_clock":2821,"virtual_ns":357000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":82,"seq":1037,"text":["<STATUS","count.a>","50","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2821,"virtual_ns":357000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":82,"seq":1038}
+{"clock":{"token_clock":2821,"virtual_ns":357000000},"end":1076,"job":2,"kind":"segment.closed","segment":82,"seq":1039,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2821,"virtual_ns":357000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1040}
+{"clock":{"token_clock":2821,"virtual_ns":357000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":82,"seq":1041}
+{"clock":{"token_clock":2822,"virtual_ns":358000000},"job":1,"kind":"machine.decode","segment":80,"seq":1042,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2823,"virtual_ns":359000000},"job":1,"kind":"machine.decode","segment":80,"seq":1043,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2824,"virtual_ns":360000000},"job":1,"kind":"machine.decode","segment":80,"seq":1044,"text":[" tools"],"tokens":1}
+{"block":84,"clock":{"token_clock":2824,"virtual_ns":360000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":1045}
+{"clock":{"token_clock":2824,"virtual_ns":360000000},"job":1,"kind":"vm.working_set","segments":25,"seq":1046,"size_tokens":1340}
+{"allowed_blocks":84,"clock":{"token_clock":2824,"virtual_ns":360000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":1047}
+{"clock":{"token_clock":2825,"virtual_ns":361000000},"job":1,"kind":"machine.decode","segment":83,"seq":1048,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2826,"virtual_ns":362000000},"job":1,"kind":"machine.decode","segment":83,"seq":1049,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2827,"virtual_ns":363000000},"job":1,"kind":"machine.decode","segment":83,"seq":1050,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2828,"virtual_ns":364000000},"job":1,"kind":"machine.decode","segment":83,"seq":1051,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2828,"virtual_ns":364000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1052}
+{"clock":{"token_clock":2828,"virtual_ns":364000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1053,"text":["51"],"tokens":1}
+{"after":"51","before":"50","clock":{"token_clock":2828,"virtual_ns":364000000},"job":1,"kind":"world.written","obj":"count.a","seq":1054}
+{"clock":{"token_clock":2828,"virtual_ns":364000000},"end_segment":82,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1055,"start_segment":82,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2828,"virtual_ns":364000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":82,"seq":1056}
+{"allowed_blocks":67,"clock":{"token_clock":2828,"virtual_ns":364000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1057}
+{"clock":{"token_clock":2832,"virtual_ns":364000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":84,"seq":1058,"text":["<STATUS","count.a>","51","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2832,"virtual_ns":364000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":84,"seq":1059}
+{"clock":{"token_clock":2832,"virtual_ns":364000000},"end":1076,"job":2,"kind":"segment.closed","segment":84,"seq":1060,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2832,"virtual_ns":364000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1061}
+{"clock":{"token_clock":2832,"virtual_ns":364000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":84,"seq":1062}
+{"clock":{"token_clock":2833,"virtual_ns":365000000},"job":1,"kind":"machine.decode","segment":83,"seq":1063,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2834,"virtual_ns":366000000},"job":1,"kind":"machine.decode","segment":83,"seq":1064,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2835,"virtual_ns":367000000},"job":1,"kind":"machine.decode","segment":83,"seq":1065,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2836,"virtual_ns":368000000},"job":1,"kind":"machine.decode","segment":83,"seq":1066,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2837,"virtual_ns":369000000},"job":1,"kind":"machine.decode","segment":83,"seq":1067,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2838,"virtual_ns":370000000},"job":1,"kind":"machine.decode","segment":83,"seq":1068,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2839,"virtual_ns":371000000},"job":1,"kind":"machine.decode","segment":83,"seq":1069,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2839,"virtual_ns":371000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1070}
+{"clock":{"token_clock":2839,"virtual_ns":371000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1071,"text":["52"],"tokens":1}
+{"after":"52","before":"51","clock":{"token_clock":2839,"virtual_ns":371000000},"job":1,"kind":"world.written","obj":"count.a","seq":1072}
+{"clock":{"token_clock":2839,"virtual_ns":371000000},"end_segment":84,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1073,"start_segment":84,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2839,"virtual_ns":371000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":84,"seq":1074}
+{"allowed_blocks":67,"clock":{"token_clock":2839,"virtual_ns":371000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1075}
+{"clock":{"token_clock":2843,"virtual_ns":371000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":85,"seq":1076,"text":["<STATUS","count.a>","52","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2843,"virtual_ns":371000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":85,"seq":1077}
+{"clock":{"token_clock":2843,"virtual_ns":371000000},"end":1076,"job":2,"kind":"segment.closed","segment":85,"seq":1078,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2843,"virtual_ns":371000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1079}
+{"clock":{"token_clock":2843,"virtual_ns":371000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":85,"seq":1080}
+{"clock":{"token_clock":2844,"virtual_ns":372000000},"job":1,"kind":"machine.decode","segment":83,"seq":1081,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2845,"virtual_ns":373000000},"job":1,"kind":"machine.decode","segment":83,"seq":1082,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2846,"virtual_ns":374000000},"job":1,"kind":"machine.decode","segment":83,"seq":1083,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2847,"virtual_ns":375000000},"job":1,"kind":"machine.decode","segment":83,"seq":1084,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2848,"virtual_ns":376000000},"job":1,"kind":"machine.decode","segment":83,"seq":1085,"text":["5"],"tokens":1}
+{"block":85,"clock":{"token_clock":2848,"virtual_ns":376000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":1086}
+{"clock":{"token_clock":2848,"virtual_ns":376000000},"job":1,"kind":"vm.working_set","segments":26,"seq":1087,"size_tokens":1356}
+{"allowed_blocks":85,"clock":{"token_clock":2848,"virtual_ns":376000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":1088}
+{"clock":{"token_clock":2849,"virtual_ns":377000000},"job":1,"kind":"machine.decode","segment":86,"seq":1089,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2850,"virtual_ns":378000000},"job":1,"kind":"machine.decode","segment":86,"seq":1090,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2850,"virtual_ns":378000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1091}
+{"clock":{"token_clock":2850,"virtual_ns":378000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1092,"text":["53"],"tokens":1}
+{"after":"53","before":"52","clock":{"token_clock":2850,"virtual_ns":378000000},"job":1,"kind":"world.written","obj":"count.a","seq":1093}
+{"clock":{"token_clock":2850,"virtual_ns":378000000},"end_segment":85,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1094,"start_segment":85,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2850,"virtual_ns":378000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":85,"seq":1095}
+{"allowed_blocks":67,"clock":{"token_clock":2850,"virtual_ns":378000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1096}
+{"clock":{"token_clock":2854,"virtual_ns":378000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":87,"seq":1097,"text":["<STATUS","count.a>","53","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2854,"virtual_ns":378000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":87,"seq":1098}
+{"clock":{"token_clock":2854,"virtual_ns":378000000},"end":1076,"job":2,"kind":"segment.closed","segment":87,"seq":1099,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2854,"virtual_ns":378000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1100}
+{"clock":{"token_clock":2854,"virtual_ns":378000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":87,"seq":1101}
+{"clock":{"token_clock":2855,"virtual_ns":379000000},"job":1,"kind":"machine.decode","segment":86,"seq":1102,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2856,"virtual_ns":380000000},"job":1,"kind":"machine.decode","segment":86,"seq":1103,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2857,"virtual_ns":381000000},"job":1,"kind":"machine.decode","segment":86,"seq":1104,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2858,"virtual_ns":382000000},"job":1,"kind":"machine.decode","segment":86,"seq":1105,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2859,"virtual_ns":383000000},"job":1,"kind":"machine.decode","segment":86,"seq":1106,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2860,"virtual_ns":384000000},"job":1,"kind":"machine.decode","segment":86,"seq":1107,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2861,"virtual_ns":385000000},"job":1,"kind":"machine.decode","segment":86,"seq":1108,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2861,"virtual_ns":385000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1109}
+{"clock":{"token_clock":2861,"virtual_ns":385000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1110,"text":["54"],"tokens":1}
+{"after":"54","before":"53","clock":{"token_clock":2861,"virtual_ns":385000000},"job":1,"kind":"world.written","obj":"count.a","seq":1111}
+{"clock":{"token_clock":2861,"virtual_ns":385000000},"end_segment":87,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1112,"start_segment":87,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2861,"virtual_ns":385000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":87,"seq":1113}
+{"allowed_blocks":67,"clock":{"token_clock":2861,"virtual_ns":385000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1114}
+{"clock":{"token_clock":2865,"virtual_ns":385000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":88,"seq":1115,"text":["<STATUS","count.a>","54","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2865,"virtual_ns":385000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":88,"seq":1116}
+{"clock":{"token_clock":2865,"virtual_ns":385000000},"end":1076,"job":2,"kind":"segment.closed","segment":88,"seq":1117,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2865,"virtual_ns":385000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1118}
+{"clock":{"token_clock":2865,"virtual_ns":385000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":88,"seq":1119}
+{"clock":{"token_clock":2866,"virtual_ns":386000000},"job":1,"kind":"machine.decode","segment":86,"seq":1120,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2867,"virtual_ns":387000000},"job":1,"kind":"machine.decode","segment":86,"seq":1121,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2868,"virtual_ns":388000000},"job":1,"kind":"machine.decode","segment":86,"seq":1122,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2869,"virtual_ns":389000000},"job":1,"kind":"machine.decode","segment":86,"seq":1123,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2870,"virtual_ns":390000000},"job":1,"kind":"machine.decode","segment":86,"seq":1124,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2871,"virtual_ns":391000000},"job":1,"kind":"machine.decode","segment":86,"seq":1125,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2872,"virtual_ns":392000000},"job":1,"kind":"machine.decode","segment":86,"seq":1126,"text":[";"],"tokens":1}
+{"block":86,"clock":{"token_clock":2872,"virtual_ns":392000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":1127}
+{"clock":{"token_clock":2872,"virtual_ns":392000000},"job":1,"kind":"vm.working_set","segments":27,"seq":1128,"size_tokens":1372}
+{"allowed_blocks":86,"clock":{"token_clock":2872,"virtual_ns":392000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":1129}
+{"allowed":true,"clock":{"token_clock":2872,"virtual_ns":392000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1130}
+{"clock":{"token_clock":2872,"virtual_ns":392000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1131,"text":["55"],"tokens":1}
+{"after":"55","before":"54","clock":{"token_clock":2872,"virtual_ns":392000000},"job":1,"kind":"world.written","obj":"count.a","seq":1132}
+{"clock":{"token_clock":2872,"virtual_ns":392000000},"end_segment":88,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1133,"start_segment":88,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2872,"virtual_ns":392000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":88,"seq":1134}
+{"allowed_blocks":67,"clock":{"token_clock":2872,"virtual_ns":392000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1135}
+{"clock":{"token_clock":2876,"virtual_ns":392000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":89,"seq":1136,"text":["<STATUS","count.a>","55","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2876,"virtual_ns":392000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":89,"seq":1137}
+{"clock":{"token_clock":2876,"virtual_ns":392000000},"end":1076,"job":2,"kind":"segment.closed","segment":89,"seq":1138,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2876,"virtual_ns":392000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1139}
+{"clock":{"token_clock":2876,"virtual_ns":392000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":89,"seq":1140}
+{"clock":{"token_clock":2877,"virtual_ns":393000000},"job":1,"kind":"machine.decode","segment":90,"seq":1141,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2878,"virtual_ns":394000000},"job":1,"kind":"machine.decode","segment":90,"seq":1142,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2879,"virtual_ns":395000000},"job":1,"kind":"machine.decode","segment":90,"seq":1143,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2880,"virtual_ns":396000000},"job":1,"kind":"machine.decode","segment":90,"seq":1144,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2881,"virtual_ns":397000000},"job":1,"kind":"machine.decode","segment":90,"seq":1145,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2882,"virtual_ns":398000000},"job":1,"kind":"machine.decode","segment":90,"seq":1146,"text":["6"],"tokens":1}
+{"clock":{"token_clock":2883,"virtual_ns":399000000},"job":1,"kind":"machine.decode","segment":90,"seq":1147,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2883,"virtual_ns":399000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":1148}
+{"clock":{"token_clock":2883,"virtual_ns":399000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":1149,"text":["56"],"tokens":1}
+{"after":"56","before":"55","clock":{"token_clock":2883,"virtual_ns":399000000},"job":1,"kind":"world.written","obj":"count.a","seq":1150}
+{"clock":{"token_clock":2883,"virtual_ns":399000000},"end_segment":89,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":1151,"start_segment":89,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2883,"virtual_ns":399000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":89,"seq":1152}
+{"allowed_blocks":67,"clock":{"token_clock":2883,"virtual_ns":399000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1153}
+{"clock":{"token_clock":2887,"virtual_ns":399000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":91,"seq":1154,"text":["<STATUS","count.a>","56","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2887,"virtual_ns":399000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":91,"seq":1155}
+{"clock":{"token_clock":2887,"virtual_ns":399000000},"end":1076,"job":2,"kind":"segment.closed","segment":91,"seq":1156,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2887,"virtual_ns":399000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":1157}
+{"clock":{"token_clock":2887,"virtual_ns":399000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":91,"seq":1158}

@@ -13,12 +13,16 @@ console's interrupt.
 ```bash
 uv sync --all-packages                       # from the repository root
 uv run python demo/coop-count-web/build.py   # builds the wheels into web/dist/
-python -m http.server 8765 -d demo/coop-count-web/web/dist
+uv run python demo/coop-count-web/serve.py   # web/dist/ on port 8765, cross-origin isolated
 # open http://localhost:8765/
 ```
 
 Any static file host serves `web/dist/` as well; the page fetches Pyodide from the
-jsDelivr CDN, so the browser needs a network connection the first time.
+jsDelivr CDN, so the browser needs a network connection the first time. The model
+machine (see *The model machine* below) needs the page cross-origin isolated: `serve.py`
+sends the two headers that takes, and on a host that cannot send them
+`coi_serviceworker.js` adds them in the browser after one reload. The scripted and stub
+machines run on any host, `python -m http.server` included.
 
 ## What runs
 
@@ -33,6 +37,7 @@ Two machines are offered for a case:
 |---|---|
 | scripted | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
 | JsMachine | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
+| JsMachine — Qwen2.5-0.5B | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. Offered when the build found an export. |
 
 On `coop-count-scripted` the two decode the same words and their journals hold the same
 events in the same order, with two exceptions, both about attention. The seat's mask
@@ -43,8 +48,9 @@ blocks as visible (see *the mask's horizon* below), so it has no `mask.denied` e
 and two `vm.working_set` events count one more segment. The page's table of finished
 runs shows each journal's SHA-256, so two runs of the same machine with the same inputs
 show the same digest. `coop-count-pipe` and
-`coop-count-vector` carry no tapes, so they need a model: the page lints them and draws
-their wiring, and does not offer to run them.
+`coop-count-vector` carry no tapes, so they need a model: on the scripted and stub
+machines the page lints them and draws their wiring and does not offer to run them; the
+model machine runs them, for 400 ticks, since a live counter counts for ever.
 
 **The console.** Space writes `attention` to `keys.interrupt`, which the case's vector
 table binds to `reset-count` at priority 5, so the handler preempts whichever counter is
@@ -253,6 +259,221 @@ In the browser the page builds the stub with `createStubWorker(tapes)` and passe
 `zeos_coop_count_web.page.open_run(case_dir, "js", worker=stub)`, which wraps it in
 `PyodideBridge`; any other object implementing the interface goes the same way.
 
+## The model machine
+
+The third machine on the page is `JsMachine` over a real language model:
+Qwen2.5-0.5B-Instruct, exported to ONNX by `export/export_model.py` and run by ONNX
+Runtime Web in `web/transformers_worker.js`, with the tokenizer Transformers.js uses. It
+supplies all four things ZEOS asks of a serving stack: the allowed-block mask is applied
+inside attention, before the softmax, in every layer; each decode step's attention is
+measured, summed over layers and heads and normalised, per KV position; the control ids
+are reserved in the sampler; and the syscall grammar constrains every step. The kernel
+therefore receives measured attention, `DecodeResult.attention`, where every other
+backend in the repository gives it a hint, and integrity demotes on it.
+
+### The model
+
+**Qwen2.5-0.5B-Instruct.** It speaks ChatML, which is what `JsMachine` frames prompts in
+(`chat_template="chatml"`, as for `LlamaMachine`), its architecture is a plain
+transformer whose KV cache can be cut at any position, which paging needs, and at int8 it
+is a 632 MB download that a browser's WebAssembly heap holds twice over. One decode step
+takes about 70 ms on onnxruntime-web's WebAssembly backend under Node and about 90 ms in
+Chrome, one thread each. Qwen2.5-1.5B-Instruct exports with the same script
+(`--model Qwen/Qwen2.5-1.5B-Instruct`, 1.8 GB) and runs from Node at about 210 ms a step;
+it is not what the page loads.
+
+Neither follows the coop-count procedure as `Qwen3.5-4B` does under llama.cpp. On
+`coop-count-pipe` the 0.5B counter-a says 1 to 10, records 11 rather than 10, wakes its
+peer and sleeps; counter-b, woken, says `1000000000000000` over and over until the run is
+cut off; and the handler, preempting it at the keypress, says `"attention" and` and exits
+instead of reading the console. The 1.5B keeps the turn structure for 400 ticks --
+counter-a records 0, 10, 20, ..., wakes its peer and sleeps, and counter-b wakes it back
+-- but neither says a number, and its handler does not read the console either. What the
+kernel gets from either is real: measured attention, enforced masks, and commands that
+only the grammar allows.
+
+### The export
+
+`export/export_model.py` writes, into `models/<name>-zeos-<quant>/` (gitignored):
+
+- `prefill.onnx` -- new token ids, the past KV and a per-position key mask in; the new
+  positions' KV out. The library's default attention (`scaled_dot_product_attention`),
+  which the exporter lowers to plain operators. No logits: the worker never needs them
+  from a prefill.
+- `decode.onnx` -- one token id, the past KV and an allowed mask per KV block in; the
+  logits, the new position's KV and the step's attention per block out. Attention is
+  computed explicitly (scores, mask, softmax) so the probabilities can be summed over
+  heads and layers and divided by their product inside the graph; a masked key gets
+  `-inf` before the softmax and so exactly zero after it. Block size is baked in at
+  export and reported by `info().blockSize`; it is 1, so the attention vector has one
+  entry per position and `JsMachine` sums it onto the kernel's blocks exactly, which a
+  fixed multi-token block cannot do when a kernel word is several tokens.
+- `weights.bin` -- every large initialiser of both graphs once, so the weights download
+  once; `meta.json` -- shapes, reserved ids and file digests; the tokenizer's two files.
+
+The graphs are a rewrite of Qwen2 in PyTorch over a position-major KV layout
+(`[positions, layers, 2, kv heads, head dim]`), so that appending, truncating and
+copying a job's cache are contiguous copies in JavaScript; the script holds the rewrite
+to `transformers`' own logits before it exports (drift 7e-5 at full precision), and
+checks the exported decode graph under ONNX Runtime CPU: a masked block receives exactly
+zero, the rest sum to one. `tests/test_exported_graph.py` repeats that check.
+
+**Quantisation.** The default, `int8`, is ONNX Runtime's dynamic quantisation of every
+weight matmul (per-channel int8 weights, int8 activations computed per step), plus a
+per-row int8 embedding table. It was chosen by measurement: on onnxruntime-web 1.30's
+WebAssembly backend a decode step takes 68 ms at int8 and 920 ms with 4-bit
+`MatMulNBits` weights (`--quant q4`), which that backend dequantises on every run;
+`q4a8` is no faster. The int8 embedding moves the logits by at most 0.08 against full
+precision, and the int8 matmuls change which token wins on free text: asked to count
+from 1 to 10 in a chat turn, the q4 export answers with the digits and the int8 one with
+a sentence about how it would. The coop-count behaviour above is the int8 export's.
+
+The export needs PyTorch, `transformers`, `onnx` and ONNX Runtime, which are a
+non-default dependency group of this package, so the root `uv sync --all-packages` never
+installs them:
+
+```bash
+uv sync --all-packages --group export                     # from the repository root
+uv run python demo/coop-count-web/export/export_model.py  # about a minute; 632 MB
+uv sync --all-packages                                    # drop the export group again
+```
+
+The script downloads the model from the Hugging Face Hub into `models/<name>/` first.
+Two exports from the same source are byte-identical.
+
+### The worker
+
+`web/transformers_worker.js` implements `ZeosModelWorker` over the two graphs, driving
+them with onnxruntime-web directly rather than through Transformers.js: Transformers.js'
+model classes run their own exports with their own cache, and these graphs have inputs
+and outputs no model class knows (the masks, the attention vector) and a cache the
+worker owns. The tokenizer is `@huggingface/tokenizers`, the library Transformers.js 4
+tokenizes with, loaded from the export's `tokenizer.json`. `tokenize` runs its
+normaliser, pre-tokeniser and BPE without the added-token splitter, so a literal
+`<|im_end|>` in text stays text; it matches Hugging Face's `split_special_tokens=True`
+token for token.
+
+A job's cache is one growable `Float32Array`; `fork` copies it, `truncate` shortens it.
+Its last token is pending, with no KV behind it, until a decode step feeds it through the
+decode graph, so every step is exactly one forward pass of one token, and `append`
+prefills everything before it in chunks of 256. A decode step does not append the id it
+chooses (`JsMachine` does, before the next). The mask of a job's latest step is applied
+to the keys of its next prefill too, so content appended later never attends a block
+the kernel had hidden. The worker refuses an `allowedBlocks` shorter than the context, a
+mask that hides every block, and an `allowedTokens` that allows nothing.
+
+`info()` is `{blockSize: 1, padId: <|endoftext|>, controlIds: [<|im_start|>,
+<|im_end|>, <|endoftext|>], eosId: <|im_end|>, vocabSize: 151665}`. `vocabSize` is the
+tokenizer's vocabulary; the logits are 151,936 wide because the embedding is padded, and
+no id past the tokenizer's is ever chosen.
+
+The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it, so the
+same file runs in the page and under Node (`web/node_load.mjs`).
+
+### Calling an asynchronous model synchronously
+
+`JsMachine.decode` is synchronous, the kernel loop that calls it stays synchronous, and
+ONNX Runtime Web's `session.run` returns a promise. The page resolves that with a second
+thread and a `SharedArrayBuffer`:
+
+- the page starts the model in its own module Web Worker (`web/model_thread.js`, started
+  by `web/model_host.js`) and hands the Pyodide worker a `MessagePort` to it and the
+  shared buffer;
+- in the Pyodide worker, `SyncModelWorker` (`web/model_channel.js`) is the
+  `ZeosModelWorker` `JsMachine` calls: each method posts the call on the port and blocks
+  in `Atomics.wait` until the model thread has awaited the session and written the reply
+  into the buffer (`web/frames.js` is the encoding, typed arrays as raw bytes).
+
+Pyodide's own `run_sync` would have needed the kernel entered through an async call and
+JavaScript Promise Integration, which not every browser ships; `Atomics.wait` works in
+every current browser, inside a worker. It needs the page cross-origin isolated, which is
+why `serve.py` and `coi_serviceworker.js` exist. The page starts the model thread rather
+than the Pyodide worker because a worker started from inside a worker failed to start in
+the Chromium this was tested in. Under Node the same channel runs with a
+`worker_threads` thread (`web/node_model_thread.mjs`), where `Atomics.wait` is allowed on
+the main thread too.
+
+**Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
+clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
+alone (see *Determinism* below); with more threads the model thread did not finish
+loading in the browser this was tested in. WebGPU is offered with the caveat in its
+label. ONNX Runtime's WebGPU backend has no kernel for the int8 export's integer
+matmuls, so they run on WebAssembly with a copy each way, about 1.2 s a step; the q4
+export (`--quant q4`, 446 MB) runs on WebGPU at about 54 ms a step, and `build.py --model`
+puts it on the page.
+
+### The grammar
+
+`JsMachine`'s Python token mask (`token_mask`) is kept. Against the Qwen vocabulary
+(151,665 pieces) it is correct -- `tests/test_transformers_grammar.py` puts the model
+after a context of injected text written to talk it out of the command language
+(forged chat markers, a fake status line, prose demands) and every completed line parses
+as a command, no control id is ever chosen and no `<` is ever emitted -- and it is fast
+enough: building the mask for a round state the run has not met costs 0.11 s on average
+under Pyodide (0.81 s at most, 0.06 s under CPython) and a cached state costs nothing,
+so a counting round pays a few seconds once, against 90 ms a decode step for as long as
+the run lasts.
+
+### Running it
+
+In the page: build with an export present and `npm install` done, serve with `serve.py`,
+choose *JsMachine -- Qwen2.5-0.5B* and a case, and run. A run stops at 400 ticks, as
+`demo/coop-count/run_all.py` stops a live seat.
+
+From a shell, the same `JsMachine`, `LiveRun` and worker run under CPython with the model
+in a Node child process (`zeos_coop_count_web.node_worker.NodeWorker`, over
+`web/node_bridge.mjs`):
+
+```bash
+cd demo/coop-count-web
+npm install
+uv run python -m zeos_coop_count_web.node_run ../coop-count/cases/coop-count-pipe \
+    --events ../coop-count/cases/coop-count-pipe/events.jsonl --journal pipe.jsonl
+uv run python -m zeos_coop_count_web.evidence pipe.jsonl
+```
+
+`node_run` writes the journal and, beside it, `pipe.attention.jsonl`: one line per decode
+step, keyed by the sequence number of its `machine.decode` event, with the measured mass
+per kernel block and per segment. The journal has no field for attention -- its events
+are the kernel's -- so the measurement is kept beside it, as `zeos.trace` keeps the raw
+trace. `--theta-read` sets `KernelConfig.theta_read`, `--ring PIPE=RING` declares a pipe
+at another ring for the run, and `--hide JOB:BLOCK` takes a kernel block out of every
+mask a job is given. `evidence` reports what the measured attention did to integrity.
+
+### Measured attention
+
+`docs/evidence/README.md` is the write-up, with the journals it cites beside it: a
+demotion whose `because` names an untrusted segment and the measured mass that crossed
+`theta_read`; the same run at a `theta_read` above that mass, with no demotion; and a
+block hidden through `set_mask` that measures exactly zero on every step. In short: the
+handler of `coop-count-pipe`, with the console declared untrusted, put 0.36 of its first
+step's attention on the keypress and was demoted for it; and the block a job is writing
+into gets 0.17 of each step's attention on average.
+
+### Determinism
+
+On the WebAssembly backend the page's journal is byte for byte the one the same run
+writes under CPython with the worker in Node, because both run the same onnxruntime-web
+WebAssembly binary on one thread and the kernel reads no clock. In Chrome 152 (the
+desktop app's browser pane, Apple silicon) and under Node 22, 400 ticks of each case:
+
+| case | SHA-256 of the journal, page and Node alike |
+|---|---|
+| `coop-count-scripted` (with its schedule) | `fcd01b7ac8c159def1946b8f37e46060cdd8c34b8f2a31a8290c5910f46baa68` |
+| `coop-count-pipe` (with its schedule) | `7d851f720562c396db3c4ee5bee10dc21453f8587405946c430f5cae068de6f9` |
+| `coop-count-vector` | `f8bf68a3e554f155528cdce373618b95666ad5808de3da813734d9eed6b90578` |
+
+`coop-count-scripted` ran twice in the page, in two page loads, with the same digest.
+The same holds with Pyodide in Node over the model thread (`tests/pyodide_run.mjs
+--model`), whose journal for 40 ticks of `coop-count-scripted` matched CPython's.
+
+WebGPU was checked on one device only, with the q4 export, on twenty greedy steps of a
+short chat prompt: three runs in the same browser chose the same tokens and reported
+bit-identical attention, and the tokens were WebAssembly's, but the attention was not
+bit-identical to WebAssembly's on the same export. Its floating-point order is the
+GPU's, so a journal made on WebGPU is not claimed to match one made on another device,
+or on WebAssembly; the determinism claim is WebAssembly's.
+
 ## Tests
 
 ```bash
@@ -272,6 +493,19 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   refusals, and the language the mask admits.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
   page fetches.
+- `test_exported_graph.py` — the exported decode graph under ONNX Runtime CPU: a masked
+  block receives exactly zero, the rest sum to one, and masking changes the logits.
+  Needs the export and the `export` dependency group.
+- `test_transformers_grammar.py` — the token mask against the real model after
+  adversarial injected text: only commands, never a control id.
+- `test_node_run.py` — a kernel run over the real model: one attention line per decode
+  step, each summing to one, and a block hidden through `set_mask` at exactly zero.
+- `tests/js/transformers_worker.test.mjs` (`node --test tests/js/*.test.mjs`) — the
+  worker's interface under Node, directly and through the synchronous channel.
+- `test_js_machine_contract.py` also runs the contract suite over the real model worker
+  (`js-transformers`), driven from Node.
+- These four and the `js-transformers` backend skip without Node, `npm install` or the
+  export.
 - `test_pyodide_determinism.py` — the smoke fixture, the seat and the stub, each under
   Pyodide in Node and under CPython, compared byte for byte. It builds both wheels with
   `uv build`, installs them by unpacking as Pyodide installs a pure wheel, and copies the
