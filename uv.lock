@@ -7,6 +7,7 @@ members = [
     "counter-demo",
     "zeos",
     "zeos-coop-count",
+    "zeos-coop-count-web",
     "zeos-space-invaders",
 ]
 
@@ -1045,6 +1046,25 @@ requires-dist = [
     { name = "llama-cpp-python", specifier = ">=0.3.35" },
     { name = "zeos", editable = "." },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
+name = "zeos-coop-count-web"
+version = "0.1.0"
+source = { editable = "demo/coop-count-web" }
+dependencies = [
+    { name = "zeos" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "zeos", editable = "." }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

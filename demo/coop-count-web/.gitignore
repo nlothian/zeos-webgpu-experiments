@@ -1,2 +1,8 @@
+# What build.py assembles: the wheels, the cases and the page, ready to serve.
+/web/dist
+# The exported model and the download it was made from, written by
+# export/export_model.py. No trailing slash, so a symlink to a shared copy matches.
 /models
+# npm dependencies: Pyodide for the Node determinism test, ONNX Runtime and the
+# tokenizer for the model worker.
 /node_modules

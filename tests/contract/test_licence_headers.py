@@ -15,8 +15,9 @@ The expected identifier is read from ``pyproject.toml`` rather than written here
 twice, so the package metadata is the single source of truth and a licence change
 is one edit, not a hunt.
 
-Third-party material is deliberately excluded: anything under a ``vendor`` or
-``node_modules`` directory keeps the licence it arrived with.
+Third-party material is deliberately excluded: anything under a ``vendor``
+directory keeps the licence it arrived with, as does a demo's gitignored
+``node_modules``.
 """
 
 from __future__ import annotations
@@ -44,8 +45,8 @@ def _sources() -> list[Path]:
         for path in sorted((REPO / root).rglob("*")):
             if not path.is_file() or path.suffix not in SUFFIXES:
                 continue
-            # Vendored assets and installed npm packages keep their own licence, and
-            # a minified bundle is not a file anyone edits.
+            # Vendored assets keep their own licence, and a minified bundle is
+            # not a file anyone edits.
             parts = path.relative_to(REPO).parts
             if "vendor" in parts or "node_modules" in parts or ".min." in path.name:
                 continue
