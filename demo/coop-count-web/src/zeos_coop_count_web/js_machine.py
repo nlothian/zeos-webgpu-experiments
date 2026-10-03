@@ -49,12 +49,10 @@ How this class uses it, which is what a worker has to get right:
 * **Residency.** The worker's tokens for a context are always a prefix of the ids this
   class holds for it. Before each ``decodeStep`` it appends whatever lies past
   ``length()``, so the context is never empty when a step is asked for.
-* **A decode step** computes the next-token distribution at the last resident
-  position, attending only the allowed blocks, and reports that query's attention. A
-  worker may append the chosen id itself (the Transformers.js worker does, as the
-  interface specifies) or leave it out (the fake does); this class asks ``length()``
-  before every step and appends whatever the worker lacks, so either keeps its ids a
-  prefix of this class's.
+* **A decode step does not change the context.** The chosen id is appended by the
+  ``append`` before the next step, as ``LlamaMachine`` feeds a sampled token on its
+  next decode. The step computes the next-token distribution at the last resident
+  position, attending only the allowed blocks, and reports that query's attention.
 * **Blocks** in ``allowedBlocks`` and in ``attention`` are the worker's own:
   ``info().blockSize`` model tokens each, block ``b`` covering token positions
   ``[b * blockSize, (b + 1) * blockSize)``, one entry per block of the resident
@@ -65,20 +63,22 @@ How this class uses it, which is what a worker has to get right:
   block is shared among the kernel blocks with tokens in it, in proportion to how many.
   Both are exact when every word is one model token, as with the stub worker, and
   when the worker's blocks are single positions, as with the Transformers.js worker.
-* **Blocks the mask has not seen are not hidden from the model.** The kernel installs a
-  mask at each block boundary and after every inject, splice and fork, as the union of
-  the blocks of readable segments. At a boundary the job's next output segment has not
-  been opened, so the block it is about to write is in no mask until the following
-  boundary, and a backend enforcing ``visible_blocks`` to the letter hides the job's own
-  newest words from it for most of every block. Over a real model that is not a subtle
-  effect: the coop-count agents lose count within a turn. So the worker is given a
-  block as hidden only if it existed when the mask was installed and the mask leaves it
-  out; a block created since can hold only what the job has decoded and padding.
-  ``visible_blocks`` still answers by the mask alone (ZEOS-AM §3), so the kernel drops
-  any mass the step puts on such a block and journals ``mask.denied`` for it, as it does
-  over every other backend. This departs from AM-I3 and AM-I7 for exactly those blocks,
-  and only until the next mask; the kernel-side remedy is a bitmap that covers the open
-  output segment's block.
+* **A mask covers the blocks it was computed for.** The kernel installs a mask at each
+  block boundary and after every inject, splice and fork, as the union of the blocks of
+  readable resident segments. At a boundary the job's next output segment has not been
+  opened, so the block it is about to write is in no mask until the following boundary:
+  read as a bitmap over every block, the mask would hide the job's own newest words
+  from it for most of every block, and over a real model that is not subtle -- the
+  coop-count agents lose count within a turn. So a mask decides the blocks that existed
+  when it was installed, and a block created since is visible until the next mask
+  decides it: by the kernel's call pattern it can hold only what the job has decoded
+  since, its open output segment, which is readable by construction, and padding.
+  ``visible_blocks`` answers the same way, so the attention the kernel sums is the
+  attention the model could pay. A truncation pulls the horizon back to the cut, so
+  blocks rebuilt past it are again ones no mask has seen. This reads ZEOS-AM §3's
+  ``visible(j) = blocks ∩ M`` and AM-I7 as applying to the blocks ``M`` was computed
+  over; the remedy in the kernel itself would be a bitmap that covers the open output
+  segment's block.
 * **Token reservation.** ``allowedTokens`` has one entry per vocabulary id. The pad id
   and the end-of-sequence id are always 0, and the ``controlIds`` are 0 unless the
   kernel enabled control tokens for the step; that is the sampler-side reservation the
@@ -648,7 +648,9 @@ class JsMachine(SyscallSeat):
         ctx = self._ctx_of(job)
         # No mask means every block, which is not the same as a mask allowing none.
         every = frozenset(range(self._block_count(len(ctx.tokens))))
-        return every if ctx.mask is None else every & ctx.mask
+        if ctx.mask is None:
+            return every
+        return frozenset(b for b in every if b in ctx.mask or b >= ctx.horizon)
 
     def pad_to_block(self, job: JobId) -> int:
         ctx = self._ctx_of(job)

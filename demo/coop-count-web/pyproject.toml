@@ -14,6 +14,18 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# export/export_model.py, which writes the ONNX graphs the model worker runs. Not a default
+# group, so `uv sync --all-packages` never installs PyTorch; install it on its own with
+#   uv sync --package zeos-coop-count-web --group export
+export = [
+    "torch>=2.9",
+    "transformers>=5.0",
+    "huggingface-hub>=1.0",
+    "onnx>=1.19",
+    "onnxscript>=0.5",
+    "onnxruntime>=1.30",
+    "numpy>=2.0",
+]
 
 [tool.uv.sources]
 zeos = { workspace = true }

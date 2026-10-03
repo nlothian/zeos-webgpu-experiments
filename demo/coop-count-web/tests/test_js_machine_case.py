@@ -12,6 +12,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from journals import beyond_the_horizon, kinds
 from workers import RecordingWorker
 from zeos.core.events import (
     Event,
@@ -97,8 +98,15 @@ def test_the_keypress_preempts_a_counter_and_it_resumes_dirty(run: LiveRun) -> N
 
 def test_the_seam_writes_the_journal_the_seat_writes(run: LiveRun) -> None:
     """The fake decodes each tape word as one token, through every method of the seam and
-    the grammar mask, so nothing the kernel sees differs from the seat's run."""
-    assert run.journal_bytes() == run_to_end(seat()).journal_bytes()
+    the grammar mask, so the kernel sees what it sees over the seat -- except the block
+    each job is writing into, which the seat's mask hides and ``JsMachine``'s does not
+    until the next mask decides it. The seat's kernel journals that as ``mask.denied``
+    and keeps the open output out of the working set; nothing else may differ."""
+    seam, seated = run.journal_bytes(), run_to_end(seat()).journal_bytes()
+    assert "mask.denied" in kinds(seated)
+    assert "mask.denied" not in kinds(seam)
+    assert kinds(seam).count("vm.working_set") == kinds(seated).count("vm.working_set")
+    assert beyond_the_horizon(seam) == beyond_the_horizon(seated)
 
 
 def test_the_run_is_the_same_run_twice(run: LiveRun) -> None:

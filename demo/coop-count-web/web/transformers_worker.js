@@ -18,10 +18,12 @@
  * synchronous `ZeosModelWorker` interface the Python side calls is `SyncModelWorker` in
  * `sync_client.js`, which blocks on a thread running this class.
  *
- * Context bookkeeping: a job's last token is always *pending*, with no KV behind it.
- * `append` prefills everything before it, and `decodeStep` feeds it through the decode
- * graph, which is the one place the allowed-block mask is applied and attention is
- * measured. So every decode step is exactly one forward pass of one token.
+ * Context bookkeeping: a job's last token is *pending*, with no KV behind it, until a
+ * decode step. `append` prefills everything before it, and `decodeStep` feeds it through
+ * the decode graph, which is the one place the allowed-block mask is applied and
+ * attention is measured. A step does not append the id it chooses -- `JsMachine` appends
+ * it before the next step, which then finds that id pending -- so every decode step is
+ * exactly one forward pass of one token.
  */
 
 /** Tokenise text as plain text: no BOS, and a literal that spells a special token stays
@@ -186,6 +188,8 @@ export class TransformersWorker {
     const ctx = this.ctx(jobId);
     const n = ctx.tokens.length;
     if (n === 0) throw new Error(`job ${jobId}: cannot decode an empty context`);
+    // A second step with nothing appended in between recomputes the same position.
+    ctx.kvLength = Math.min(ctx.kvLength, n - 1);
     await this.prefill(ctx);
 
     const blockSize = this.meta.blockSize;
@@ -216,7 +220,6 @@ export class TransformersWorker {
     ctx.mask = allowedBlocks === null ? null : allowed;
 
     const tokenId = this.argmax(logits, allowedTokens);
-    ctx.tokens.push(tokenId);
     return { tokenId, attention: Float32Array.from(result.block_attention.data) };
   }
 

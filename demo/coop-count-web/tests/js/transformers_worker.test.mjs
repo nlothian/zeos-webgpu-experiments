@@ -36,6 +36,19 @@ function prompt(w, text) {
   ]);
 }
 
+/** One decode step, then the chosen id appended, as JsMachine drives the worker. */
+async function step(w, jobId, opts = ALL) {
+  const result = await w.decodeStep(jobId, opts);
+  await w.append(jobId, Int32Array.from([result.tokenId]));
+  return result;
+}
+
+function syncStep(w, jobId, opts = ALL) {
+  const result = w.decodeStep(jobId, opts);
+  w.append(jobId, Int32Array.from([result.tokenId]));
+  return result;
+}
+
 function bits(floats) {
   return Buffer.from(floats.buffer, floats.byteOffset, floats.byteLength).toString("hex");
 }
@@ -76,14 +89,18 @@ describe("TransformersWorker", { skip }, () => {
     assert.throws(() => w.piece(w.meta.tokenizerSize));
   });
 
-  test("a decode step appends one token and reports normalised per-block attention", async () => {
+  test("a decode step leaves the context as it was and reports normalised attention", async () => {
     w.createContext("step");
     const ids = prompt(w, "Count to three.");
     await w.append("step", ids);
     assert.equal(w.length("step"), ids.length);
     const { tokenId, attention } = await w.decodeStep("step", ALL);
+    assert.equal(w.length("step"), ids.length);
+    const again = await w.decodeStep("step", ALL);
+    assert.equal(again.tokenId, tokenId, "a repeated step recomputes the same position");
+    assert.equal(bits(again.attention), bits(attention));
+    await w.append("step", Int32Array.from([tokenId]));
     assert.equal(w.length("step"), ids.length + 1);
-    assert.equal(w.tokens("step").at(-1), tokenId);
     assert.ok(attention instanceof Float32Array);
     assert.equal(attention.length, Math.ceil(ids.length / w.info().blockSize));
     const total = attention.reduce((a, b) => a + b, 0);
@@ -98,11 +115,11 @@ describe("TransformersWorker", { skip }, () => {
     await w.append("mask", prompt(w, "The secret word is pineapple. Say a fruit."));
     const blockSize = w.info().blockSize;
     const hidden = new Set([3, 4, 5, 6, 7, 8].map((p) => Math.floor(p / blockSize)));
-    for (let step = 0; step < 6; step++) {
+    for (let n = 0; n < 6; n++) {
       const blocks = Math.ceil(w.length("mask") / blockSize);
       const allowedBlocks = new Uint8Array(blocks).map((_, b) => (hidden.has(b) ? 0 : 1));
-      const { attention } = await w.decodeStep("mask", { allowedBlocks, allowedTokens: null });
-      for (const b of hidden) assert.equal(attention[b], 0, `block ${b} on step ${step}`);
+      const { attention } = await step(w, "mask", { allowedBlocks, allowedTokens: null });
+      for (const b of hidden) assert.equal(attention[b], 0, `block ${b} on step ${n}`);
       const total = attention.reduce((a, b) => a + b, 0);
       assert.ok(Math.abs(total - 1) < 1e-4);
     }
@@ -129,7 +146,7 @@ describe("TransformersWorker", { skip }, () => {
     const allowedTokens = new Uint8Array(w.meta.tokenizerSize);
     for (const id of digits) allowedTokens[id] = 1;
     for (let i = 0; i < 4; i++) {
-      const { tokenId } = await w.decodeStep("vocab", { allowedBlocks: null, allowedTokens });
+      const { tokenId } = await step(w, "vocab", { allowedBlocks: null, allowedTokens });
       assert.ok(digits.includes(tokenId), `chose ${tokenId} (${w.piece(tokenId)})`);
     }
     await assert.rejects(
@@ -146,7 +163,7 @@ describe("TransformersWorker", { skip }, () => {
 
     w.createContext("cut");
     await w.append("cut", ids);
-    for (let i = 0; i < 5; i++) await w.decodeStep("cut", ALL);
+    for (let i = 0; i < 5; i++) await step(w, "cut");
     w.truncate("cut", ids.length);
     assert.equal(w.length("cut"), ids.length);
     const got = await w.decodeStep("cut", ALL);
@@ -160,10 +177,10 @@ describe("TransformersWorker", { skip }, () => {
   test("fork deep-copies tokens and KV: the two contexts then decode independently", async () => {
     w.createContext("parent");
     await w.append("parent", prompt(w, "Count to five."));
-    await w.decodeStep("parent", ALL);
+    await step(w, "parent");
     w.fork("parent", "child");
-    const a = await w.decodeStep("parent", ALL);
-    const b = await w.decodeStep("child", ALL);
+    const a = await step(w, "parent");
+    const b = await step(w, "child");
     assert.equal(a.tokenId, b.tokenId);
     assert.equal(bits(a.attention), bits(b.attention));
     const before = w.length("parent");
@@ -171,7 +188,7 @@ describe("TransformersWorker", { skip }, () => {
     assert.equal(w.length("child"), 3);
     assert.equal(w.length("parent"), before);
     const c = await w.decodeStep("parent", ALL);
-    assert.equal(c.attention.length, Math.ceil((w.length("parent") - 1) / w.info().blockSize));
+    assert.equal(c.attention.length, Math.ceil(w.length("parent") / w.info().blockSize));
     w.destroyContext("parent");
     w.destroyContext("child");
   });
@@ -182,7 +199,7 @@ describe("TransformersWorker", { skip }, () => {
       await w.append(name, prompt(w, "Say the numbers from one to four."));
       const out = [];
       for (let i = 0; i < 8; i++) {
-        const { tokenId, attention } = await w.decodeStep(name, ALL);
+        const { tokenId, attention } = await step(w, name);
         out.push(`${tokenId}:${bits(attention)}`);
       }
       w.destroyContext(name);
@@ -204,8 +221,8 @@ describe("SyncModelWorker over a model thread", { skip }, () => {
       sync.append("j", ids);
       assert.equal(sync.length("j"), ids.length);
       for (let i = 0; i < 4; i++) {
-        const want = await direct.decodeStep("j", ALL);
-        const got = sync.decodeStep("j", ALL);
+        const want = await step(direct, "j");
+        const got = syncStep(sync, "j");
         assert.equal(got.tokenId, want.tokenId);
         assert.equal(bits(got.attention), bits(want.attention));
       }
