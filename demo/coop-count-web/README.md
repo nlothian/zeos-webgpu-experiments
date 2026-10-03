@@ -34,16 +34,25 @@ Two machines are offered for a case:
 | scripted | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
 | JsMachine | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
 
-On `coop-count-scripted` the two write the same journal, byte for byte; the page's table
-of finished runs shows each journal's SHA-256 so that is visible. `coop-count-pipe` and
+On `coop-count-scripted` the two decode the same words and their journals hold the same
+events in the same order, with two exceptions, both about attention. The seat's mask
+hides the blocks a job has written since the kernel's last mask refresh, so the kernel
+journals the job's attention to its own open segment as denied (`mask.denied`, 30 times
+in this run) and leaves that segment out of the working set; `JsMachine` treats those
+blocks as visible (see *the mask's horizon* below), so it has no `mask.denied` events
+and two `vm.working_set` events count one more segment. The page's table of finished
+runs shows each journal's SHA-256, so two runs of the same machine with the same inputs
+show the same digest. `coop-count-pipe` and
 `coop-count-vector` carry no tapes, so they need a model: the page lints them and draws
 their wiring, and does not offer to run them.
 
 **The console.** Space writes `attention` to `keys.interrupt`, which the case's vector
 table binds to `reset-count` at priority 5, so the handler preempts whichever counter is
 running; then a number and Enter write to `keys.number`, which the parked handler reads.
-As in the terminal, a second space while the handler is parked asks for the number
-rather than firing again. The handler's tape writes 51 whatever number is typed, because
+As in the terminal, once space has sent an interrupt, further presses only move to the
+number field until a number is sent; and an interrupt is withheld if, at the turn that
+would deliver it, `reset-count` is already parked on `keys.number`
+(`LiveRun.press(..., unless_waiting_on="keys.number")`, decided from the kernel). The handler's tape writes 51 whatever number is typed, because
 a tape cannot read. Untick *play `events.jsonl`* to press the key yourself; with it
 ticked, the case's own schedule presses it at 39 ms.
 
@@ -111,7 +120,8 @@ The worker implements exactly this interface:
 ```
 interface ZeosModelWorker {
   // Model identity and reserved IDs. Call once.
-  info(): { blockSize: number; padId: number; controlIds: number[]; eosId: number };
+  info(): { blockSize: number; padId: number; controlIds: number[]; eosId: number;
+            vocabSize: number };
   tokenize(text: string): Int32Array;        // no BOS, no special-token parsing
   piece(tokenId: number): string;            // the text of one token
   createContext(jobId: string): void;
@@ -155,19 +165,25 @@ How `JsMachine` uses it, which is what an implementation has to get right:
   mass on a worker block is shared among the kernel blocks with tokens in it, in
   proportion to how many. Both are exact when every word is one token, as with the stub.
   `JsMachine` refuses attention that is negative, does not sum to 1.0 within 1e-3, or
-  has the wrong number of entries; that is the unit check the `DecodeResult` docstring
-  calls normative.
-- **The kernel's mask names the blocks that existed at its last refresh**, which is
-  every block boundary. Blocks written since lie outside it until the next refresh, so
-  a step is routinely told to skip the newest block or two: in `coop-count-scripted`,
-  28 of 84 steps arrive that way. `JsMachine` passes the mask on as the kernel set it.
+  has the wrong number of entries (`WorkerViolation`), the unit check the
+  `DecodeResult` docstring calls normative; and attention on a block the step was sent
+  as 0 (`MaskViolation`).
+- **The mask's horizon.** The kernel builds its mask from the segments that exist when
+  it installs it — at each block boundary, inject, fork and splice — and decodes on
+  until the next refresh, so blocks the job has written into since are not in it. Those
+  blocks, at or past the kernel block count when the mask was installed, can only hold
+  the job's own decoded tokens and padding, because every foreign arrival refreshes the
+  mask first. `JsMachine` allows them: hiding them would hide the position doing the
+  attending. `visible_blocks` reports the same set, so the attention the kernel sums is
+  the attention the model could have paid. A `trunc` below the horizon lowers it.
 - **Reserved ids.** `allowedTokens` has one entry per vocabulary id. The pad and
   end-of-sequence ids are always 0, the `controlIds` are 0 unless the kernel enabled
   control tokens for the step, and the grammar mask below zeroes the rest it forbids.
   An id the mask refused raises (`ControlTokenViolation` for a control id,
   `WorkerViolation` otherwise) rather than reaching the kernel.
-- **Vocabulary size** is found by calling `piece(0)`, `piece(1)`, ... until it throws;
-  every id below the size must have a piece, and the first id past it must throw.
+- **Vocabulary size** is `info().vocabSize`. `allowedTokens` has that many entries, and
+  `piece` is called once for every id below it when `JsMachine` is constructed. The pad,
+  end-of-sequence and control ids must lie below it (`WorkerViolation` otherwise).
 - **Padding** is `info().padId`, one per kernel pad word.
 - **Chat framing.** With `chat_template="chatml"` (the default, as for `LlamaMachine`)
   the prompt opens a user turn, the first decode closes it and opens the assistant's,
@@ -189,13 +205,17 @@ renders — request-free verbs, then one call; only the aliases the descriptor b
 number with no leading zeros for an actuator; one to `max_text` characters for a
 payload — except that a round may open with one space and the space after a terminator
 opens the next command, because the seat speaks every word after a job's first with a
-leading space. It is a small automaton over characters whose states are integer tuples.
+leading space. A terminator longer than one character is matched as a literal, and a
+payload excludes each of its characters, as the GBNF character class does. A piece that
+completes two terminators is refused: the seat's parser splits at the first terminator
+only, so the second command would never reach the kernel. It is a small automaton over
+characters whose states are integer tuples.
 
 Cost: a mask is computed once per (descriptor, round state, control flag) by one pass
 over the vocabulary, at about one automaton step per character of each piece, and
 cached; every later step from a seen state is a dictionary lookup plus one copy of a
 vocabulary-sized `Uint8Array` across the FFI. A counting run revisits a few dozen
-states. Walking the vocabulary also costs one `piece` call per id when `JsMachine` is
+states. Reading the vocabulary costs one `piece` call per id when `JsMachine` is
 constructed.
 
 ### The stub worker and the Python fake
@@ -205,7 +225,8 @@ method of the seam from Python under Pyodide. `zeos_coop_count_web.fake_worker.F
 is the same worker in Python, for tests under CPython. Both have a fixed vocabulary (five
 reserved tokens, then every word of the tapes and of the ChatML headers, with and
 without a leading space), a whitespace tokenizer, a tape per descriptor taken from the
-case's `emit` steps, and no attention. Each step gives the next word of the current
+case's `emit` steps, and no attention. Tapes must be ASCII and both refuse any other
+text, since Python and JavaScript split and sort non-ASCII text differently. Each step gives the next word of the current
 command, split as `zeos.machine.seat.words_of` splits it, checks that `allowedBlocks`
 and `allowedTokens` are sized to the context and the vocabulary, and refuses a word the
 token mask forbids.
@@ -243,8 +264,9 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   the scripted backend and `JsMachine` over the fake, and again over a fake that
   measures attention, so the two attention clauses bind.
 - `test_js_machine_case.py` — `coop-count-scripted` through `JsMachine` and `LiveRun`:
-  the interrupt preempts a counter and it resumes dirty, the journal equals the seat's,
-  a press lands where the scheduled event would, a parked handler holds the run open.
+  the interrupt preempts a counter and it resumes dirty, the journal differs from the
+  seat's only in attention, a press lands where the scheduled event would, a parked
+  handler holds the run open, and a second interrupt while it is parked is withheld.
 - `test_js_machine_seam.py` and `test_token_mask.py` — the seam's obligations and
   refusals, and the language the mask admits.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
@@ -255,3 +277,6 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   cases into the in-memory filesystem as the page does. It skips when Node, the npm
   package or the cached PyYAML is missing; `ZEOS_PYODIDE_DIR` points it at a Pyodide
   installed elsewhere.
+
+`uv build` (used by `build.py`, the determinism test and `test_page.py`) fetches the
+hatchling build backend from PyPI the first time it runs, so those need a network once.

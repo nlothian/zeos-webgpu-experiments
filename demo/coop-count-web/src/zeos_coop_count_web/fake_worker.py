@@ -17,7 +17,9 @@ requires the same journal bytes. Neither has weights. What they have is:
   with a single leading space if any space preceded it, and ``<unk>`` if the vocabulary
   lacks it;
 * **a tape per descriptor**: the ``emit`` steps of the case's ``script:`` blocks, the
-  commands ``TapeSource`` plays. Each decode step gives the next word of the current
+  commands ``TapeSource`` plays. Tapes must be ASCII, and both workers refuse any
+  other: Python and JavaScript split and sort non-ASCII text differently, and the two
+  vocabularies would part. Each decode step gives the next word of the current
   command, split as ``zeos.machine.seat.words_of`` splits it, so a run decodes exactly
   the words the ``CommandSeat`` would;
 * **no attention**: every step reports ``attention = None``.
@@ -76,6 +78,7 @@ class ModelInfo:
     padId: int
     controlIds: tuple[int, ...]
     eosId: int
+    vocabSize: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +109,10 @@ class FakeWorker:
         terminator: str = ";",
     ) -> None:
         self._tapes = {k: tuple(v) for k, v in tapes.items()}
+        for name, commands in sorted(self._tapes.items()):
+            for command in commands:
+                if not command.isascii():
+                    raise ValueError(f"{name}: tape command {command!r} is not ASCII")
         self._block_size = block_size
         self._terminator = terminator
         words: set[str] = set(FRAMING_WORDS)
@@ -122,7 +129,11 @@ class FakeWorker:
 
     def info(self) -> ModelInfo:
         return ModelInfo(
-            blockSize=self._block_size, padId=PAD_ID, controlIds=CONTROL_IDS, eosId=EOS_ID
+            blockSize=self._block_size,
+            padId=PAD_ID,
+            controlIds=CONTROL_IDS,
+            eosId=EOS_ID,
+            vocabSize=len(self._vocab),
         )
 
     def tokenize(self, text: str) -> list[int]:

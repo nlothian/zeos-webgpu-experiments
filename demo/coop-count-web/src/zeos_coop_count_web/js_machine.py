@@ -18,7 +18,8 @@ The worker implements exactly this interface::
 
     interface ZeosModelWorker {
       // Model identity and reserved IDs. Call once.
-      info(): { blockSize: number; padId: number; controlIds: number[]; eosId: number };
+      info(): { blockSize: number; padId: number; controlIds: number[]; eosId: number;
+                vocabSize: number };
       tokenize(text: string): Int32Array;        // no BOS, no special-token parsing
       piece(tokenId: number): string;            // the text of one token
       createContext(jobId: string): void;
@@ -61,16 +62,28 @@ How this class uses it, which is what a worker has to get right:
   word with a token in it lies in a kernel block the mask allows, so a block straddling
   a hidden segment is hidden whole; the mask fails closed. Measured mass on a worker
   block is shared among the kernel blocks with tokens in it, in proportion to how many.
-  Both are exact when every word is one model token, as with the stub worker.
+  Both are exact when every word is one model token, as with the stub worker. A worker
+  that reports mass on a block it was sent as 0 has attended what the mask hid, and
+  this class raises ``MaskViolation``.
+* **The mask's horizon.** The kernel builds its mask from the segments that exist when
+  it installs it, at a block boundary or an inject, fork or splice, and decodes on until
+  the next refresh. Kernel blocks at or past the block count at install time -- the
+  horizon -- therefore cannot be named by the mask, and the only tokens that land there
+  are the job's own decoded tokens and its padding, since every foreign arrival
+  refreshes the mask first. They are allowed: hiding them would hide the very position
+  doing the attending. ``visible_blocks`` reports the same set, so the attention the
+  kernel sums is the attention the model could have paid. A ``trunc`` below the horizon
+  lowers it, because the blocks it removed are gone and what is written there next is
+  new.
 * **Token reservation.** ``allowedTokens`` has one entry per vocabulary id. The pad id
   and the end-of-sequence id are always 0, and the ``controlIds`` are 0 unless the
   kernel enabled control tokens for the step; that is the sampler-side reservation the
   machine contract requires. A worker that returns an id the mask refused is a broken
   worker, and this class raises rather than letting the id through.
-* **Vocabulary.** The interface does not state its size, so it is found by asking
-  ``piece`` for ids 0, 1, 2, ... until it throws: ids below the vocabulary size must all
-  have a piece and the first id past it must throw. Every piece is kept, since the
-  grammar mask needs them all (``token_mask``).
+* **Vocabulary.** ``info().vocabSize`` is the number of ids, ``allowedTokens`` has that
+  many entries, and ``piece`` is called once for every id below it at construction;
+  every piece is kept, since the grammar mask needs them all (``token_mask``). The pad,
+  end-of-sequence and control ids must lie below it.
 * **Chat framing** (``chat_template="chatml"``, the default, as for ``LlamaMachine``)
   wraps the prompt and every arrival in ChatML turns. ``tokenize`` does not parse
   special tokens, so the turn markers are found among the ``controlIds``: the id whose
@@ -94,6 +107,7 @@ from zeos.machine.base import (
     ControlTokenViolation,
     DecodeResult,
     MachineRequest,
+    MaskViolation,
     OpKind,
     RawWindow,
     RawWord,
@@ -119,10 +133,6 @@ DEFAULT_BLOCK_SIZE = 16
 #: The ChatML turn markers, which must be control tokens of the worker's model.
 IM_START = "<|im_start|>"
 IM_END = "<|im_end|>"
-
-#: Where the vocabulary walk gives up: a worker whose ``piece`` never throws has broken
-#: the contract, and walking on would never end.
-_MAX_VOCABULARY = 1 << 21
 
 #: How far one step's attention may sum from 1.0. The worker reports float32, so a long
 #: context accumulates rounding; a backend reporting raw weights is off by whole units.
@@ -194,6 +204,8 @@ class _Context:
     #: ``framing[i]`` is how many of those ids are chat framing, before and after the word.
     framing: list[tuple[int, int]] = field(default_factory=list[tuple[int, int]])
     mask: frozenset[int] | None = None
+    #: Kernel blocks at or past this index did not exist when the mask was installed.
+    horizon: int = 0
     #: Where the current round stands in the command language.
     round: RoundState = ()
     tags: tuple[str, ...] = ("descriptor",)
@@ -251,8 +263,17 @@ class JsMachine(SyscallSeat):
         self._pad_id = int(info.padId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
         self._eos_id = int(info.eosId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
         self._control = frozenset(int(i) for i in info.controlIds)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType, reportUnknownVariableType]
-
-        self._pieces = self._walk_vocabulary()
+        size = int(info.vocabSize)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        if size < 1:
+            raise WorkerViolation(f"info().vocabSize is {size}; it must be >= 1")
+        outside = sorted(
+            i for i in {self._pad_id, self._eos_id, *self._control} if not 0 <= i < size
+        )
+        if outside:
+            raise WorkerViolation(
+                f"info() names ids {outside} outside a vocabulary of {size} (vocabSize)"
+            )
+        self._pieces = tuple(str(worker.piece(i)) for i in range(size))
         self._mask = TokenMask(
             self._pieces, reserved=(self._pad_id, self._eos_id), control=self._control
         )
@@ -270,26 +291,6 @@ class JsMachine(SyscallSeat):
                     "tokens, so a control id is the only way to reach one"
                 )
             self._markers = {m: by_piece[m] for m in (IM_START, IM_END)}
-
-    def _walk_vocabulary(self) -> tuple[str, ...]:
-        pieces: list[str] = []
-        while True:
-            if len(pieces) >= _MAX_VOCABULARY:
-                raise WorkerViolation(
-                    f"piece() answered for {_MAX_VOCABULARY} ids; it must throw for the "
-                    "first id past the vocabulary"
-                )
-            try:
-                pieces.append(str(self._worker.piece(len(pieces))))
-            except Exception:
-                # The declared end of the vocabulary: ``piece`` throws past it.
-                break
-        if not pieces:
-            raise WorkerViolation("piece(0) threw, so the worker has no vocabulary")
-        for name, token_id in (("padId", self._pad_id), ("eosId", self._eos_id)):
-            if not 0 <= token_id < len(pieces):
-                raise WorkerViolation(f"info().{name} {token_id} is outside the vocabulary")
-        return tuple(pieces)
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -418,13 +419,17 @@ class JsMachine(SyscallSeat):
         hidden: set[int] = set()
         at = 0
         for index, span in enumerate(ctx.spans):
-            if span and index // self._block_size not in ctx.mask:
+            block = index // self._block_size
+            if span and block < ctx.horizon and block not in ctx.mask:
                 hidden.update(range(at // size, (at + span - 1) // size + 1))
             at += span
         return bytes(0 if b in hidden else 1 for b in range(count))
 
-    def _kernel_attention(self, ctx: _Context, mass: Sequence[float]) -> dict[int, float]:
-        """Measured mass per worker block, moved onto the kernel blocks under it."""
+    def _kernel_attention(
+        self, ctx: _Context, mass: Sequence[float], sent: bytes | None
+    ) -> dict[int, float]:
+        """Measured mass per worker block, moved onto the kernel blocks under it. ``sent``
+        is the ``allowedBlocks`` the step was given."""
         size = self._worker_block
         count = (len(ctx.ids) + size - 1) // size
         if len(mass) != count:
@@ -436,6 +441,13 @@ class JsMachine(SyscallSeat):
             raise WorkerViolation(
                 f"attention must be non-negative and sum to 1.0 over blocks; it sums to {total}"
             )
+        if sent is not None:
+            attended = [b for b, value in enumerate(mass) if value > 0.0 and not sent[b]]
+            if attended:
+                raise MaskViolation(
+                    f"the worker reported attention on blocks {attended}, which the step's "
+                    "allowedBlocks hid"
+                )
         # overlap[worker block][kernel block] = model tokens they share
         overlap: list[dict[int, int]] = [{} for _ in range(count)]
         at = 0
@@ -478,9 +490,8 @@ class JsMachine(SyscallSeat):
         allowed = self._mask.allowed(
             ctx.descriptor, language, ctx.round, allow_control=allow_control
         )
-        step = self._worker.decodeStep(
-            ctx.key, self._bridge.options(self._allowed_blocks(ctx), allowed)
-        )
+        blocks = self._allowed_blocks(ctx)
+        step = self._worker.decodeStep(ctx.key, self._bridge.options(blocks, allowed))
         tid = int(step.tokenId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
         if not (0 <= tid < len(allowed)) or not allowed[tid]:
             if tid in self._control and not allow_control:
@@ -490,7 +501,7 @@ class JsMachine(SyscallSeat):
             raise WorkerViolation(f"job {job}: the worker chose id {tid}, which the mask refused")
         # Read against the context the step attended, before the chosen id joins it.
         measured = self._bridge.floats(step.attention)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
-        attention = None if measured is None else self._kernel_attention(ctx, measured)
+        attention = None if measured is None else self._kernel_attention(ctx, measured, blocks)
 
         piece = self._pieces[tid]
         token = Token(piece, TokenKind.CONTROL if tid in self._control else TokenKind.NORMAL)
@@ -558,6 +569,7 @@ class JsMachine(SyscallSeat):
         if ctx.turn_index is not None and at <= ctx.turn_index:
             ctx.turn_index = None
             ctx.turn_open = False
+        ctx.horizon = min(ctx.horizon, self._block_count(at))
         return dropped
 
     def fork(self, parent: JobId, child: JobId) -> int:
@@ -586,6 +598,7 @@ class JsMachine(SyscallSeat):
         existing.spoken = src.spoken
         # A child starts from the parent's visibility and can only lose ground from there.
         existing.mask = src.mask
+        existing.horizon = src.horizon
         return len(src.tokens)
 
     def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
@@ -617,13 +630,19 @@ class JsMachine(SyscallSeat):
 
     def set_mask(self, job: JobId, allowed_blocks: frozenset[int]) -> None:
         """Install the allowed-block bitmap. The worker enforces it on every decode step."""
-        self._ctx_of(job).mask = allowed_blocks
+        ctx = self._ctx_of(job)
+        ctx.mask = allowed_blocks
+        ctx.horizon = self._block_count(len(ctx.tokens))
 
     def visible_blocks(self, job: JobId) -> frozenset[int]:
         ctx = self._ctx_of(job)
         # No mask means every block, which is not the same as a mask allowing none.
-        every = frozenset(range(self._block_count(len(ctx.tokens))))
-        return every if ctx.mask is None else every & ctx.mask
+        live = self._block_count(len(ctx.tokens))
+        every = frozenset(range(live))
+        if ctx.mask is None:
+            return every
+        # Blocks past the horizon hold only what the job decoded since; see the docstring.
+        return (every & ctx.mask) | frozenset(range(ctx.horizon, live))
 
     def pad_to_block(self, job: JobId) -> int:
         ctx = self._ctx_of(job)

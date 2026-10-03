@@ -26,8 +26,13 @@ there, as the llama seat rebuilds its grammar.
 **The matcher** is a small nondeterministic automaton whose states are tuples of
 integers, run one character at a time; a set of its states, as a sorted tuple, is the
 state of a round. A token is allowed from a round state when every character of its
-piece is accepted. Empty pieces are refused, since a token that adds no character cannot
-advance a command and a model could otherwise emit it for ever.
+piece is accepted and the piece completes at most one terminator: the seat's parser
+splits on the first terminator it sees, so a second command closed inside the same
+piece would never reach the kernel and the round would never reset. A terminator of
+several characters is matched as a literal, and a payload excludes each of its
+characters, as the GBNF character class does. Empty pieces are refused, since a token
+that adds no character cannot advance a command and a model could otherwise emit it
+for ever.
 
 **Cost.** A mask is computed once per (descriptor, round state, ``allow_control``) and
 cached, which costs one pass over the vocabulary at roughly one automaton step per
@@ -56,6 +61,7 @@ _LITERAL = 2  # (2, alt, p): p characters of alternative alt's literal head matc
 _TAIL = 3  # (3, alt, k): the head is matched and k characters of the tail follow it
 _SPACE = (4,)  # a request-free command closed; the space opening the next is due
 _CLOSED = (5,)  # a call closed; the round is over
+_END = 6  # (6, alt, p): p characters of a terminator longer than one matched
 
 _NO_TAIL, _TEXT, _NUMBER = 0, 1, 2
 #: Tail state of a number that began with ``0``, which can only be closed.
@@ -102,7 +108,9 @@ class CommandLanguage:
         if not any(a.call for a in alternatives):
             raise ValueError(f"no call of the ABI can be made with pipes {list(pipes)}")
         self._alternatives = tuple(alternatives)
-        self._excluded = frozenset({abi.terminator, "<", "\n"})
+        # As the GBNF's ``[^...]`` class does, a payload excludes every character of the
+        # terminator, so where a terminator begins is never in doubt.
+        self._excluded = frozenset({*abi.terminator, "<", "\n"})
 
     @property
     def start(self) -> RoundState:
@@ -110,11 +118,18 @@ class CommandLanguage:
 
     def advance(self, state: RoundState, text: str) -> RoundState:
         """The state after ``text``, or an empty state if the text left the language."""
+        return self.walk(state, text)[0]
+
+    def walk(self, state: RoundState, text: str) -> tuple[RoundState, int]:
+        """The state after ``text``, and how many commands the text closed on the way."""
+        closed = 0
         for char in text:
             if not state:
                 break
             state = tuple(sorted({n for s in state for n in self._step(s, char)}))
-        return state
+            # Both states exist only on the character that completes a terminator.
+            closed += _SPACE in state or _CLOSED in state
+        return state, closed
 
     def _step(self, state: tuple[int, ...], char: str) -> Iterable[tuple[int, ...]]:
         kind = state[0]
@@ -136,19 +151,34 @@ class CommandLanguage:
             return ((_TAIL, i, 0) if p + 1 == len(head) else (_LITERAL, i, p + 1),)
         if kind == _TAIL:
             return self._tail(state, char)
+        if kind == _END:
+            _, i, p = state
+            terminator = self.abi.terminator
+            if terminator[p] != char:
+                return ()
+            return self._closed(i) if p + 1 == len(terminator) else ((_END, i, p + 1),)
         if state == _SPACE:
             return (_COMMAND,) if char == " " else ()
         return ()  # _CLOSED accepts nothing
 
+    def _closed(self, alt: int) -> tuple[tuple[int, ...], ...]:
+        return (_CLOSED if self._alternatives[alt].call else _SPACE,)
+
+    def _terminate(self, alt: int) -> tuple[tuple[int, ...], ...]:
+        """The first character of the terminator, matched."""
+        if len(self.abi.terminator) == 1:
+            return self._closed(alt)
+        return ((_END, alt, 1),)
+
     def _tail(self, state: tuple[int, ...], char: str) -> tuple[tuple[int, ...], ...]:
         _, i, k = state
         alt = self._alternatives[i]
-        closed = (_CLOSED if alt.call else _SPACE,)
+        opens_end = char == self.abi.terminator[0]
         if alt.tail == _NO_TAIL:
-            return closed if char == self.abi.terminator else ()
+            return self._terminate(i) if opens_end else ()
         if alt.tail == _TEXT:
-            if char == self.abi.terminator:
-                return closed if k >= 1 else ()
+            if opens_end:
+                return self._terminate(i) if k >= 1 else ()
             if char in self._excluded:
                 return ()
             limit = self.abi.max_text
@@ -157,8 +187,8 @@ class CommandLanguage:
                 return ((_TAIL, i, 1),)
             return ((_TAIL, i, k + 1),) if k < limit else ()
         # A number: "0" | [1-9] [0-9]{0,8}
-        if char == self.abi.terminator:
-            return closed if k != 0 else ()
+        if opens_end:
+            return self._terminate(i) if k != 0 else ()
         if not ("0" <= char <= "9"):
             return ()
         if k == 0:
@@ -202,7 +232,10 @@ class TokenMask:
                 continue
             if token_id in self._control and not allow_control:
                 continue
-            if language.advance(state, piece):
+            # The parser splits a piece at its first terminator only, so a piece that
+            # closes two commands would leave the second unread and the round stuck.
+            after, closed = language.walk(state, piece)
+            if after and closed <= 1:
                 flags[token_id] = 1
         mask = bytes(flags)
         self._cache[(key, state, allow_control)] = mask

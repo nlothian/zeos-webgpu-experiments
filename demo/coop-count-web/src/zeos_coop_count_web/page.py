@@ -18,7 +18,9 @@ Two machines are offered, named as the page names them:
 ``js``
     ``JsMachine`` over a JavaScript ``ZeosModelWorker`` the caller passes in. The page
     passes the stub worker, which plays the same tapes through every method of the
-    seam, so on a tape case the two machines write the same journal.
+    seam, so on a tape case the two machines decode the same words; their journals
+    differ only in attention, since ``JsMachine`` lets a job see the blocks it has
+    written since the kernel's last mask refresh and the seat does not.
 """
 
 from __future__ import annotations

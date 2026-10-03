@@ -161,4 +161,3 @@ def test_the_stub_worker_and_the_fake_write_the_same_bytes(
     )
     run = LiveRun(bundle, machine, schedule=load_schedule(CASE / "events.jsonl"), trace=True)
     assert pyodide_journals["stub"] == _run_to_end(run)
-    assert pyodide_journals["stub"] == pyodide_journals["seat"]

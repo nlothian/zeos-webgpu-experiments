@@ -17,7 +17,8 @@ const NUMBER_PIPE = "keys.number";
 const state = {
   info: null, // the selected case, as page.describe() reports it
   running: false,
-  parked: false,
+  collecting: false, // between an interrupt and the number that answers it, as the CLI's console
+  withheld: 0,
   started: null, // {name, machine, schedule} of the current run
   journal: null, // the finished run's bytes
   count: 0,
@@ -188,16 +189,21 @@ const handlers = {
     showDebugger(JSON.stringify(info.payload));
   },
   started: ({ name, machine, lines }) => {
+    state.collecting = false;
+    state.withheld = 0;
     $("journal").replaceChildren();
     state.count = 0;
     state.journal = null;
     appendLines(lines);
     setStatus(`running ${name} on ${machine}`);
   },
-  lines: ({ lines, virtualNs, ticks, awaiting, parked }) => {
+  lines: ({ lines, virtualNs, ticks, awaiting, parked, withheld }) => {
+    if (withheld > state.withheld) {
+      log("interrupt withheld: reset-count was already parked on keys.number");
+      state.withheld = withheld;
+    }
     appendLines(lines);
     $("clock").textContent = `t = ${virtualNs / 1e6} ms, ${ticks} ticks`;
-    state.parked = parked;
     $("prompt").textContent = parked
       ? "reset-count is parked on keys.number: type a number"
       : awaiting
@@ -209,7 +215,6 @@ const handlers = {
   finished: async (finished) => {
     const run = state.started;
     state.running = false;
-    state.parked = false;
     state.journal = finished.journal;
     $("prompt").textContent = "";
     setStatus(`${run.name} on ${run.machine}: ${finished.reason} after ${finished.ticks} ticks, ${state.count} events`);
@@ -251,9 +256,13 @@ $("stop").addEventListener("click", () => send("stop"));
 
 function interrupt() {
   if ($("interrupt").disabled) return;
-  // As the zeos-count console does: a second interrupt while the handler is already
-  // parked would queue another fire to ask for a number nobody wanted to give.
-  if (!state.parked) send("press", { pipe: INTERRUPT_PIPE, text: "attention" });
+  // As the zeos-count console does: once an interrupt is sent, further presses only ask
+  // for the number until it is given. The run also withholds the interrupt if, when it
+  // is delivered, a handler is already parked on keys.number.
+  if (!state.collecting) {
+    send("press", { pipe: INTERRUPT_PIPE, text: "attention", unlessWaitingOn: NUMBER_PIPE });
+    state.collecting = true;
+  }
   $("number").focus();
 }
 
@@ -261,6 +270,7 @@ function sendNumber() {
   const text = $("number").value.trim();
   if ($("send").disabled || !/^[0-9]+$/.test(text)) return;
   send("press", { pipe: NUMBER_PIPE, text });
+  state.collecting = false;
   $("number").value = "";
   $("number").blur();
 }
