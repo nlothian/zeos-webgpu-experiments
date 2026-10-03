@@ -20,6 +20,9 @@ build/
 # tarball unless the root list names them too.
 runs/
 
+# A demo's npm install, for the same reason: the sdist builder reads only this file.
+node_modules/
+
 # Editor state -- personal to a checkout, never shared
 .vscode/
 .idea/
