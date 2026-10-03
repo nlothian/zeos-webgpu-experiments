@@ -26,3 +26,8 @@ runs/
 
 # Secrets -- never committed, at any depth
 .env
+
+# A demo's npm dependencies, installed with `npm install` beside its package.json. Named
+# here as well as in the demo's own .gitignore because the sdist builder reads only this
+# file, and onnxruntime-node alone is a hundred megabytes of native binaries.
+node_modules/

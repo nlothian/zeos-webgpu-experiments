@@ -1,0 +1,13 @@
+{
+  "name": "zeos-coop-count-web",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-web": "1.30.0"
+  },
+  "devDependencies": {
+    "onnxruntime-node": "1.30.0"
+  }
+}
