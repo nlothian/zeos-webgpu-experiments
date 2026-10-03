@@ -1,0 +1,13 @@
+{
+  "name": "zeos-coop-count-web",
+  "private": true,
+  "description": "Pyodide for Node, used only by the determinism test that runs the kernel under Pyodide and compares its journal with CPython's.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node tests/fetch_pyodide_packages.mjs"
+  },
+  "devDependencies": {
+    "pyodide": "314.0.7"
+  }
+}
