@@ -23,6 +23,7 @@ machine's measurement is kept beside the byte-compared record rather than in it.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -30,9 +31,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from zeos.core.ids import JobId
+from zeos.core.ids import JobId, Ring
 from zeos.core.integrity import DEFAULT_THETA_READ
-from zeos.descriptor.loader import load_case
+from zeos.descriptor.loader import CaseBundle, load_case
 from zeos.driver import load_schedule
 from zeos.machine.base import DecodeResult
 from zeos.machine.seat import seat_maps
@@ -89,6 +90,7 @@ class MeasuredJsMachine(JsMachine):
             total = sum(attention.get(b, 0.0) for b in blocks)
             if total > 0 and record.readable and blocks & visible:
                 segments[str(int(record.id))] = total
+        mask = self._ctx_of(job).mask  # pyright: ignore[reportPrivateUsage]
         return {
             # The kernel journals this step's ``machine.decode`` next, so it takes the
             # sequence number one past every event so far.
@@ -96,6 +98,11 @@ class MeasuredJsMachine(JsMachine):
             "job": int(job),
             "blocks": {str(b): attention[b] for b in sorted(attention)},
             "segments": segments,
+            # Mass on blocks the installed mask was not computed over: the block the job
+            # is writing into, visible until the next mask (``js_machine`` docstring).
+            "unmasked": 0.0
+            if mask is None
+            else sum(v for b, v in attention.items() if b not in mask),
         }
 
 
@@ -105,6 +112,20 @@ def _hidden(specs: Sequence[str]) -> dict[int, frozenset[int]]:
         job, _, block = spec.partition(":")
         out.setdefault(int(job), set()).add(int(block))
     return {job: frozenset(blocks) for job, blocks in out.items()}
+
+
+def with_rings(bundle: CaseBundle, specs: Sequence[str]) -> CaseBundle:
+    """The case with some pipes declared at another ring, e.g. ``keys.number=EXTERNAL``:
+    content from an untrusted principal, which is what gives integrity something to do."""
+    rings = {name: Ring[ring] for name, _, ring in (spec.partition("=") for spec in specs)}
+    unknown = set(rings) - {str(p.name) for p in bundle.pipes}
+    if unknown:
+        raise SystemExit(f"no such pipe in {bundle.name}: {sorted(unknown)}")
+    pipes = tuple(
+        dataclasses.replace(p, ring=rings[str(p.name)]) if str(p.name) in rings else p
+        for p in bundle.pipes
+    )
+    return dataclasses.replace(bundle, pipes=pipes)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -127,10 +148,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="JOB:BLOCK",
         help="remove a kernel block from every mask a job is given (repeatable)",
     )
+    parser.add_argument(
+        "--ring",
+        action="append",
+        default=[],
+        metavar="PIPE=RING",
+        help="declare a pipe at another ring for this run, e.g. keys.number=EXTERNAL",
+    )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
-    bundle = load_case(args.case)
+    bundle = with_rings(load_case(args.case), args.ring)
     descriptors, valued = seat_maps(bundle.descriptors, bundle.pipes)
     schedule = load_schedule(args.events) if args.events else ()
     started = time.monotonic()

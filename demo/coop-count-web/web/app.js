@@ -47,9 +47,13 @@ function consoleWired() {
 
 function refreshControls() {
   const idle = !state.running;
-  const runnable = state.info !== null && state.info.runnable && state.info.errors === 0;
+  const model = $("machine").value === "transformers";
+  // A case with no tapes needs a model; the model machine runs any case that lints.
+  const runnable =
+    state.info !== null && (state.info.runnable || model) && state.info.errors === 0;
   $("case").disabled = !idle;
   $("machine").disabled = !idle;
+  $("backend").disabled = !idle || !model;
   $("schedule").disabled = !idle || !(state.info && state.info.schedule);
   $("run").disabled = !idle || !runnable;
   $("stop").disabled = idle;
@@ -173,7 +177,11 @@ const handlers = {
     setStatus(text.split("\n").filter(Boolean).pop() || text, true);
     log(text);
   },
-  ready: ({ cases, pyodide, python }) => {
+  ready: ({ cases, pyodide, python, model, isolated }) => {
+    const option = $("model-option");
+    option.disabled = !(model && isolated);
+    if (!model) option.textContent += " (not in this build)";
+    else if (!isolated) option.textContent += " (needs a cross-origin isolated page)";
     const select = $("case");
     for (const name of cases) select.add(new Option(name, name));
     if (cases.includes("coop-count-scripted")) select.value = "coop-count-scripted";
@@ -186,6 +194,11 @@ const handlers = {
     renderLint(info);
     refreshControls();
     showDebugger(JSON.stringify(info.payload));
+  },
+  model: ({ name, backend }) => {
+    state.model = `${name} on ${backend}`;
+    $("model-backend").textContent = `model: ${state.model}`;
+    log(`model thread ready: ${state.model}`);
   },
   started: ({ name, machine, lines }) => {
     $("journal").replaceChildren();
@@ -230,20 +243,59 @@ $("case").addEventListener("change", () => {
   send("describe", { name: $("case").value });
 });
 
+$("machine").addEventListener("change", refreshControls);
+
 $("speed").addEventListener("input", () => {
   const ms = Number($("speed").value);
   $("speed-out").textContent = `${ms} ms/turn`;
   send("speed", { ms });
 });
 
-$("run").addEventListener("click", () => {
+/** Model threads already handed to the Pyodide worker, by backend. */
+const modelThreads = new Map();
+
+/** Start the model thread for a backend here, on the page's thread, and hand its buffer
+ * and port to the Pyodide worker, which calls it synchronously from then on. */
+async function ensureModel(backend) {
+  if (modelThreads.has(backend)) return;
+  const { startBrowserModel } = await import("./model_host.js");
+  const manifest = await (await fetch("manifest.json")).json();
+  setStatus(`loading ${manifest.model} on ${backend}`);
+  const model = await startBrowserModel({
+    modelUrl: `models/${manifest.model}/`,
+    ortWasmUrl: "vendor/onnxruntime-web/ort.wasm.min.mjs",
+    ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
+    tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
+    backend,
+    onProgress: ({ file, loaded, total }) =>
+      setStatus(`downloading ${file}: ${Math.round(loaded / 1e6)} of ${Math.round(total / 1e6)} MB`),
+  });
+  modelThreads.set(backend, model);
+  worker.postMessage(
+    { type: "attachModel", backend, buffer: model.buffer, port: model.port, name: manifest.model },
+    [model.port],
+  );
+}
+
+$("run").addEventListener("click", async () => {
   state.started = {
     name: $("case").value,
     machine: $("machine").value,
     schedule: $("schedule").checked,
+    backend: $("backend").value,
   };
   state.running = true;
   refreshControls();
+  if (state.started.machine === "transformers") {
+    try {
+      await ensureModel(state.started.backend);
+    } catch (err) {
+      state.running = false;
+      refreshControls();
+      setStatus(`the model did not load: ${err.message}`, true);
+      return;
+    }
+  }
   send("start", state.started);
 });
 

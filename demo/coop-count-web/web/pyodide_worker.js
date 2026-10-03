@@ -16,10 +16,15 @@
 //
 // A module worker, because Pyodide 314 refuses to load in a classic one. The stub worker
 // (stub_worker.js) is imported into this same global scope, because JsMachine calls it
-// synchronously across Pyodide's FFI.
+// synchronously across Pyodide's FFI. The model worker is synchronous here too, but its
+// model runs on a thread of its own (model_thread.js), which the page starts and hands
+// over; this worker calls it through a SharedArrayBuffer, blocking in Atomics.wait
+// (model_channel.js). The page starts it rather than this worker because a worker
+// started from inside a worker failed to start in the Chromium this was tested in.
 
 import { loadPyodide, version as PYODIDE_VERSION } from "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs";
 import "./stub_worker.js";
+import { SyncModelWorker } from "./model_channel.js";
 
 const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 
@@ -28,6 +33,10 @@ let page = null;
 let run = null;
 let delay = 120;
 let presses = 0;
+/** One model thread per backend, kept across runs: loading it is the slow part. */
+const models = new Map();
+/** A live model seat counts for ever, so a run of it stops here, as run_all.py stops one. */
+const MODEL_MAX_TICKS = 400;
 
 function post(type, body = {}) {
   self.postMessage({ type, ...body });
@@ -68,7 +77,14 @@ async function boot() {
 
   page = pyodide.pyimport("zeos_coop_count_web.page");
   const python = pyodide.runPython("import sys; sys.version.split()[0]");
-  post("ready", { cases: Object.keys(manifest.cases), pyodide: pyodide.version, python });
+  post("ready", {
+    cases: Object.keys(manifest.cases),
+    pyodide: pyodide.version,
+    python,
+    model: manifest.model ?? null,
+    // The model thread answers through a SharedArrayBuffer, which needs isolation.
+    isolated: self.crossOriginIsolated,
+  });
 }
 
 function describe(name) {
@@ -81,10 +97,20 @@ function linesOf(proxy) {
   return lines;
 }
 
-function start({ name, machine, schedule }) {
+/** Wrap the model thread the page started, whose buffer and port it has handed over. */
+function attachModel({ backend, buffer, port, name }) {
+  models.set(backend, new SyncModelWorker(buffer, (m) => port.postMessage(m)));
+  post("model", { name, backend });
+}
+
+async function start({ name, machine, schedule, backend = "wasm" }) {
   if (run !== null) stop("replaced by a new run");
   const dir = caseDir(name);
-  if (machine === "stub") {
+  if (machine === "transformers") {
+    const worker = models.get(backend);
+    if (worker === undefined) throw new Error(`no model thread for ${backend}; the page starts one`);
+    run = page.open_run.callKwargs(dir, "js", { schedule, worker, max_ticks: MODEL_MAX_TICKS });
+  } else if (machine === "stub") {
     const worker = self.createStubWorker(JSON.parse(page.tapes_json(dir)));
     run = page.open_run.callKwargs(dir, "js", { schedule, worker });
   } else {
@@ -140,6 +166,7 @@ function stop(reason) {
 
 const handlers = {
   describe: ({ name }) => describe(name),
+  attachModel,
   start,
   press: ({ pipe, text }) => {
     if (run === null) return;
@@ -158,8 +185,8 @@ const ready = boot().catch((err) => post("error", { text: `boot failed: ${err}` 
 self.onmessage = async (event) => {
   await ready;
   try {
-    handlers[event.data.type](event.data);
+    await handlers[event.data.type](event.data);
   } catch (err) {
-    post("error", { text: String(err) });
+    post("error", { text: err?.message ? `${err.name}: ${err.message}` : String(err) });
   }
 };

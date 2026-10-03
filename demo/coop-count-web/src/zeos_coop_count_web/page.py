@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.debugger.payload import build_payload
 from zeos.descriptor.lint import Finding, Severity, lint
 from zeos.descriptor.loader import CaseBundle, load_case
@@ -106,11 +107,14 @@ def open_run(
     schedule: bool = True,
     worker: ZeosModelWorker | None = None,
     seed: int = 0,
+    max_ticks: int = 100_000,
+    theta_read: float = DEFAULT_THETA_READ,
 ) -> LiveRun:
     """A run of the case, booted and ready to step. Refuses a case that does not lint.
 
     ``schedule`` plays the case's ``events.jsonl``. ``worker`` is the JavaScript
-    ``ZeosModelWorker`` for the ``js`` machine, reached across Pyodide's FFI.
+    ``ZeosModelWorker`` for the ``js`` machine, reached across Pyodide's FFI. A model
+    seat counts for ever, so ``max_ticks`` is what ends its run.
     """
     case = Path(case_dir)
     bundle = load_case(case)
@@ -130,7 +134,9 @@ def open_run(
         _machine(bundle, machine, worker, bridge),
         schedule=load_schedule(events) if schedule and events.is_file() else (),
         seed=seed,
+        max_ticks=max_ticks,
         trace=True,
+        theta_read=theta_read,
     )
 
 

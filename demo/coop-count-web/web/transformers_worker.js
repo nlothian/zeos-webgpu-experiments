@@ -128,12 +128,16 @@ export class TransformersWorker {
 
   // -- the interface -------------------------------------------------------------
 
+  /** `vocabSize` is the tokenizer's vocabulary: every id `piece` answers and the only ids
+   * a step chooses. The logits are wider (the embedding is padded to a multiple of 64),
+   * but no id past the tokenizer's has a piece, and `argmax` never picks one. */
   info() {
     return {
       blockSize: this.meta.blockSize,
       padId: this.meta.padId,
       controlIds: this.meta.controlIds.slice(),
       eosId: this.meta.eosId,
+      vocabSize: this.meta.tokenizerSize,
     };
   }
 

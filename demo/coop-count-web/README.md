@@ -98,10 +98,11 @@ the browser, or a Python object with the same methods under CPython.
 from zeos_coop_count_web.js_machine import JsMachine
 
 JsMachine(
-    worker,                  # a ZeosModelWorker
-    bridge=None,             # PythonBridge() by default; PyodideBridge() for a JS object
-    descriptors=..., valued=...,   # from zeos.machine.seat.seat_maps(...)
-    block_size=16,           # the kernel's block size, in kernel words
+    worker,  # a ZeosModelWorker
+    bridge=None,  # PythonBridge() by default; PyodideBridge() for a JS object
+    descriptors=...,
+    valued=...,  # from zeos.machine.seat.seat_maps(...)
+    block_size=16,  # the kernel's block size, in kernel words
     chat_template="chatml",  # or None
 )
 ```

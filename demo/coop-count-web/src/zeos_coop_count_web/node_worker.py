@@ -43,6 +43,7 @@ class ModelInfo:
     padId: int
     controlIds: list[int]
     eosId: int
+    vocabSize: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,7 @@ class NodeWorker:
                 padId=int(raw["padId"]),
                 controlIds=[int(i) for i in raw["controlIds"]],
                 eosId=int(raw["eosId"]),
+                vocabSize=int(raw["vocabSize"]),
             )
         return self._info
 

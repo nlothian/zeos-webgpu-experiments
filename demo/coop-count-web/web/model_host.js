@@ -41,7 +41,8 @@ export async function startBrowserModel(options) {
       else if (data.ready) resolve(data.backend);
       else reject(new Error(data.error));
     };
-    thread.onerror = (event) => reject(new Error(event.message));
+    thread.onerror = (event) =>
+      reject(new Error(`model thread failed to start: ${event.message ?? "no message"} (${event.filename ?? "?"}:${event.lineno ?? "?"})`));
   });
   thread.postMessage(
     {

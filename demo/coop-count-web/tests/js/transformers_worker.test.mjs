@@ -84,9 +84,11 @@ describe("TransformersWorker", { skip }, () => {
     assert.equal(w.tokenize("").length, 0);
   });
 
-  test("piece throws for the first id past the vocabulary", () => {
-    assert.equal(typeof w.piece(w.meta.tokenizerSize - 1), "string");
-    assert.throws(() => w.piece(w.meta.tokenizerSize));
+  test("info().vocabSize ids all have a piece, and the first id past them throws", () => {
+    const { vocabSize } = w.info();
+    assert.equal(vocabSize, w.meta.tokenizerSize);
+    assert.equal(typeof w.piece(vocabSize - 1), "string");
+    assert.throws(() => w.piece(vocabSize));
   });
 
   test("a decode step leaves the context as it was and reports normalised attention", async () => {
