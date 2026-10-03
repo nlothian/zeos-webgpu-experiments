@@ -76,7 +76,7 @@ class LiveRun:
         self.driver.boot(bundle.boot)
         self._sampled = len(self.events)
         self._pending = sorted(schedule, key=lambda e: e.at_ns)
-        self._presses: list[tuple[PipeName, str]] = []
+        self._presses: list[tuple[PipeName, str, str | None]] = []
         self._device_pipes = frozenset(p.name for p in bundle.pipes if p.device)
         self._shown = 0
         self.max_ticks = max_ticks
@@ -86,12 +86,22 @@ class LiveRun:
         self.reason = ""
         #: Deliveries the kernel refused because the pipe was full, in order.
         self.refused: list[tuple[PipeName, str]] = []
+        #: Presses withheld because a job was already waiting where ``unless_waiting_on``
+        #: named, in order.
+        self.withheld: list[tuple[PipeName, str]] = []
 
-    def press(self, pipe: str, text: str) -> None:
-        """Queue a write to a device pipe for the next turn, as a console would."""
+    def press(self, pipe: str, text: str, *, unless_waiting_on: str | None = None) -> None:
+        """Queue a write to a device pipe for the next turn, as a console would.
+
+        With ``unless_waiting_on``, the write is withheld if, when the turn delivers it, a
+        live job is parked on that pipe. It is the ``zeos-count`` console's rule for the
+        interrupt key: a handler already waiting for its number must not be fired again
+        to ask for another. Decided from the kernel at delivery, not when the key went
+        down, so no press can slip in between.
+        """
         if self.finished:
             raise RuntimeError(f"the run has finished ({self.reason}); nothing reads a press")
-        self._presses.append((PipeName(pipe), text))
+        self._presses.append((PipeName(pipe), text, unless_waiting_on))
 
     def awaiting_input(self) -> bool:
         """Whether a live job is parked on a device pipe, which only a press can fill."""
@@ -114,8 +124,11 @@ class LiveRun:
             event = self._pending.pop(0)
             self._deliver(event.pipe, event.text)
         presses, self._presses = self._presses, []
-        for pipe, text in presses:
-            self._deliver(pipe, text)
+        for pipe, text, guard in presses:
+            if guard is not None and self.blocked_on(guard):
+                self.withheld.append((pipe, text))
+            else:
+                self._deliver(pipe, text)
 
         self.kernel.advance_time(self.now_ns)
         ran = self.kernel.tick()

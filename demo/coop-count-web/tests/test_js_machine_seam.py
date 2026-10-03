@@ -13,11 +13,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from workers import ChoosingWorker, MeasuringWorker
+from workers import ChoosingWorker, MeasuringWorker, RecordingWorker
 from zeos.core.ids import JobId
-from zeos.machine.base import ControlTokenViolation, tokens_from_text
+from zeos.machine.base import ControlTokenViolation, MaskViolation, tokens_from_text
 
-from zeos_coop_count_web import js_machine as js_machine_module
 from zeos_coop_count_web.fake_worker import CONTROL_IDS, PAD_ID, UNK_ID, FakeWorker, ModelInfo
 from zeos_coop_count_web.js_machine import JsMachine, WorkerViolation
 
@@ -50,7 +49,9 @@ class FixedAttentionWorker(FakeWorker):
 
 class NoMarkersWorker(FakeWorker):
     def info(self) -> ModelInfo:
-        return ModelInfo(blockSize=16, padId=PAD_ID, controlIds=(), eosId=1)
+        return ModelInfo(
+            blockSize=16, padId=PAD_ID, controlIds=(), eosId=1, vocabSize=super().info().vocabSize
+        )
 
 
 def machine(worker: FakeWorker, **kwargs: Any) -> JsMachine:
@@ -104,14 +105,39 @@ def test_an_id_the_mask_refused_is_a_worker_violation(choose: int) -> None:
         m.decode(JOB, allow_control=False)
 
 
-def test_a_piece_that_never_throws_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Endless(FakeWorker):
-        def piece(self, tokenId: int) -> str:
-            return "x"
+def test_the_vocabulary_is_the_size_info_declares() -> None:
+    class Asked(FakeWorker):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.asked: list[int] = []
 
-    monkeypatch.setattr(js_machine_module, "_MAX_VOCABULARY", 64)
-    with pytest.raises(WorkerViolation, match="must throw"):
-        JsMachine(Endless(TAPES))
+        def piece(self, tokenId: int) -> str:
+            self.asked.append(tokenId)
+            return super().piece(tokenId)
+
+    worker = Asked(TAPES)
+    m = JsMachine(worker)
+    size = worker.info().vocabSize
+    assert m.vocabulary_size == size
+    assert worker.asked[:size] == list(range(size)), "every id below vocabSize, nothing past it"
+    assert max(worker.asked) == size - 1
+
+
+@pytest.mark.parametrize("field", ["padId", "eosId", "vocabSize"])
+def test_info_naming_ids_outside_the_vocabulary_is_a_worker_violation(field: str) -> None:
+    class Short(FakeWorker):
+        def info(self) -> ModelInfo:
+            real = super().info()
+            values = {
+                "padId": real.padId,
+                "eosId": real.eosId,
+                "vocabSize": real.vocabSize,
+                field: 0 if field == "vocabSize" else real.vocabSize,
+            }
+            return ModelInfo(blockSize=16, controlIds=real.controlIds, **values)
+
+    with pytest.raises(WorkerViolation, match="vocab"):
+        JsMachine(Short(TAPES))
 
 
 # -- words against model tokens ----------------------------------------------
@@ -200,3 +226,47 @@ def test_padding_is_the_workers_pad_id() -> None:
     assert m.pad_to_block(JOB) == 3
     m.decode(JOB, allow_control=False)
     assert resident(worker, m)[1:] == [PAD_ID] * 3
+
+
+def test_attention_on_a_block_the_step_hid_is_a_mask_violation() -> None:
+    worker = FixedAttentionWorker(TAPES, block_size=4, attention=[0.5, 0.5])
+    m = machine(worker, block_size=4, chat_template=None)
+    m.inject(JOB, tokens_from_text("a b c d e f g h"))
+    m.set_mask(JOB, frozenset({1}))
+    with pytest.raises(MaskViolation):
+        m.decode(JOB, allow_control=False)
+
+
+# -- the mask's horizon ------------------------------------------------------
+
+
+def test_blocks_decoded_past_the_horizon_are_visible_and_sent_as_allowed() -> None:
+    worker = RecordingWorker({"d": ["say a b c d e f"]}, block_size=4)
+    m = machine(worker, block_size=4, chat_template=None)
+    m.inject(JOB, tokens_from_text("p q r s t u v w"))
+    m.set_mask(JOB, frozenset({1}))  # installed over two blocks; block 0 hidden
+    for _ in range(4):
+        m.decode(JOB, allow_control=False)
+    assert m.stats(JOB).blocks == 3
+    assert m.visible_blocks(JOB) == frozenset({1, 2}), "block 2 holds only the job's own words"
+    assert bytes(worker.seen[-1]["allowedBlocks"]) == b"\x00\x01\x01"
+
+
+def test_a_trunc_below_the_horizon_lowers_it() -> None:
+    worker = FakeWorker({"d": ["say a b c d e f"]}, block_size=4)
+    m = machine(worker, block_size=4, chat_template=None)
+    m.inject(JOB, tokens_from_text("a b c d e f g h i j k l"))
+    m.set_mask(JOB, frozenset({2}))
+    m.trunc(JOB, 4)
+    assert m.visible_blocks(JOB) == frozenset(), "the stale mask still hides block 0"
+    for _ in range(2):
+        m.decode(JOB, allow_control=False)
+    assert m.visible_blocks(JOB) == frozenset({1}), "block 1 was written after the trunc"
+
+
+# -- tapes the two workers could not agree on ----------------------------------
+
+
+def test_a_non_ascii_tape_is_refused() -> None:
+    with pytest.raises(ValueError, match="ASCII"):
+        FakeWorker({"d": ["say \u2192"]})

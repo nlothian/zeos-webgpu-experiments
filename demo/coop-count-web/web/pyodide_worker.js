@@ -131,6 +131,7 @@ function turn() {
       ticks: run.ticks,
       awaiting: run.awaiting_input(),
       parked: run.blocked_on("keys.number"),
+      withheld: run.withheld.length,
     });
   } catch (err) {
     post("error", { text: String(err) });
@@ -168,9 +169,9 @@ const handlers = {
   describe: ({ name }) => describe(name),
   attachModel,
   start,
-  press: ({ pipe, text }) => {
+  press: ({ pipe, text, unlessWaitingOn }) => {
     if (run === null) return;
-    run.press(pipe, text);
+    run.press.callKwargs(pipe, text, { unless_waiting_on: unlessWaitingOn ?? null });
     presses += 1;
     post("pressed", { pipe, text, atNs: run.now_ns });
   },

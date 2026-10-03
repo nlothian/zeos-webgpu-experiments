@@ -89,3 +89,41 @@ def test_the_mask_is_computed_once_per_state() -> None:
     assert mask.allowed("d", COUNTER, COUNTER.start, allow_control=False) is first
     after_say = COUNTER.advance(COUNTER.start, "say")
     assert list(mask.allowed("d", COUNTER, after_say, allow_control=False)) == [0, 1]
+
+
+def test_a_piece_closing_two_commands_is_refused() -> None:
+    """The seat's parser splits a piece at its first terminator only, so a piece that also
+    closes the next command would leave it unread and the round stuck."""
+    pieces = ["say", " a; exit;", " a;", " a; say b"]
+    mask = TokenMask(pieces, reserved=[], control=[])
+    after_say = COUNTER.advance(COUNTER.start, "say")
+    assert list(mask.allowed("d", COUNTER, after_say, allow_control=False)) == [0, 0, 1, 1]
+    assert COUNTER.walk(after_say, " a; exit;")[1] == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "admitted"),
+    [
+        ("exit%%", True),
+        ("say hi%% write stdout go%%", True),
+        ("say hi%%write stdout go%%", False),  # the next command opens with a space
+        ("say h%", True),  # a prefix: the terminator has begun
+        ("say h%%", True),
+        ("say h%llo", False),  # a payload excludes the terminator's characters, as in GBNF
+        ("write tools 12%%", True),
+        ("read%%", False),  # read takes a pipe
+    ],
+)
+def test_a_terminator_of_several_characters_is_matched_as_a_literal(
+    text: str, admitted: bool
+) -> None:
+    abi = SyscallABI(verbs=DEFAULT.verbs, terminator="%%")
+    language = CommandLanguage(abi, ("stdin", "stdout", "tools"), valued=("tools",))
+    assert admits(text, language) is admitted
+
+
+def test_a_long_terminator_split_across_pieces_closes_once() -> None:
+    abi = SyscallABI(verbs=DEFAULT.verbs, terminator="%%")
+    language = CommandLanguage(abi, ("stdin", "stdout"))
+    state = language.advance(language.start, "exit%")
+    assert language.walk(state, "%") == (((5,),), 1)

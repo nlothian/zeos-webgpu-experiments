@@ -9,10 +9,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
-from journals import beyond_the_horizon, kinds
 from workers import RecordingWorker
 from zeos.core.events import (
     Event,
@@ -96,17 +97,33 @@ def test_the_keypress_preempts_a_counter_and_it_resumes_dirty(run: LiveRun) -> N
     assert {d.obj: (d.before, d.after) for d in dirty[0].dirty} == {"count.a": ("10", NEW_COUNT)}
 
 
-def test_the_seam_writes_the_journal_the_seat_writes(run: LiveRun) -> None:
+def _facts(run: LiveRun, *, drop: str = "") -> list[dict[str, Any]]:
+    """The journal as dicts without sequence numbers, optionally without one kind."""
+    out: list[dict[str, Any]] = []
+    for line in run.journal_bytes().decode().splitlines():
+        record = json.loads(line)
+        if record["kind"] != drop:
+            del record["seq"]
+            out.append(record)
+    return out
+
+
+def test_the_seam_differs_from_the_seat_only_in_what_the_mask_denied(run: LiveRun) -> None:
     """The fake decodes each tape word as one token, through every method of the seam and
-    the grammar mask, so the kernel sees what it sees over the seat -- except the block
-    each job is writing into, which the seat's mask hides and ``JsMachine``'s does not
-    until the next mask decides it. The seat's kernel journals that as ``mask.denied``
-    and keeps the open output out of the working set; nothing else may differ."""
-    seam, seated = run.journal_bytes(), run_to_end(seat()).journal_bytes()
-    assert "mask.denied" in kinds(seated)
-    assert "mask.denied" not in kinds(seam)
-    assert kinds(seam).count("vm.working_set") == kinds(seated).count("vm.working_set")
-    assert beyond_the_horizon(seam) == beyond_the_horizon(seated)
+    the grammar mask, so the kernel sees the seat's run -- except for attention.
+
+    The seat's mask hides blocks written since the kernel's last refresh, so the hint it
+    leaves lands partly on the job's own open segment, the kernel journals that as
+    denied, and that segment's mass never reaches the working set. ``JsMachine`` counts
+    blocks past the mask's horizon as visible, so nothing is denied, the working set
+    includes what the job is writing, and every other event is the seat's.
+    """
+    ours, theirs = _facts(run), _facts(seat_run := run_to_end(seat()), drop="mask.denied")
+    assert sum(r["kind"] == "mask.denied" for r in _facts(seat_run)) > 0
+    assert all(r["kind"] != "mask.denied" for r in ours)
+    assert [r["kind"] for r in ours] == [r["kind"] for r in theirs]
+    differ = {a["kind"] for a, b in zip(ours, theirs, strict=True) if a != b}
+    assert differ <= {"vm.working_set"}
 
 
 def test_the_run_is_the_same_run_twice(run: LiveRun) -> None:
@@ -153,13 +170,30 @@ def test_a_parked_handler_holds_the_run_open_until_the_number_arrives() -> None:
     assert {w.obj for w in written} == {"count.a", "count.b"}
 
 
+def test_an_interrupt_while_the_handler_is_parked_is_withheld() -> None:
+    """The console's rule, decided from the kernel when the press is delivered."""
+    run = LiveRun(load_case(CASE), js_machine())
+    while run.now_ns < INTERRUPT_NS:
+        run.step()
+    run.press("keys.interrupt", "attention", unless_waiting_on="keys.number")
+    while not run.blocked_on("keys.number"):
+        run.step()
+    run.press("keys.interrupt", "attention", unless_waiting_on="keys.number")
+    run.step()
+    assert run.withheld == [("keys.interrupt", "attention")]
+    run.press("keys.number", NEW_COUNT)
+    while not run.finished:
+        run.step()
+    assert len(_of(_events(run), VectorFired)) == 1
+
+
 def test_every_step_carries_both_masks() -> None:
     """Every step is told which ids it may emit and which blocks it may attend.
 
-    The kernel installs its block mask at each block boundary, naming the blocks of the
-    segments that exist then, so blocks written since lie outside it until the next
-    refresh. Nothing in this case hides an older block, so the only blocks a step is
-    told to skip are the newest ones.
+    The kernel installs its block mask at each refresh, naming the blocks of the
+    segments that exist then; blocks the job decodes into afterwards lie past the
+    horizon and are allowed. Nothing in this case hides a block, so no step is told to
+    skip one -- least of all the one holding the position doing the attending.
     """
     machine = js_machine(RecordingWorker)
     run_to_end(machine)
@@ -167,10 +201,9 @@ def test_every_step_carries_both_masks() -> None:
     assert isinstance(worker, RecordingWorker)
     assert worker.seen
     assert all(len(opts["allowedTokens"]) == machine.vocabulary_size for opts in worker.seen)
-    for opts in worker.seen:
-        flags = bytes(opts["allowedBlocks"])
-        assert b"\x00" not in flags.rstrip(b"\x00"), "a hidden block followed by a visible one"
-        assert flags.rstrip(b"\x00"), "the step was told to attend nothing at all"
+    masked = [bytes(opts["allowedBlocks"]) for opts in worker.seen if opts["allowedBlocks"]]
+    assert masked, "the kernel installs a mask in this case"
+    assert all(b"\x00" not in flags for flags in masked)
 
 
 @pytest.mark.skipif(

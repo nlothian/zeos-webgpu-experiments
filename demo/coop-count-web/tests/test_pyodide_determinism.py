@@ -32,7 +32,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from journals import beyond_the_horizon
 from zeos.cli import main as zeos_main
 from zeos.descriptor.loader import load_case
 from zeos.driver import load_schedule
@@ -162,7 +161,3 @@ def test_the_stub_worker_and_the_fake_write_the_same_bytes(
     )
     run = LiveRun(bundle, machine, schedule=load_schedule(CASE / "events.jsonl"), trace=True)
     assert pyodide_journals["stub"] == _run_to_end(run)
-    # The seam and the seat differ only where a mask's horizon does (tests/journals.py).
-    assert beyond_the_horizon(pyodide_journals["stub"]) == beyond_the_horizon(
-        pyodide_journals["seat"]
-    )

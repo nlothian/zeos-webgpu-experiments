@@ -41,8 +41,9 @@
     return words.map((w, i) => (i === 0 && !lead ? w : " " + w));
   }
 
-  // Python's sorted() on str, for the code points a tape can hold.
-  function byCodePoint(a, b) {
+  // Tapes are ASCII (checked in the constructor), where UTF-16 order is code-point order
+  // and so matches Python's sorted() on str.
+  function byCodeUnit(a, b) {
     return a < b ? -1 : a > b ? 1 : 0;
   }
 
@@ -51,6 +52,15 @@
       this.blockSize = options.blockSize ?? 16;
       this.terminator = options.terminator ?? ";";
       this.tapes = new Map(Object.entries(tapes));
+      // Python and JavaScript split and sort non-ASCII text differently, so the twin
+      // workers would build different vocabularies from it.
+      for (const [name, commands] of this.tapes) {
+        for (const command of commands) {
+          if (/[^\x00-\x7f]/.test(command)) {
+            throw new Error(`${name}: tape command ${JSON.stringify(command)} is not ASCII`);
+          }
+        }
+      }
       const words = new Set(FRAMING_WORDS);
       for (const commands of this.tapes.values()) {
         for (const command of commands) {
@@ -59,7 +69,7 @@
       }
       const all = new Set(words);
       for (const w of words) all.add(" " + w);
-      this.vocab = SPECIAL.concat([...all].sort(byCodePoint));
+      this.vocab = SPECIAL.concat([...all].sort(byCodeUnit));
       this.ids = new Map(this.vocab.map((piece, i) => [piece, i]));
       this.contexts = new Map();
     }
@@ -67,7 +77,13 @@
     // -- identity -----------------------------------------------------------
 
     info() {
-      return { blockSize: this.blockSize, padId: PAD_ID, controlIds: CONTROL_IDS, eosId: EOS_ID };
+      return {
+        blockSize: this.blockSize,
+        padId: PAD_ID,
+        controlIds: CONTROL_IDS,
+        eosId: EOS_ID,
+        vocabSize: this.vocab.length,
+      };
     }
 
     tokenize(text) {
