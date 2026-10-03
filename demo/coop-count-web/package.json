@@ -1,13 +1,18 @@
 {
   "name": "zeos-coop-count-web",
   "private": true,
+  "description": "Pyodide for Node, used by the determinism test that runs the kernel under Pyodide and compares its journal with CPython's; ONNX Runtime and the Transformers.js tokenizer for the model worker, which build.py copies into the page.",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "scripts": {
+    "postinstall": "node tests/fetch_pyodide_packages.mjs"
+  },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
     "onnxruntime-web": "1.30.0"
   },
   "devDependencies": {
-    "onnxruntime-node": "1.30.0"
+    "onnxruntime-node": "1.30.0",
+    "pyodide": "314.0.7"
   }
 }

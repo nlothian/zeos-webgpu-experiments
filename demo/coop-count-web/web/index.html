@@ -1,0 +1,106 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Metacognition AI
+
+This source code is licensed under the AGPL-3.0-only licence found in the
+LICENSE file in the root directory of this source tree.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>coop-count in the browser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>coop-count <span class="sub">— the ZEOS kernel under Pyodide</span></h1>
+    <p id="status" class="status" role="status">starting the Pyodide worker…</p>
+  </div>
+  <!-- AGPL section 13: whoever this page is served to is owed the Corresponding Source. -->
+  <a href="https://github.com/metacognitionai/zeos" target="_blank" rel="noopener noreferrer">source</a>
+</header>
+
+<main>
+  <section class="panel" id="controls" aria-labelledby="controls-h">
+    <h2 id="controls-h">run</h2>
+    <div class="row">
+      <label>case
+        <select id="case" disabled></select>
+      </label>
+      <label>machine
+        <select id="machine" disabled>
+          <option value="scripted">scripted — CommandSeat over the case's tapes</option>
+          <option value="stub">JsMachine — stub worker in JavaScript</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="schedule" checked disabled>
+        play <code>events.jsonl</code></label>
+      <label>speed
+        <input type="range" id="speed" min="0" max="400" step="20" value="120"
+               aria-describedby="speed-out">
+        <output id="speed-out">120 ms/turn</output>
+      </label>
+    </div>
+    <div class="row">
+      <button id="run" type="button" disabled>run</button>
+      <button id="stop" type="button" disabled>stop</button>
+      <span id="clock" class="meta"></span>
+    </div>
+    <div id="lint" class="lint"></div>
+  </section>
+
+  <section class="panel" id="console" aria-labelledby="console-h">
+    <h2 id="console-h">console</h2>
+    <p class="hint">The keyboard device: <kbd>space</kbd> writes <code>attention</code> to
+      <code>keys.interrupt</code>, which the vector table binds to <code>reset-count</code> at
+      priority 5; then type a number and press <kbd>Enter</kbd> to write it to
+      <code>keys.number</code>. Each lands at the virtual time of the next turn.</p>
+    <div class="row">
+      <button id="interrupt" type="button" disabled>interrupt (space)</button>
+      <label>number
+        <input id="number" inputmode="numeric" pattern="[0-9]*" size="8" disabled>
+      </label>
+      <button id="send" type="button" disabled>send (Enter)</button>
+      <span id="prompt" class="meta"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="journal-panel" aria-labelledby="journal-h">
+    <div class="head">
+      <h2 id="journal-h">journal</h2>
+      <span id="count" class="meta">0 events</span>
+      <label class="check"><input type="checkbox" id="follow" checked> follow</label>
+      <button id="download" type="button" disabled>download .jsonl</button>
+    </div>
+    <ol id="journal" class="journal" aria-live="off"></ol>
+  </section>
+
+  <section class="panel" id="runs-panel" aria-labelledby="runs-h">
+    <h2 id="runs-h">finished runs</h2>
+    <p class="hint">A run's journal is a pure function of the case, the schedule and the
+      presses, so two runs with the same inputs show the same digest.</p>
+    <table id="runs">
+      <thead><tr><th>case</th><th>machine</th><th>schedule</th><th>presses</th>
+        <th>ticks</th><th>events</th><th>sha-256</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel wide" id="debugger-panel" aria-labelledby="debugger-h">
+    <h2 id="debugger-h">debugger</h2>
+    <iframe id="debugger" title="ZEOS debugger"></iframe>
+  </section>
+
+  <section class="panel wide" id="log-panel" aria-labelledby="log-h">
+    <h2 id="log-h">worker log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -12,21 +12,18 @@ Pyodide passes a Python list or dict to JavaScript as a proxy, which a worker re
 here so ``JsMachine`` itself stays plain Python.
 """
 
+# Pyodide's modules exist only inside Pyodide, so a type checker outside it knows nothing
+# of them.
+# pyright: reportMissingImports=false, reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from typing import cast
 
-from js import (  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
-    Int32Array,
-    Object,
-    Uint8Array,
-)
-from pyodide.ffi import (  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
-    JsNull,
-    jsnull,
-    to_js,
-)
+from js import Int32Array, Object, Uint8Array
+from pyodide.ffi import JsNull, jsnull, to_js
 
 __all__ = ["PyodideBridge"]
 

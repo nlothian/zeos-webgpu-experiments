@@ -17,9 +17,10 @@ clock, tick, sample the machine's account, reap, and add one millisecond of virt
 time whether or not anything ran. With no presses, a run is the CLI's run and its
 journal is byte for byte the one ``zeos-count run --machine scripted --events`` writes.
 
-A press lands at the virtual time of the turn that delivers it, which is the next one;
-the page cannot slip an event between two halves of a tick, and the journal records
-the delivery like any other.
+A press is delivered at the start of the next turn, before that turn advances the
+clock -- exactly where the CLI delivers a scheduled event that has come due -- so the
+journal stamps it with the previous turn's time. The page cannot slip an event between
+two halves of a tick, and the journal records the delivery like any other.
 """
 
 from __future__ import annotations
