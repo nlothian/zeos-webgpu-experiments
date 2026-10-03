@@ -229,11 +229,6 @@ export class TransformersWorker {
 
   // -- outside the interface -------------------------------------------------------
 
-  /** The token ids a job holds, for tests and the page. */
-  tokens(jobId) {
-    return Int32Array.from(this.ctx(jobId).tokens);
-  }
-
   async release() {
     await this.prefillSession.release();
     await this.decodeSession.release();

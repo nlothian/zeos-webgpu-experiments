@@ -103,7 +103,7 @@ function attachModel({ backend, buffer, port, name }) {
   post("model", { name, backend });
 }
 
-async function start({ name, machine, schedule, backend = "wasm" }) {
+function start({ name, machine, schedule, backend = "wasm" }) {
   if (run !== null) stop("replaced by a new run");
   const dir = caseDir(name);
   if (machine === "transformers") {
