@@ -11,8 +11,10 @@
  *
  * The first message configures it; every later message on `port` is a worker call.
  * Progress and the outcome of loading go back to the starter as
- * `{progress: {file, loaded, total}}` and `{ready: true, backend}` or
- * `{ready: false, error}`.
+ * `{progress: {phase, file, loaded, total, files, file_index, bytes, bytes_total}}` and
+ * `{ready: true, backend}` or `{ready: false, error}`; after that, every run of the
+ * graph is reported as `{activity: {...}}` (see `TransformersWorker`'s `onActivity`),
+ * which is how the page can say what the model is doing while a step blocks the kernel.
  */
 
 import { serveChannel } from "./model_channel.js";
@@ -59,11 +61,41 @@ self.onmessage = async (event) => {
     ort.env.wasm.wasmPaths = new URL(".", chosen === "webgpu" ? ortWebgpuUrl : ortWasmUrl).href;
     const { Tokenizer } = await import(tokenizersUrl);
     const base = new URL(modelUrl, self.location.href);
-    const read = (name) =>
-      fetchBytes(new URL(name, base), (loaded, total) =>
-        self.postMessage({ progress: { file: name, loaded, total } }),
+    // meta.json lists every file's size, so the download can be reported as a whole.
+    // It is read first by `load`, and the figures below are empty until then.
+    let sizes = {};
+    let bytesBefore = 0;
+    let fileIndex = 0;
+    const read = async (name) => {
+      const total = sizes[name]?.bytes ?? 0;
+      const sum = Object.values(sizes).reduce((a, f) => a + f.bytes, 0);
+      const names = Object.keys(sizes);
+      const bytes = await fetchBytes(new URL(name, base), (loaded, fileTotal) =>
+        self.postMessage({
+          progress: {
+            phase: "download",
+            file: name,
+            loaded,
+            total: fileTotal || total,
+            files: names.length,
+            file_index: fileIndex,
+            bytes: bytesBefore + loaded,
+            bytes_total: sum,
+          },
+        }),
       );
-    const worker = await TransformersWorker.load({ ort, Tokenizer, read, backend: chosen });
+      if (name === "meta.json") sizes = JSON.parse(new TextDecoder().decode(bytes)).files ?? {};
+      bytesBefore += bytes.byteLength;
+      fileIndex += 1;
+      if (name === "model.onnx") {
+        // The graph is the last file `load` reads; what follows is ONNX Runtime
+        // building the session, which has no progress to report.
+        self.postMessage({ progress: { phase: "session", bytes: bytesBefore, bytes_total: sum } });
+      }
+      return bytes;
+    };
+    const onActivity = (activity) => self.postMessage({ activity });
+    const worker = await TransformersWorker.load({ ort, Tokenizer, read, backend: chosen, onActivity });
     serveChannel(worker, buffer, (handle) => {
       port.onmessage = (message) => handle(message.data);
     });

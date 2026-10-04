@@ -18,7 +18,7 @@ console's interrupt.
 ```bash
 uv sync --all-packages                       # from the repository root
 uv run python demo/coop-count-web/build.py   # builds the wheels into web/dist/
-uv run python demo/coop-count-web/serve.py   # web/dist/ on port 8765, cross-origin isolated
+uv run python demo/coop-count-web/serve.py   # web/dist/ on port 8765, cross-origin isolated, no-cache
 # open http://localhost:8765/
 ```
 
@@ -75,6 +75,15 @@ llama-cpp-python is installed. A press is delivered at the start of the next tur
 place the CLI delivers a scheduled event, so pressing at the turns `events.jsonl` names
 reproduces the scheduled run exactly. While a job is parked on a device pipe the run
 stays open, idling, until a press arrives or *stop* is pressed.
+
+**What the model is doing.** A *model* line under the run buttons follows the model
+thread: the download as a whole (the export's `meta.json` lists every file's size), the
+session ONNX Runtime builds once the files are in, and then every run of the graph --
+which prompt is being prefilled and how far, with an estimate of the time left, or which
+decode step is in flight -- with the mean step time once steps have run. The kernel is
+blocked while a step runs, so this line is the one that moves when the journal does not.
+The thread reports each run of the graph through `TransformersWorker`'s `onActivity`
+callback, which the page sets and Node leaves unset.
 
 **Responsiveness.** Pyodide runs in a Web Worker (`web/pyodide_worker.js`), so loading
 it, building the debugger's payload or a slow machine never freezes the page. The worker

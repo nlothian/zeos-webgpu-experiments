@@ -62,6 +62,8 @@ export function encodePlain(tokenizer, text) {
 class Context {
   constructor(worker) {
     this.stride = worker.stride;
+    /** The context id the interface gave this cache, for `onActivity`. */
+    this.job = null;
     this.tokens = [];
     this.kv = new Float32Array(0);
     /** Positions with a cache behind them. */
@@ -129,14 +131,19 @@ export class TransformersWorker {
    * @param {object} deps.meta the export's `meta.json`.
    * @param {object} deps.session an `InferenceSession` over `model.onnx`.
    * @param {string} deps.backend which execution provider the session runs on.
+   * @param {(activity: object) => void} [deps.onActivity] told before and after every run
+   *   of the graph: `{phase, job, start, count, length}` and then the same with `ms`.
+   *   `phase` is `prefill` or `decode`; `start` and `count` are the positions the run
+   *   covers and `length` the context's token count. Nothing by default.
    */
-  constructor({ ort, tokenizer, meta, session, backend }) {
+  constructor({ ort, tokenizer, meta, session, backend, onActivity = null }) {
     if (meta.blockSize !== 1) throw new Error(`export has blockSize ${meta.blockSize}; expected 1`);
     this.ort = ort;
     this.tokenizer = tokenizer;
     this.meta = meta;
     this.session = session;
     this.backend = backend;
+    this.onActivity = onActivity;
     const size = (shape) => shape.reduce((a, b) => a * b, 1);
     this.kvShape = meta.kvShape;
     this.stride = size(meta.kvShape);
@@ -152,7 +159,7 @@ export class TransformersWorker {
 
   /** Build a worker from the files an export wrote. `read(name)` returns a file's bytes
    * as a Uint8Array (or a promise of them); `backend` is an execution provider name. */
-  static async load({ ort, Tokenizer, read, backend = "wasm", sessionOptions = {} }) {
+  static async load({ ort, Tokenizer, read, backend = "wasm", sessionOptions = {}, onActivity = null }) {
     const decoder = new TextDecoder();
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");
@@ -166,7 +173,7 @@ export class TransformersWorker {
     // One weights file after another, so only one download is in flight.
     for (const path of meta.weights) options.externalData.push({ path, data: await read(path) });
     const session = await ort.InferenceSession.create(await read("model.onnx"), options);
-    return new TransformersWorker({ ort, tokenizer, meta, session, backend });
+    return new TransformersWorker({ ort, tokenizer, meta, session, backend, onActivity });
   }
 
   // -- the interface -------------------------------------------------------------
@@ -201,7 +208,9 @@ export class TransformersWorker {
   }
 
   createContext(jobId) {
-    this.contexts.set(jobId, new Context(this));
+    const ctx = new Context(this);
+    ctx.job = jobId;
+    this.contexts.set(jobId, ctx);
   }
 
   destroyContext(jobId) {
@@ -228,7 +237,9 @@ export class TransformersWorker {
   }
 
   fork(parentId, childId) {
-    this.contexts.set(childId, this.ctx(parentId).copy());
+    const ctx = this.ctx(parentId).copy();
+    ctx.job = childId;
+    this.contexts.set(childId, ctx);
   }
 
   async decodeStep(jobId, { allowedBlocks = null, allowedTokens = null } = {}) {
@@ -252,7 +263,7 @@ export class TransformersWorker {
     await this.fill(ctx, n - 1, allowed);
 
     const before = { pos: n - 1, state: ctx.state, conv: ctx.conv };
-    const result = await this.run(ctx, n - 1, 1, allowed);
+    const result = await this.run(ctx, n - 1, 1, allowed, "decode");
     ctx.push(result, 1, allowed.subarray(n - 1, n));
     ctx.previous = before;
     ctx.mask = allowedBlocks === null ? null : allowed;
@@ -337,17 +348,22 @@ export class TransformersWorker {
 
   /** One run of the graph over tokens [start, start + count) after a cache of `start`
    * positions, with `visible` giving each position's key mask. */
-  run(ctx, start, count, visible) {
+  async run(ctx, start, count, visible, phase = "prefill") {
     const { ort, meta } = this;
     const ids = new BigInt64Array(count);
     for (let i = 0; i < count; i++) ids[i] = BigInt(ctx.tokens[start + i]);
-    return this.session.run({
+    const activity = { phase, job: ctx.job ?? null, start, count, length: ctx.tokens.length };
+    this.onActivity?.(activity);
+    const began = performance.now();
+    const result = await this.session.run({
       input_ids: new ort.Tensor("int64", ids, [count]),
       past_kv: new ort.Tensor("float32", ctx.kv.subarray(0, start * this.stride), [start, ...this.kvShape]),
       state: new ort.Tensor("float32", ctx.state, meta.stateShape),
       conv: new ort.Tensor("float32", ctx.conv, meta.convShape),
       key_mask: new ort.Tensor("bool", visible.slice(0, start + count), [start + count]),
     });
+    this.onActivity?.({ ...activity, ms: performance.now() - began });
+    return result;
   }
 
   /** Greedy choice among the allowed ids, lowest id on a tie. Ids past the tokenizer's

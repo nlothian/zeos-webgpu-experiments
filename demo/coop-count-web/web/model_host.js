@@ -21,7 +21,9 @@ import { CHANNEL_BYTES } from "./model_channel.js";
  * @param {string} options.tokenizersUrl `@huggingface/tokenizers`' `tokenizers.min.mjs`.
  * @param {"wasm"|"webgpu"|"auto"} [options.backend] `auto` takes WebGPU when present.
  * @param {number} [options.threads] WebAssembly threads; one keeps a run reproducible.
- * @param {(progress: object) => void} [options.onProgress]
+ * @param {(progress: object) => void} [options.onProgress] download and session progress.
+ * @param {(activity: object) => void} [options.onActivity] every run of the graph, before
+ *   and after, as `TransformersWorker`'s `onActivity` reports it.
  */
 export async function startBrowserModel(options) {
   if (!self.crossOriginIsolated) {
@@ -38,6 +40,7 @@ export async function startBrowserModel(options) {
     thread.onmessage = (event) => {
       const data = event.data;
       if (data.progress) options.onProgress?.(data.progress);
+      else if (data.activity) options.onActivity?.(data.activity);
       else if (data.ready) resolve(data.backend);
       else reject(new Error(data.error));
     };

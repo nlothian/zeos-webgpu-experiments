@@ -29,6 +29,11 @@ class IsolatedHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        # Revalidate every file on each load, so a rebuild reaches the page's workers on
+        # the next reload rather than when the browser's heuristic freshness runs out.
+        # The export's files still come from the browser's cache: a conditional request
+        # for an unchanged file is answered 304 Not Modified, without the bytes.
+        self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
 

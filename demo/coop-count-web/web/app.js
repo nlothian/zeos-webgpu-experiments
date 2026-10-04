@@ -177,6 +177,79 @@ for (const tabId of TABS) {
 }
 $("follow").addEventListener("change", followVisible);
 
+// -- model status -----------------------------------------------------------
+
+const mb = (n) => `${Math.round(n / 1e6)} MB`;
+
+/** Show what the model thread is doing, with a bar when there is a fraction to show.
+ * `busy` marks a step in flight, which is when the kernel is waiting on the model. */
+function setModelStatus(text, { fraction = null, busy = false } = {}) {
+  $("model-status-row").hidden = false;
+  $("model-status-row").classList.toggle("busy", busy);
+  $("model-status").textContent = text;
+  const bar = $("model-progress");
+  bar.hidden = fraction === null;
+  if (fraction !== null) bar.value = fraction;
+}
+
+function onModelProgress(progress) {
+  if (progress.phase === "session") {
+    setModelStatus(`downloaded ${mb(progress.bytes)}; ONNX Runtime is building the session`, {
+      busy: true,
+    });
+    return;
+  }
+  const { file, loaded, total, files, file_index, bytes, bytes_total } = progress;
+  const whole = bytes_total > 0 ? `${mb(bytes)} of ${mb(bytes_total)}` : `${mb(loaded)} of ${mb(total)}`;
+  const which = files > 0 ? ` (file ${file_index + 1} of ${files}: ${file})` : ` (${file})`;
+  const fraction = bytes_total > 0 ? bytes / bytes_total : total > 0 ? loaded / total : null;
+  setModelStatus(`downloading ${whole}${which}`, { fraction });
+}
+
+const modelActivity = { steps: 0, decodeMs: 0, prefillMsPerToken: null };
+
+/** A context id is `<job>:<descriptor>` (see the README's seam section); the descriptor
+ * is the name the transcript uses. */
+function jobLabel(contextId) {
+  if (contextId === null) return "";
+  const match = /^(\d+):(.*)$/.exec(contextId);
+  return match ? ` for ${match[2]} (job ${match[1]})` : ` for ${contextId}`;
+}
+
+function onModelActivity(activity) {
+  const job = jobLabel(activity.job);
+  if (activity.ms === undefined) {
+    // A run of the graph has started; the kernel is blocked until it returns.
+    if (activity.phase === "decode") {
+      setModelStatus(`decoding step ${modelActivity.steps + 1}${job}, ${activity.length} tokens in context`, {
+        busy: true,
+      });
+      return;
+    }
+    const end = activity.start + activity.count;
+    const left = modelActivity.prefillMsPerToken === null
+      ? ""
+      : `, about ${Math.max(1, Math.round(((activity.length - end) * modelActivity.prefillMsPerToken) / 1000))} s left`;
+    setModelStatus(`prefilling positions ${activity.start}–${end} of ${activity.length}${job}${left}`, {
+      busy: true,
+      fraction: activity.start / activity.length,
+    });
+    return;
+  }
+  if (activity.phase === "decode") {
+    modelActivity.steps += 1;
+    modelActivity.decodeMs += activity.ms;
+    const mean = modelActivity.decodeMs / modelActivity.steps;
+    setModelStatus(`idle after ${modelActivity.steps} decode steps, ${Math.round(mean)} ms each`);
+  } else {
+    // A running mean of the prefill cost per token, for the estimate above.
+    const perToken = activity.ms / activity.count;
+    modelActivity.prefillMsPerToken =
+      modelActivity.prefillMsPerToken === null ? perToken : 0.8 * modelActivity.prefillMsPerToken + 0.2 * perToken;
+    setModelStatus(`idle; prefilled to position ${activity.start + activity.count}${job}`);
+  }
+}
+
 // -- debugger ---------------------------------------------------------------
 
 let assets = null;
@@ -267,6 +340,9 @@ const handlers = {
   model: ({ name, backend }) => {
     state.model = `${name} on ${backend}`;
     $("model-backend").textContent = `model: ${state.model}`;
+    // The thread is attached while a run is starting, so this must not overwrite what
+    // the run has already said the model is doing.
+    if (!state.running) setModelStatus("ready");
     log(`model thread ready: ${state.model}`);
   },
   started: ({ name, machine, lines, transcript }) => {
@@ -342,8 +418,8 @@ async function ensureModel(backend) {
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     backend,
-    onProgress: ({ file, loaded, total }) =>
-      setStatus(`downloading ${file}: ${Math.round(loaded / 1e6)} of ${Math.round(total / 1e6)} MB`),
+    onProgress: onModelProgress,
+    onActivity: onModelActivity,
   });
   modelThreads.set(backend, model);
   worker.postMessage(
@@ -363,14 +439,19 @@ $("run").addEventListener("click", async () => {
   clearOutput();
   refreshControls();
   if (state.started.machine === "transformers") {
+    modelActivity.steps = 0;
+    modelActivity.decodeMs = 0;
+    modelActivity.prefillMsPerToken = null;
     try {
       await ensureModel(state.started.backend);
     } catch (err) {
       state.running = false;
       refreshControls();
+      setModelStatus(`failed: ${err.message}`);
       setStatus(`the model did not load: ${err.message}`, true);
       return;
     }
+    setModelStatus("loaded; the kernel is booting the jobs and the first prompt is being prefilled", { busy: true });
   }
   send("start", state.started);
 });
