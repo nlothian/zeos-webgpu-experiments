@@ -77,7 +77,7 @@ self.onmessage = async (event) => {
             file: name,
             loaded,
             total: fileTotal || total,
-            files: names.length,
+            files: names.length + 1, // meta.json itself is not in its own list
             file_index: fileIndex,
             bytes: bytesBefore + loaded,
             bytes_total: sum,
