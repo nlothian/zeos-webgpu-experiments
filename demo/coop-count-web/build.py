@@ -68,7 +68,7 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = HERE / "models" / "Qwen2.5-0.5B-Instruct-zeos-int8"
+MODEL = HERE / "models" / "Qwen3.5-2B-zeos-int8"
 
 
 def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -> dict[str, object]:

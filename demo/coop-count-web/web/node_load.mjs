@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 import { TransformersWorker } from "./transformers_worker.js";
 
-export const DEFAULT_MODEL_DIR = new URL(`../models/${process.env.ZEOS_WEB_MODEL ?? "Qwen2.5-0.5B-Instruct-zeos-int8"}/`, import.meta.url)
+export const DEFAULT_MODEL_DIR = new URL(`../models/${process.env.ZEOS_WEB_MODEL ?? "Qwen3.5-2B-zeos-int8"}/`, import.meta.url)
   .pathname;
 
 export async function loadNodeWorker({ modelDir = DEFAULT_MODEL_DIR, runtime = "web", threads = 1 } = {}) {

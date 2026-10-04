@@ -5,26 +5,39 @@
 // LICENSE file in the root directory of this source tree.
 
 /**
- * The model half of a ZEOS machine backend: a Qwen2 language model exported as two ONNX
- * graphs (see `export/export_model.py`), driven by ONNX Runtime, with the tokenizer
+ * The model half of a ZEOS machine backend: a Qwen language model exported as one ONNX
+ * graph (see `export/export_model.py`), driven by ONNX Runtime, with the tokenizer
  * Transformers.js uses.
  *
- * This module owns token ids and KV caches and nothing else. Words, segments, rings and
- * the syscall grammar belong to the Python side (`JsMachine`), which calls the methods
- * below. It imports nothing: ONNX Runtime and the tokenizer class are handed in, so the
- * same file runs in a browser worker and under Node.
+ * This module owns token ids and caches and nothing else. Words, segments, rings and the
+ * syscall grammar belong to the Python side (`JsMachine`), which calls the methods below.
+ * It imports nothing: ONNX Runtime and the tokenizer class are handed in, so the same file
+ * runs in a browser worker and under Node.
  *
  * `append` and `decodeStep` return promises, because `InferenceSession.run` does. The
  * synchronous `ZeosModelWorker` interface the Python side calls is `SyncModelWorker` in
- * `sync_client.js`, which blocks on a thread running this class.
+ * `model_channel.js`, which blocks on a thread running this class.
  *
- * Context bookkeeping: a job's last token is *pending*, with no KV behind it, until a
+ * Context bookkeeping: a job's last token is *pending*, with no cache behind it, until a
  * decode step. `append` prefills everything before it, and `decodeStep` feeds it through
- * the decode graph, which is the one place the allowed-block mask is applied and
- * attention is measured. A step does not append the id it chooses -- `JsMachine` appends
- * it before the next step, which then finds that id pending -- so every decode step is
- * exactly one forward pass of one token.
+ * the graph with the step's allowed mask and reads the logits and the attention. A step
+ * does not append the id it chooses -- `JsMachine` appends it before the next step, which
+ * then finds that id pending -- so every decode step is exactly one forward pass of one
+ * token.
+ *
+ * The cache has three parts (`meta.json` gives their shapes): the softmax layers' keys and
+ * values, one entry per position; and, for a hybrid model such as Qwen3.5, each Gated
+ * DeltaNet layer's recurrent state and convolution window, a fixed size whatever the
+ * length. The state cannot be cut at a position, so a context keeps snapshots of it every
+ * `SNAPSHOT_EVERY` positions, and a cut (`truncate`, or a step whose mask disagrees with
+ * the one the state was built under) goes back to the latest snapshot at or before the
+ * position and runs the tokens after it again. `visibility` records, per cached position,
+ * whether the state saw it, so the state always matches the mask of the step reading it.
  */
+
+/** Positions between two snapshots of a context's recurrent state: the most a cut ever
+ * re-runs. A snapshot of Qwen3.5-2B's state is 20 MB. */
+export const SNAPSHOT_EVERY = 256;
 
 /** Tokenise text as plain text: no BOS, and a literal that spells a special token stays
  * text, so nothing foreign can become framing. This is the tokenizer's own pipeline
@@ -47,36 +60,62 @@ export function encodePlain(tokenizer, text) {
 }
 
 class Context {
-  constructor(stride) {
-    this.stride = stride;
+  constructor(worker) {
+    this.stride = worker.stride;
     this.tokens = [];
     this.kv = new Float32Array(0);
-    /** Positions with KV behind them. */
+    /** Positions with a cache behind them. */
     this.kvLength = 0;
-    /** The allowed-block mask of the most recent decode step, applied to old keys when
-     * new tokens are prefilled. Null means every block. */
+    /** The recurrent state and convolution window after `kvLength` positions. Graph
+     * outputs are fresh arrays and never written to, so contexts share them freely. */
+    this.state = worker.zeroState;
+    this.conv = worker.zeroConv;
+    /** Per cached position, 1 if the state took it in, 0 if it was skipped as hidden. */
+    this.visibility = new Uint8Array(0);
+    /** `{pos, state, conv}` at multiples of SNAPSHOT_EVERY, ascending; position 0 is the
+     * zero state and is not stored. */
+    this.snapshots = [];
+    /** The state before the latest decode step's position, so a step repeated with
+     * nothing appended needs no re-run. */
+    this.previous = null;
+    /** The allowed mask of the most recent decode step, per position, applied to old
+     * positions when new tokens are prefilled. Null means every position. */
     this.mask = null;
   }
 
   reserve(positions) {
     const needed = positions * this.stride;
-    if (needed <= this.kv.length) return;
-    const grown = new Float32Array(Math.max(needed, this.kv.length * 2, 256 * this.stride));
-    grown.set(this.kv.subarray(0, this.kvLength * this.stride));
-    this.kv = grown;
+    if (needed > this.kv.length) {
+      const grown = new Float32Array(Math.max(needed, this.kv.length * 2, 256 * this.stride));
+      grown.set(this.kv.subarray(0, this.kvLength * this.stride));
+      this.kv = grown;
+    }
+    if (positions > this.visibility.length) {
+      const grown = new Uint8Array(Math.max(positions, this.visibility.length * 2, 256));
+      grown.set(this.visibility.subarray(0, this.kvLength));
+      this.visibility = grown;
+    }
   }
 
-  pushKv(values, positions) {
+  /** Commit a run's outputs for `positions` new positions seen as `visible`. */
+  push(result, positions, visible) {
     this.reserve(this.kvLength + positions);
-    this.kv.set(values, this.kvLength * this.stride);
+    this.kv.set(result.new_kv.data, this.kvLength * this.stride);
+    this.visibility.set(visible, this.kvLength);
     this.kvLength += positions;
+    this.state = result.state_out.data;
+    this.conv = result.conv_out.data;
+    if (this.kvLength % SNAPSHOT_EVERY === 0) {
+      this.snapshots.push({ pos: this.kvLength, state: this.state, conv: this.conv });
+    }
   }
 
   copy() {
-    const other = new Context(this.stride);
+    const other = Object.assign(Object.create(Context.prototype), this);
     other.tokens = this.tokens.slice();
     other.kv = this.kv.slice(0, Math.max(this.kvLength, 1) * this.stride);
-    other.kvLength = this.kvLength;
+    other.visibility = this.visibility.slice(0, Math.max(this.kvLength, 1));
+    other.snapshots = this.snapshots.slice();
     other.mask = this.mask === null ? null : this.mask.slice();
     return other;
   }
@@ -88,23 +127,27 @@ export class TransformersWorker {
    * @param {object} deps.ort ONNX Runtime (`onnxruntime-web` or `onnxruntime-node`).
    * @param {object} deps.tokenizer a `Tokenizer` from `@huggingface/tokenizers`.
    * @param {object} deps.meta the export's `meta.json`.
-   * @param {object} deps.prefill an `InferenceSession` over `prefill.onnx`.
-   * @param {object} deps.decode an `InferenceSession` over `decode.onnx`.
-   * @param {string} deps.backend which execution provider the sessions run on.
+   * @param {object} deps.session an `InferenceSession` over `model.onnx`.
+   * @param {string} deps.backend which execution provider the session runs on.
    */
-  constructor({ ort, tokenizer, meta, prefill, decode, backend }) {
+  constructor({ ort, tokenizer, meta, session, backend }) {
+    if (meta.blockSize !== 1) throw new Error(`export has blockSize ${meta.blockSize}; expected 1`);
     this.ort = ort;
     this.tokenizer = tokenizer;
     this.meta = meta;
-    this.prefillSession = prefill;
-    this.decodeSession = decode;
+    this.session = session;
     this.backend = backend;
-    this.kvShape = [meta.numLayers, 2, meta.numKvHeads, meta.headDim];
-    this.stride = this.kvShape.reduce((a, b) => a * b, 1);
-    /** Prefill runs in chunks so the score matrix stays small. */
-    this.chunk = 256;
+    const size = (shape) => shape.reduce((a, b) => a * b, 1);
+    this.kvShape = meta.kvShape;
+    this.stride = size(meta.kvShape);
+    this.zeroState = new Float32Array(size(meta.stateShape));
+    this.zeroConv = new Float32Array(size(meta.convShape));
+    /** The most new positions one run of the graph takes. */
+    this.chunk = meta.maxChunk;
     this.contexts = new Map();
     this.pieces = new Map();
+    /** Positions run again because of a cut or a changed mask, for diagnostics. */
+    this.stats = { reruns: 0, rerunPositions: 0 };
   }
 
   /** Build a worker from the files an export wrote. `read(name)` returns a file's bytes
@@ -114,23 +157,23 @@ export class TransformersWorker {
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");
     const tokenizer = new Tokenizer(await json("tokenizer.json"), await json("tokenizer_config.json"));
-    const weights = await read("weights.bin");
     const options = {
       executionProviders: [backend],
       graphOptimizationLevel: "all",
-      externalData: [{ path: "weights.bin", data: weights }],
+      externalData: [],
       ...sessionOptions,
     };
-    const prefill = await ort.InferenceSession.create(await read("prefill.onnx"), options);
-    const decode = await ort.InferenceSession.create(await read("decode.onnx"), options);
-    return new TransformersWorker({ ort, tokenizer, meta, prefill, decode, backend });
+    // One weights file after another, so only one download is in flight.
+    for (const path of meta.weights) options.externalData.push({ path, data: await read(path) });
+    const session = await ort.InferenceSession.create(await read("model.onnx"), options);
+    return new TransformersWorker({ ort, tokenizer, meta, session, backend });
   }
 
   // -- the interface -------------------------------------------------------------
 
   /** `vocabSize` is the tokenizer's vocabulary: every id `piece` answers and the only ids
-   * a step chooses. The logits are wider (the embedding is padded to a multiple of 64),
-   * but no id past the tokenizer's has a piece, and `argmax` never picks one. */
+   * a step chooses. The logits are wider (the embedding is padded), but no id past the
+   * tokenizer's has a piece, and `argmax` never picks one. */
   info() {
     return {
       blockSize: this.meta.blockSize,
@@ -158,7 +201,7 @@ export class TransformersWorker {
   }
 
   createContext(jobId) {
-    this.contexts.set(jobId, new Context(this.stride));
+    this.contexts.set(jobId, new Context(this));
   }
 
   destroyContext(jobId) {
@@ -172,7 +215,7 @@ export class TransformersWorker {
   async append(jobId, ids) {
     const ctx = this.ctx(jobId);
     for (const id of ids) ctx.tokens.push(id);
-    await this.prefill(ctx);
+    await this.fill(ctx, ctx.tokens.length - 1, this.prefillMask(ctx));
   }
 
   truncate(jobId, n) {
@@ -181,7 +224,7 @@ export class TransformersWorker {
       throw new RangeError(`truncate to ${n} outside [0, ${ctx.tokens.length}]`);
     }
     ctx.tokens.length = n;
-    ctx.kvLength = Math.min(ctx.kvLength, Math.max(n - 1, 0));
+    this.rewind(ctx, Math.max(n - 1, 0));
   }
 
   fork(parentId, childId) {
@@ -192,46 +235,36 @@ export class TransformersWorker {
     const ctx = this.ctx(jobId);
     const n = ctx.tokens.length;
     if (n === 0) throw new Error(`job ${jobId}: cannot decode an empty context`);
-    // A second step with nothing appended in between recomputes the same position.
-    ctx.kvLength = Math.min(ctx.kvLength, n - 1);
-    await this.prefill(ctx);
-
-    const blockSize = this.meta.blockSize;
-    const blocks = Math.ceil(n / blockSize);
-    const allowed = new Uint8Array(blocks);
+    const allowed = new Uint8Array(n);
     if (allowedBlocks === null) {
       allowed.fill(1);
     } else {
-      if (allowedBlocks.length < blocks) {
-        throw new RangeError(
-          `job ${jobId}: allowedBlocks covers ${allowedBlocks.length} blocks of ${blocks}`,
-        );
+      if (allowedBlocks.length < n) {
+        throw new RangeError(`job ${jobId}: allowedBlocks covers ${allowedBlocks.length} blocks of ${n}`);
       }
-      for (let b = 0; b < blocks; b++) allowed[b] = allowedBlocks[b] ? 1 : 0;
+      for (let b = 0; b < n; b++) allowed[b] = allowedBlocks[b] ? 1 : 0;
       if (!allowed.some((v) => v)) {
         throw new Error(`job ${jobId}: the mask hides every block, so nothing can be attended`);
       }
     }
+    // A second step with nothing appended in between computes the same position again.
+    if (ctx.kvLength > n - 1) this.rewind(ctx, n - 1);
+    await this.fill(ctx, n - 1, allowed);
 
-    const { ort } = this;
-    const result = await this.decodeSession.run({
-      input_ids: new ort.Tensor("int64", BigInt64Array.from([BigInt(ctx.tokens[n - 1])]), [1]),
-      past_kv: this.pastTensor(ctx, n - 1),
-      allowed_blocks: new ort.Tensor("bool", allowed, [blocks]),
-    });
-    const logits = result.logits.data;
-    ctx.pushKv(result.new_kv.data, 1);
+    const before = { pos: n - 1, state: ctx.state, conv: ctx.conv };
+    const result = await this.run(ctx, n - 1, 1, allowed);
+    ctx.push(result, 1, allowed.subarray(n - 1, n));
+    ctx.previous = before;
     ctx.mask = allowedBlocks === null ? null : allowed;
 
-    const tokenId = this.argmax(logits, allowedTokens);
-    return { tokenId, attention: Float32Array.from(result.block_attention.data) };
+    const tokenId = this.argmax(result.logits.data, allowedTokens);
+    return { tokenId, attention: Float32Array.from(result.attention.data) };
   }
 
   // -- outside the interface -------------------------------------------------------
 
   async release() {
-    await this.prefillSession.release();
-    await this.decodeSession.release();
+    await this.session.release();
   }
 
   // -- internals -------------------------------------------------------------------
@@ -242,37 +275,79 @@ export class TransformersWorker {
     return ctx;
   }
 
-  pastTensor(ctx, positions) {
-    return new this.ort.Tensor(
-      "float32",
-      ctx.kv.subarray(0, positions * this.stride),
-      [positions, ...this.kvShape],
-    );
+  /** What a prefill sees: the latest step's mask over the positions it covered, and
+   * every position after them. */
+  prefillMask(ctx) {
+    const total = Math.max(ctx.tokens.length - 1, 0);
+    const mask = new Uint8Array(total).fill(1);
+    if (ctx.mask !== null) mask.set(ctx.mask.subarray(0, Math.min(ctx.mask.length, total)));
+    return mask;
   }
 
-  /** Run the prefill graph over everything but the pending last token. */
-  async prefill(ctx) {
-    const { ort } = this;
-    const target = ctx.tokens.length - 1;
+  /** Cut the cache back to at most `target` positions: to the state before the latest
+   * decode step if that is the position, otherwise to the latest snapshot at or before
+   * it. The positions between are run again by the next `fill`. */
+  rewind(ctx, target) {
+    if (ctx.kvLength <= target) return;
+    if (this.zeroState.length === 0) {
+      // Softmax layers only: the cache is per position and is simply cut.
+      ctx.kvLength = target;
+      ctx.previous = null;
+      return;
+    }
+    let pos = 0;
+    let state = this.zeroState;
+    let conv = this.zeroConv;
+    if (ctx.previous !== null && ctx.previous.pos === target && ctx.kvLength === target + 1) {
+      ({ pos, state, conv } = ctx.previous);
+    } else {
+      while (ctx.snapshots.length > 0 && ctx.snapshots[ctx.snapshots.length - 1].pos > target) {
+        ctx.snapshots.pop();
+      }
+      const last = ctx.snapshots[ctx.snapshots.length - 1];
+      if (last !== undefined) ({ pos, state, conv } = last);
+      if (pos < target) {
+        this.stats.reruns += 1;
+        this.stats.rerunPositions += target - pos;
+      }
+    }
+    ctx.snapshots = ctx.snapshots.filter((snap) => snap.pos <= pos);
+    ctx.previous = null;
+    ctx.kvLength = pos;
+    ctx.state = state;
+    ctx.conv = conv;
+  }
+
+  /** Make the cache cover positions [0, target) as `visible` (one entry per position,
+   * at least `target` of them) sees them, running the graph over what is missing. */
+  async fill(ctx, target, visible) {
+    if (this.zeroState.length > 0) {
+      let first = 0;
+      while (first < ctx.kvLength && ctx.visibility[first] === visible[first]) first++;
+      if (first < ctx.kvLength) this.rewind(ctx, first);
+    }
     while (ctx.kvLength < target) {
       const start = ctx.kvLength;
-      const count = Math.min(this.chunk, target - start);
-      const total = start + count;
-      const keyMask = new Uint8Array(total).fill(1);
-      if (ctx.mask !== null) {
-        const blockSize = this.meta.blockSize;
-        const covered = Math.min(start, ctx.mask.length * blockSize);
-        for (let p = 0; p < covered; p++) keyMask[p] = ctx.mask[Math.floor(p / blockSize)];
-      }
-      const ids = new BigInt64Array(count);
-      for (let i = 0; i < count; i++) ids[i] = BigInt(ctx.tokens[start + i]);
-      const result = await this.prefillSession.run({
-        input_ids: new ort.Tensor("int64", ids, [count]),
-        past_kv: this.pastTensor(ctx, start),
-        key_mask: new ort.Tensor("bool", keyMask, [total]),
-      });
-      ctx.pushKv(result.new_kv.data, count);
+      const boundary = (Math.floor(start / SNAPSHOT_EVERY) + 1) * SNAPSHOT_EVERY;
+      const count = Math.min(this.chunk, target - start, boundary - start);
+      const result = await this.run(ctx, start, count, visible);
+      ctx.push(result, count, visible.subarray(start, start + count));
     }
+  }
+
+  /** One run of the graph over tokens [start, start + count) after a cache of `start`
+   * positions, with `visible` giving each position's key mask. */
+  run(ctx, start, count, visible) {
+    const { ort, meta } = this;
+    const ids = new BigInt64Array(count);
+    for (let i = 0; i < count; i++) ids[i] = BigInt(ctx.tokens[start + i]);
+    return this.session.run({
+      input_ids: new ort.Tensor("int64", ids, [count]),
+      past_kv: new ort.Tensor("float32", ctx.kv.subarray(0, start * this.stride), [start, ...this.kvShape]),
+      state: new ort.Tensor("float32", ctx.state, meta.stateShape),
+      conv: new ort.Tensor("float32", ctx.conv, meta.convShape),
+      key_mask: new ort.Tensor("bool", visible.slice(0, start + count), [start + count]),
+    });
   }
 
   /** Greedy choice among the allowed ids, lowest id on a tie. Ids past the tokenizer's

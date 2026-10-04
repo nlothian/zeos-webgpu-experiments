@@ -91,6 +91,8 @@ class LiveRun:
         self.ticks = 0
         self.finished = False
         self.reason = ""
+        #: Whether the latest turn ran no job.
+        self.idle = False
         #: Deliveries the kernel refused because the pipe was full, in order.
         self.refused: list[tuple[PipeName, str]] = []
         #: Presses withheld because a job was already waiting where ``unless_waiting_on``
@@ -113,6 +115,11 @@ class LiveRun:
     def awaiting_input(self) -> bool:
         """Whether a live job is parked on a device pipe, which only a press can fill."""
         return any(job.blocked_on in self._device_pipes for job in self.kernel.sched.live())
+
+    def waiting_for_a_press(self) -> bool:
+        """Whether only a press can move the run on: the latest turn ran nothing, the
+        schedule has nothing left, and a job is parked on a device pipe."""
+        return self.idle and not self._pending and not self._presses and self.awaiting_input()
 
     def blocked_on(self, pipe: str) -> bool:
         return any(job.blocked_on == pipe for job in self.kernel.sched.live())
@@ -146,6 +153,7 @@ class LiveRun:
             self._sampled = len(self.events)
         self.driver.reap_finished()
         self.now_ns += Driver.DEFAULT_NS_PER_TICK
+        self.idle = not ran
         if ran:
             self.ticks += 1
             if self.ticks >= self.max_ticks:

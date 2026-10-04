@@ -32,7 +32,7 @@ __all__ = ["DEFAULT_MODEL", "DEMO", "ModelInfo", "NodeWorker", "Step", "node_ava
 
 DEMO = Path(__file__).resolve().parents[2]
 BRIDGE = DEMO / "web" / "node_bridge.mjs"
-DEFAULT_MODEL = DEMO / "models" / "Qwen2.5-0.5B-Instruct-zeos-int8"
+DEFAULT_MODEL = DEMO / "models" / "Qwen3.5-2B-zeos-int8"
 
 _TYPECODES = {"Uint8Array": "B", "Int32Array": "i", "Float32Array": "f"}
 

@@ -42,7 +42,7 @@ Two machines are offered for a case:
 |---|---|
 | scripted | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
 | JsMachine | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
-| JsMachine — Qwen2.5-0.5B | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. Offered when the build found an export. |
+| JsMachine — Qwen3.5-2B | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. Offered when the build found an export. |
 
 On `coop-count-scripted` the two decode the same words and their journals hold the same
 events in the same order, with two exceptions, both about attention. The seat's mask
@@ -203,7 +203,7 @@ How `JsMachine` uses it, which is what an implementation has to get right:
   `tokenize` parses no special tokens, the turn markers are found among `controlIds`:
   the id whose `piece` is exactly `<|im_start|>` and the one whose piece is
   `<|im_end|>`. The text between them (`user\n`, `assistant\n`) goes through
-  `tokenize`. **A worker for a ChatML model, such as Qwen2.5-Instruct, must list both
+  `tokenize`. **A worker for a ChatML model, such as Qwen3.5, must list both
   markers in `controlIds` and return their literal text from `piece`**; `JsMachine`
   refuses to start otherwise.
 
@@ -266,111 +266,208 @@ In the browser the page builds the stub with `createStubWorker(tapes)` and passe
 
 ## The model machine
 
-The third machine on the page is `JsMachine` over a real language model:
-Qwen2.5-0.5B-Instruct, exported to ONNX by `export/export_model.py` and run by ONNX
-Runtime Web in `web/transformers_worker.js`, with the tokenizer Transformers.js uses. It
-supplies all four things ZEOS asks of a serving stack: the allowed-block mask is applied
-inside attention, before the softmax, in every layer; each decode step's attention is
-measured, summed over layers and heads and normalised, per KV position; the control ids
+The third machine on the page is `JsMachine` over a real language model: Qwen3.5-2B,
+exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
+`web/transformers_worker.js`, with the tokenizer Transformers.js uses. It supplies all
+four things ZEOS asks of a serving stack: the allowed-block mask is applied inside the
+forward pass, in every layer (before the softmax in the softmax layers; see *The
+architecture* for the linear-attention ones); each decode step's attention is measured,
+averaged over the softmax layers' heads and normalised, per position; the control ids
 are reserved in the sampler; and the syscall grammar constrains every step. The kernel
 therefore receives measured attention, `DecodeResult.attention`, where every other
 backend in the repository gives it a hint, and integrity demotes on it.
 
 ### The model
 
-**Qwen2.5-0.5B-Instruct.** It speaks ChatML, which is what `JsMachine` frames prompts in
-(`chat_template="chatml"`, as for `LlamaMachine`), its architecture is a plain
-transformer whose KV cache can be cut at any position, which paging needs, and at int8 it
-is a 632 MB download that a browser's WebAssembly heap holds twice over. One decode step
-takes about 70 ms on onnxruntime-web's WebAssembly backend under Node and about 90 ms in
-Chrome, one thread each. Qwen2.5-1.5B-Instruct exports with the same script
-(`--model Qwen/Qwen2.5-1.5B-Instruct`, 1.8 GB) and runs from Node at about 210 ms a step;
-it is not what the page loads.
+**Qwen3.5-2B** (`Qwen/Qwen3.5-2B`, the post-trained model; its base is
+`Qwen3.5-2B-Base`). It speaks ChatML, which is what `JsMachine` frames prompts in
+(`chat_template="chatml"`, as for `LlamaMachine`), and it is the smaller sibling of
+Qwen3.5-4B, which follows the coop-count procedure under llama.cpp. Its architecture is a
+hybrid of linear and softmax attention, which the export handles as described in *The
+architecture* below. At int8 it is a 2.4 GB download in three files; one decode step
+takes about 316 ms on onnxruntime-web's WebAssembly backend under Node, one thread, and
+a run in Chrome takes within about 10% of the same run under Node. A prefill takes about
+83 ms a token, and `JsMachine` prefills a job's prompt (about 1,400 tokens) before its
+first decode, so the first command comes about two minutes after *run*, and each job's
+first turn pays the same again.
 
-Neither follows the coop-count procedure as `Qwen3.5-4B` does under llama.cpp. On
-`coop-count-pipe` the 0.5B counter-a says 1 to 10, records 11 rather than 10, wakes its
-peer and sleeps; counter-b, woken, says `1000000000000000` over and over until the run is
-cut off; and the handler, preempting it at the keypress, says `"attention" and` and exits
-instead of reading the console. The 1.5B keeps the turn structure for 400 ticks --
-counter-a records 0, 10, 20, ..., wakes its peer and sleeps, and counter-b wakes it back
--- but neither says a number, and its handler does not read the console either. What the
-kernel gets from either is real: measured attention, enforced masks, and commands that
-only the grammar allows.
+On `coop-count-pipe`, with its `events.jsonl`, it gets further than the Qwen2.5 models
+did and then deadlocks. Counter-a does its first turn exactly as the procedure says:
+`say 1` to `say 10`, `write tools 10`, `write stdout go`, `read stdin`. Counter-b, woken
+with the status line reading 10, says `11` and then records it -- `write tools 11`,
+`write stdout go`, `read stdin` -- instead of counting on to 20. Counter-a, woken with a
+RESUME notice (`count.b: 0 -> 11`), goes straight back to `read stdin` instead of
+counting. The handler, preempting at the keypress, does exactly its four commands: `read
+stdin`, then `write tools 500`, `write peer 500` with the number that arrived, and `exit`.
+Then both counters are asleep on each other's pipe, nothing is left to deliver, and the
+run ends quiescent after 99 ticks (95 decode steps), well short of the 400-tick cap.
+Counter-b's mistake is the model's, not the quantisation's: at full precision it too
+prefers `write` to `say` after `say 11;`.
+
+The Qwen2.5 models this page ran before did worse. The 0.5B counter-a said 1 to 10,
+recorded 11 rather than 10, woke its peer and slept; counter-b, woken, said
+`1000000000000000` over and over until the run was cut off; and the handler said
+`"attention" and` and exited instead of reading the console. The 1.5B kept the turn
+structure for 400 ticks, but neither counter said a number, and its handler did not read
+the console either. Those exports were in the earlier two-graph format; the script still
+exports Qwen2 models in the current format (`--model Qwen/Qwen2.5-0.5B-Instruct`: 632 MB,
+72 ms a step under Node). What the kernel gets from any of them is real: measured
+attention, enforced masks, and commands that only the grammar allows.
+
+### The architecture
+
+Qwen3.5-2B (`model_type` `qwen3_5`; `Qwen3_5ForConditionalGeneration` on the Hub, of
+which only the text model is exported) is not a plain transformer. Against Qwen2.5:
+
+- **Hybrid layers.** Of its 24 layers, 18 are Gated DeltaNet layers (linear attention:
+  a 16-head recurrent state of 128 x 128 per head, updated by the gated delta rule) and
+  6, every fourth, are softmax attention (8 query heads, 2 KV heads, head dim 256).
+- **A short causal convolution** (kernel 4) over each DeltaNet layer's q, k and v
+  projections, so a position's keys depend on the three positions before it.
+- **Gated softmax attention.** `q_proj` also produces a per-head output gate
+  (`sigmoid`), q and k are RMS-normalised per head, and rotary embedding covers only the
+  first 64 of the 256 channels (`partial_rotary_factor` 0.25, theta 1e7; the multimodal
+  rope sections coincide for text). No q/k/v biases.
+- **Zero-centred RMSNorm**: every norm but the DeltaNet's gated one scales by
+  `1 + weight`.
+- Tied embeddings over a 248,320-row table (the tokenizer has 248,070 ids), and a
+  multi-token-prediction head the export leaves out.
+
+The DeltaNet state is not a per-position cache and cannot be cut at a position, which
+paging needs; it can be *re-derived*. The rewrite therefore keeps the contract with three
+cache parts: the softmax layers' KV, position-major as before (24 KB a position); each
+DeltaNet layer's state (19 MB a context, whatever its length); and each DeltaNet layer's
+last three convolution inputs (1.3 MB). The worker cuts by going back to a snapshot of
+the state and running the tokens after it again (see *The worker*).
+
+**The mask in a DeltaNet layer.** A hidden position is *skipped*: its write strength
+(beta) and its decay are zeroed, so the state never takes it in, and its convolution taps
+are zeroed, so no later position's keys read it. This is exact -- the layer's output is
+what it would be with that position absent from its recurrence -- but it is a property of
+the state, not of one query: the state a step reads must have been built under that
+step's mask. The worker guarantees that by running the positions again from the first
+one whose visibility changed. A softmax layer applies the mask before its softmax, as
+before.
+
+**Measured attention covers the six softmax layers.** A DeltaNet layer has no attention
+distribution to measure: its output is the state read with the query. `attention` is the
+last position's softmax probabilities averaged over the six softmax layers' 48 heads --
+so a hidden position still gets exactly zero and the rest still sum to one -- and says
+nothing of what the 18 DeltaNet layers read. Those layers are masked exactly, but their
+reading is not in `DecodeResult.attention`; integrity demotion on this model rests on the
+softmax layers alone.
 
 ### The export
 
 `export/export_model.py` writes, into `models/<name>-zeos-<quant>/` (gitignored):
 
-- `prefill.onnx` -- new token ids, the past KV and a per-position key mask in; the new
-  positions' KV out. The library's default attention (`scaled_dot_product_attention`),
-  which the exporter lowers to plain operators. No logits: the worker never needs them
-  from a prefill.
-- `decode.onnx` -- one token id, the past KV and an allowed mask per KV block in; the
-  logits, the new position's KV and the step's attention per block out. Attention is
-  computed explicitly (scores, mask, softmax) so the probabilities can be summed over
-  heads and layers and divided by their product inside the graph; a masked key gets
-  `-inf` before the softmax and so exactly zero after it. Block size is baked in at
-  export and reported by `info().blockSize`; it is 1, so the attention vector has one
-  entry per position and `JsMachine` sums it onto the kernel's blocks exactly, which a
-  fixed multi-token block cannot do when a kernel word is several tokens.
-- `weights.bin` -- every large initialiser of both graphs once, so the weights download
-  once; `meta.json` -- shapes, reserved ids and file digests; the tokenizer's two files.
+- `model.onnx` -- one graph for prefill and decode. Up to 16 new token ids, the cache (KV
+  of the earlier positions, the DeltaNet state and convolution window) and a key mask
+  over every position, past and new, in; the logits at the last position, the new
+  positions' KV, the state and window after them, and the last position's attention per
+  position out. Attention is computed explicitly (scores, mask, softmax); a hidden key
+  gets `-inf` before the softmax and so exactly zero after it, and sees itself only when
+  nothing else is visible to it, so its softmax is defined. Block size is 1, so the
+  attention vector has one entry per position and `JsMachine` sums it onto the kernel's
+  blocks exactly, which a fixed multi-token block cannot do when a kernel word is several
+  tokens. One graph rather than a prefill and a decode graph keeps one copy of the
+  weights in the WebAssembly heap.
+- `weights-0.bin`, `weights-1.bin`, ... -- every large initialiser, in files of at most
+  1 GiB: Node reads no file over 2 GiB whole, and the browser holds smaller buffers more
+  readily. `meta.json` -- shapes, layer types, reserved ids, the weight files and every
+  file's digest; the tokenizer's two files.
 
-The graphs are a rewrite of Qwen2 in PyTorch over a position-major KV layout
-(`[positions, layers, 2, kv heads, head dim]`), so that appending, truncating and
-copying a job's cache are contiguous copies in JavaScript; the script holds the rewrite
-to `transformers`' own logits before it exports (drift 7e-5 at full precision), and
-checks the exported decode graph under ONNX Runtime CPU: a masked block receives exactly
-zero, the rest sum to one. `tests/test_exported_graph.py` repeats that check.
+Over a chunk, a DeltaNet layer's pseudo-values solve a unit lower-triangular system. The
+graph solves it by repeated squaring, (I + L)^-1 = (I - L)(I + L^2)(I + L^4)(I + L^8),
+which is exact for 16 positions and, in float32, accurate: at 16 positions the logits
+stay within 8e-5 of `transformers`, where at 32 they already drift by 1.5. Hence the
+16-position chunk (`maxChunk`).
+
+The script holds the rewrite to `transformers`' own logits before it exports, prefilling
+in chunks of 1, 7 and 16 so that the state and convolution window are carried across
+runs (drift 4e-5 to 8e-5 at full precision, 0.05 to 0.07 with the int8 embedding), and
+checks the exported graph under ONNX Runtime CPU: a hidden position receives exactly zero,
+the rest sum to one, and hiding it changes the logits. `tests/test_exported_graph.py`
+repeats that check. The script still exports Qwen2 instruct models (`model_type`
+`qwen2`: every layer softmax, an empty state); the worker then cuts its cache directly.
 
 **Quantisation.** The default, `int8`, is ONNX Runtime's dynamic quantisation of every
-weight matmul (per-channel int8 weights, int8 activations computed per step), plus a
-per-row int8 embedding table. It was chosen by measurement: on onnxruntime-web 1.30's
-WebAssembly backend a decode step takes 68 ms at int8 and 920 ms with 4-bit
-`MatMulNBits` weights (`--quant q4`), which that backend dequantises on every run;
-`q4a8` is no faster. The int8 embedding moves the logits by at most 0.08 against full
-precision, and the int8 matmuls change which token wins on free text: asked to count
-from 1 to 10 in a chat turn, the q4 export answers with the digits and the int8 one with
-a sentence about how it would. The coop-count behaviour above is the int8 export's.
+weight matmul (per-channel int8 weights, int8 activations computed per run), plus a
+per-row int8 embedding table and a separately quantised output projection: 2.40 GB of
+weights. It was chosen by measurement, under Node on onnxruntime-web 1.30's WebAssembly
+backend, one thread, Apple M1 Max: a decode step takes about 316 ms and a prefill about
+83 ms a token; the export loads in 4.6 s and the process settles at 3.3 GB resident
+(6.6 GB at its peak while loading, when the weight files and the WebAssembly heap both
+hold the weights). The q4 export (`--quant q4`, 4-bit `MatMulNBits`, 1.69 GB) is what the
+WebGPU backend can run (see *Backends*). fp32 (7.5 GB) does not fit a 4 GB WebAssembly
+heap.
 
-The export needs PyTorch, `transformers`, `onnx` and ONNX Runtime, which are a
-non-default dependency group of this package, so the root `uv sync --all-packages` never
-installs them:
+The chunk also bounds the int8 error. Dynamic quantisation gives a matmul's activations
+one scale for the whole chunk, and over 64 positions of counter-a's prompt that flipped
+the model's first choice after a wake from `say` to `read` (`say` minus `read`: +0.16 at
+full precision, -0.97 at int8 in chunks of 64, +0.12 in chunks of 16, +0.22 one position
+at a time), which deadlocked the run. In chunks of 16 the int8 export agrees with full
+precision on that choice, at 15% more prefill time than chunks of 64.
+
+The export needs PyTorch, `transformers` (the locked 5.17 loads `qwen3_5`, so the group
+needed no upgrade), `onnx` and ONNX Runtime, which are a non-default dependency group of this package,
+so the root `uv sync --all-packages` never installs them:
 
 ```bash
 uv sync --all-packages --group export                     # from the repository root
-uv run python demo/coop-count-web/export/export_model.py  # about a minute; 632 MB
+uv run python demo/coop-count-web/export/export_model.py  # about 4 minutes; 2.4 GB
 uv sync --all-packages                                    # drop the export group again
 ```
 
-The script downloads the model from the Hugging Face Hub into `models/<name>/` first.
-Two exports from the same source are byte-identical.
+The script downloads the model from the Hugging Face Hub (4.3 GB of bf16 safetensors)
+into `models/<name>/` first, and needs about 17 GB of memory. Two exports from the same
+source are byte-identical.
 
 ### The worker
 
-`web/transformers_worker.js` implements `ZeosModelWorker` over the two graphs, driving
-them with onnxruntime-web directly rather than through Transformers.js: Transformers.js'
-model classes run their own exports with their own cache, and these graphs have inputs
-and outputs no model class knows (the masks, the attention vector) and a cache the
-worker owns. The tokenizer is `@huggingface/tokenizers`, the library Transformers.js 4
-tokenizes with, loaded from the export's `tokenizer.json`. `tokenize` runs its
-normaliser, pre-tokeniser and BPE without the added-token splitter, so a literal
-`<|im_end|>` in text stays text; it matches Hugging Face's `split_special_tokens=True`
-token for token.
+`web/transformers_worker.js` implements `ZeosModelWorker` over the graph, driving it with
+onnxruntime-web directly rather than through Transformers.js: Transformers.js' model
+classes run their own exports with their own cache, and this graph has inputs and outputs
+no model class knows (the masks, the attention vector) and a cache the worker owns. The
+tokenizer is `@huggingface/tokenizers`, the library Transformers.js 4 tokenizes with,
+loaded from the export's `tokenizer.json`. `tokenize` runs its normaliser, pre-tokeniser
+and BPE without the added-token splitter, so a literal `<|im_end|>` in text stays text; it
+matches Hugging Face's `split_special_tokens=True` token for token.
 
-A job's cache is one growable `Float32Array`; `fork` copies it, `truncate` shortens it.
-Its last token is pending, with no KV behind it, until a decode step feeds it through the
-decode graph, so every step is exactly one forward pass of one token, and `append`
-prefills everything before it in chunks of 256. A decode step does not append the id it
-chooses (`JsMachine` does, before the next). The mask of a job's latest step is applied
-to the keys of its next prefill too, so content appended later never attends a block
-the kernel had hidden. The worker refuses an `allowedBlocks` shorter than the context, a
-mask that hides every block, and an `allowedTokens` that allows nothing.
+A job's KV is one growable `Float32Array`; its DeltaNet state and convolution window are
+the graph's last outputs, never written to, so `fork` shares them and copies only the KV.
+Its last token is pending, with no cache behind it, until a decode step feeds it through
+the graph, so every step is exactly one forward pass of one token, and `append` prefills
+everything before it in chunks of 16. A decode step does not append the id it chooses
+(`JsMachine` does, before the next). The mask of a job's latest step is applied to old
+positions when new tokens are prefilled, so content appended later never reads a position
+the kernel had hidden.
 
-`info()` is `{blockSize: 1, padId: <|endoftext|>, controlIds: [<|im_start|>,
-<|im_end|>, <|endoftext|>], eosId: <|im_end|>, vocabSize: 151665}`. `vocabSize` is the
-tokenizer's vocabulary; the logits are 151,936 wide because the embedding is padded, and
-no id past the tokenizer's is ever chosen.
+A context keeps a snapshot of its state every 256 positions (`SNAPSHOT_EVERY`; 20 MB
+each), the state from before its latest decode step, and, per cached position, whether
+the state took that position in. `truncate`, and a step whose mask disagrees with that
+record, go back to the latest snapshot at or before the position and run the tokens after
+it again: at most 255 positions, about 20 s at 83 ms a token. In a `coop-count-pipe` run
+this happens when the kernel rewrites a status line in place (`machine.splice`); masks
+that hide nothing new cost nothing. The worker refuses an `allowedBlocks` shorter than the
+context, a mask that hides every block, and an `allowedTokens` that allows nothing.
+
+`info()` is `{blockSize: 1, padId: <|endoftext|> (248044), controlIds: [<|im_start|>,
+<|im_end|>, <|endoftext|>] (248045, 248046, 248044), eosId: <|im_end|>, vocabSize:
+248070}`. `vocabSize` is the tokenizer's vocabulary; the logits are 248,320 wide because
+the embedding is padded, and no id past the tokenizer's is ever chosen. The config's
+`eos_token_id` is `<|endoftext|>`, but the chat template ends a turn with `<|im_end|>`,
+which is the end of sequence `JsMachine` reserves.
+
+**Thinking mode.** Qwen3.5's chat template opens an assistant turn with `<think>\n` (thinking)
+or an empty `<think>\n\n</think>\n\n` (not thinking), and without either the model's
+first choice after `<|im_start|>assistant\n` is `<think>`. `JsMachine` frames turns as
+`LlamaMachine` does, with neither: `<think>` and `</think>` (248068, 248069) are added
+tokens whose pieces begin with `<`, which the grammar never admits, so a job cannot think
+out loud in tags and decodes commands from its first token. Inserting the empty block
+was tried at the decision where counter-b goes wrong (below) and did not change it: at
+full precision the model prefers `write` over `say` after `say 11;` with the block (18.9
+against 17.1) and without it (18.8 against 17.7).
 
 The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it, so the
 same file runs in the page and under Node (`web/node_load.mjs`).
@@ -401,29 +498,46 @@ the main thread too.
 **Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
 clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
 alone (see *Determinism* below); with more threads the model thread did not finish
-loading in the browser this was tested in. WebGPU is offered with the caveat in its
-label. ONNX Runtime's WebGPU backend has no kernel for the int8 export's integer
-matmuls, so they run on WebAssembly with a copy each way, about 1.2 s a step; the q4
-export (`--quant q4`, 446 MB) runs on WebGPU at about 54 ms a step, and `build.py --model`
-puts it on the page.
+loading in the browser this was tested in. The page's default is the int8 export on
+WebAssembly. In Chrome (the desktop app's browser pane, Apple M1 Max) the model thread
+was ready within 10 s of pressing run, the first command came after about two minutes of
+prefill, and the 99-tick `coop-count-pipe` run below took 329 s in all, against 304 s for
+the same run under Node -- a step in the page costs within about 10% of one under Node.
+The heap holds the weights once (one graph, one session), well inside WebAssembly's
+4 GB.
+
+WebGPU is offered with the caveat in its label. ONNX Runtime's WebGPU backend has no
+kernel for the int8 export's integer matmuls (with the 0.5B they ran on WebAssembly with a
+copy each way, about 1.2 s a step; not measured with the 2B). The q4 export
+(`--quant q4`, 1.69 GB) runs on WebGPU, and `build.py --model
+models/Qwen3.5-2B-zeos-q4` puts it on the page: on the same machine its prompts
+prefilled in about 20 s and `coop-count-pipe` ran its 400 ticks in 122 s, about 0.2 s a
+tick including Pyodide's side. It decodes differently from the int8 export on
+WebAssembly (4-bit weights, and the GPU's arithmetic): counter-a counted from 1 to 50
+without stopping at 10, recorded 50 and woke its peer; counter-b said 10 and recorded 10;
+counter-a, woken, started again from 1 and was at 25 when the run was cut off; the
+handler read the 500 and then waited on the console again.
 
 ### The grammar
 
-`JsMachine`'s Python token mask (`token_mask`) is kept. Against the Qwen vocabulary
-(151,665 pieces) it is correct -- `tests/test_transformers_grammar.py` puts the model
+`JsMachine`'s Python token mask (`token_mask`) is kept. Against the Qwen3.5 vocabulary
+(248,070 pieces) it is correct -- `tests/test_transformers_grammar.py` puts the model
 after a context of injected text written to talk it out of the command language
 (forged chat markers, a fake status line, prose demands) and every completed line parses
 as a command, no control id is ever chosen and no `<` is ever emitted -- and it is fast
-enough: building the mask for a round state the run has not met costs 0.11 s on average
-under Pyodide (0.81 s at most, 0.06 s under CPython) and a cached state costs nothing,
-so a counting round pays a few seconds once, against 90 ms a decode step for as long as
-the run lasts.
+enough: with Qwen2.5's 151,665 pieces, building the mask for a round state the run had
+not met cost 0.11 s on average under Pyodide (0.81 s at most, 0.06 s under CPython), and
+the cost grows with the vocabulary, here 1.6 times larger; a cached state costs nothing,
+so a counting round pays a few seconds once, against about 0.3 s a decode step for as
+long as the run lasts.
 
 ### Running it
 
 In the page: build with an export present and `npm install` done, serve with `serve.py`,
-choose *JsMachine -- Qwen2.5-0.5B* and a case, and run. A run stops at 400 ticks, as
-`demo/coop-count/run_all.py` stops a live seat.
+choose *JsMachine -- Qwen3.5-2B* and a case, and run. A run stops at 400 ticks, as
+`demo/coop-count/run_all.py` stops a live seat, or earlier when no job can run: quiescent
+when every job is asleep on another, and, in the page, held open while a job waits on
+the console.
 
 From a shell, the same `JsMachine`, `LiveRun` and worker run under CPython with the model
 in a Node child process (`zeos_coop_count_web.node_worker.NodeWorker`, over
@@ -444,8 +558,18 @@ are the kernel's -- so the measurement is kept beside it, as `zeos.trace` keeps 
 trace. `--theta-read` sets `KernelConfig.theta_read`, `--ring PIPE=RING` declares a pipe
 at another ring for the run, and `--hide JOB:BLOCK` takes a kernel block out of every
 mask a job is given. `evidence` reports what the measured attention did to integrity.
+Nothing presses a key under `node_run`, so it ends a run that is parked on the console
+with nothing left in the schedule (`LiveRun.waiting_for_a_press`) rather than idling.
 
 ### Measured attention
+
+The write-up and its journals were made with the Qwen2.5-0.5B-Instruct int8 export in
+the earlier two-graph format, whose every layer was softmax attention; its numbers are
+that model's. `docs/evidence/run.sh` now runs the default export, Qwen3.5-2B, whose
+measured attention covers only its six softmax layers (see *The architecture*). On
+`coop-count-pipe` with its schedule the 2B's 95 decode steps all carried measured
+attention, no segment less trusted than its reader received any, and the newest, not yet
+masked block got 0.05 of a step's attention on average (0.28 at most).
 
 `docs/evidence/README.md` is the write-up, with the journals it cites beside it: a
 demotion whose `because` names an untrusted segment and the measured mass that crossed
@@ -459,21 +583,23 @@ into gets 0.17 of each step's attention on average.
 
 On the WebAssembly backend the page's journal is byte for byte the one the same run
 writes under CPython with the worker in Node, because both run the same onnxruntime-web
-WebAssembly binary on one thread and the kernel reads no clock. In Chrome 152 (the
-desktop app's browser pane, Apple silicon) and under Node 22, 400 ticks of each case:
+WebAssembly binary on one thread and the kernel reads no clock. With the Qwen3.5-2B int8
+export, under Node 22 and, for `coop-count-pipe`, in Chrome (the desktop app's browser
+pane, Apple M1 Max):
 
-| case | SHA-256 of the journal, page and Node alike |
-|---|---|
-| `coop-count-scripted` (with its schedule) | `fcd01b7ac8c159def1946b8f37e46060cdd8c34b8f2a31a8290c5910f46baa68` |
-| `coop-count-pipe` (with its schedule) | `7d851f720562c396db3c4ee5bee10dc21453f8587405946c430f5cae068de6f9` |
-| `coop-count-vector` | `f8bf68a3e554f155528cdce373618b95666ad5808de3da813734d9eed6b90578` |
+| case | how the run ended | SHA-256 of the journal |
+|---|---|---|
+| `coop-count-scripted` (with its schedule) | parked on the console after 85 ticks | `ab0673e0c59513338154c8a08ee0d8b6e681c0fe2305785ee562a5eb41a75fe2` (Node) |
+| `coop-count-pipe` (with its schedule) | quiescent after 99 ticks | `e62e5cb405c8e2ac996bee80a35bc691ba384772ad0b0de9fb826b39c5494e8b` (page and Node alike) |
+| `coop-count-vector` | 400 ticks | `cc5610c9cd5aafd4c43a06cc4f3c9954c0e73619ad4328b623327894564f8d83` (Node) |
 
-`coop-count-scripted` ran twice in the page, in two page loads, with the same digest.
-The same holds with Pyodide in Node over the model thread: `tests/test_pyodide_model.py`
+With the Qwen2.5-0.5B export all three ran 400 ticks with the same digest in the page and
+under Node, and `coop-count-scripted` twice in the page, in two page loads, with the same
+digest. The same holds with Pyodide in Node over the model thread: `tests/test_pyodide_model.py`
 runs 40 ticks of `coop-count-scripted` that way and requires CPython's bytes.
 
-WebGPU was checked on one device only, with the q4 export, on twenty greedy steps of a
-short chat prompt: three runs in the same browser chose the same tokens and reported
+WebGPU was checked on one device only, with the 0.5B's q4 export, on twenty greedy steps
+of a short chat prompt: three runs in the same browser chose the same tokens and reported
 bit-identical attention, and the tokens were WebAssembly's, but the attention was not
 bit-identical to WebAssembly's on the same export. Its floating-point order is the
 GPU's, so a journal made on WebGPU is not claimed to match one made on another device,
@@ -498,15 +624,18 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   refusals, and the language the mask admits.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
   page fetches.
-- `test_exported_graph.py` — the exported decode graph under ONNX Runtime CPU: a masked
-  block receives exactly zero, the rest sum to one, and masking changes the logits.
-  Needs the export and the `export` dependency group.
+- `test_exported_graph.py` — the exported graph under ONNX Runtime CPU, prefilled in the
+  worker's chunks with the state carried between them: a hidden position receives
+  exactly zero, the rest sum to one, and hiding one changes the logits. Needs the export
+  and the `export` dependency group.
 - `test_transformers_grammar.py` — the token mask against the real model after
   adversarial injected text: only commands, never a control id.
 - `test_node_run.py` — a kernel run over the real model: one attention line per decode
   step, each summing to one, and a block hidden through `set_mask` at exactly zero.
 - `tests/js/transformers_worker.test.mjs` (`node --test tests/js/*.test.mjs`) — the
-  worker's interface under Node, directly and through the synchronous channel.
+  worker's interface under Node, directly and through the synchronous channel, including
+  a cut past a snapshot of the recurrent state and a mask that hides what the state had
+  taken in, each of which must compute what a fresh context would.
 - `test_js_machine_contract.py` also runs the contract suite over the real model worker
   (`js-transformers`), driven from Node.
 - `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model

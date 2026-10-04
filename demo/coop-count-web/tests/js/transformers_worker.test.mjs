@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import { DEFAULT_MODEL_DIR, loadNodeWorker } from "../../web/node_load.mjs";
+import { SNAPSHOT_EVERY } from "../../web/transformers_worker.js";
 import { startNodeModel } from "../../web/node_model_thread.mjs";
 
 const MODEL = process.env.ZEOS_WEB_MODEL_DIR ?? DEFAULT_MODEL_DIR;
@@ -157,7 +158,7 @@ describe("TransformersWorker", { skip }, () => {
     w.destroyContext("vocab");
   });
 
-  test("truncate discards the KV past n, so decoding resumes as from a fresh prefix", async () => {
+  test("truncate discards the cache past n, so decoding resumes as from a fresh prefix", async () => {
     const ids = prompt(w, "Name three colours.");
     w.createContext("fresh");
     await w.append("fresh", ids);
@@ -176,7 +177,60 @@ describe("TransformersWorker", { skip }, () => {
     w.destroyContext("cut");
   });
 
-  test("fork deep-copies tokens and KV: the two contexts then decode independently", async () => {
+  test("truncate past a snapshot re-runs from the snapshot, as a fresh prefix would", async () => {
+    // Long enough that the cut lands after the first snapshot of the recurrent state.
+    const ids = prompt(w, "Count from one to ten, then back down again. ".repeat(30));
+    assert.ok(ids.length > SNAPSHOT_EVERY + 1);
+    w.createContext("fresh");
+    await w.append("fresh", ids);
+    const want = await w.decodeStep("fresh", ALL);
+
+    w.createContext("cut");
+    await w.append("cut", ids);
+    for (let i = 0; i < 3; i++) await step(w, "cut");
+    const before = { ...w.stats };
+    w.truncate("cut", ids.length);
+    const got = await w.decodeStep("cut", ALL);
+    assert.equal(got.tokenId, want.tokenId);
+    assert.equal(bits(got.attention), bits(want.attention));
+    if (w.meta.stateShape[0] > 0) {
+      assert.equal(w.stats.rerunPositions - before.rerunPositions, ids.length - 1 - SNAPSHOT_EVERY);
+    }
+    w.destroyContext("fresh");
+    w.destroyContext("cut");
+  });
+
+  test("a step whose mask hides what the recurrent state saw re-runs it without that", async () => {
+    const ids = prompt(w, "The secret word is pineapple. Say a fruit.");
+    const hidden = 5;
+    const allowedBlocks = (n) => new Uint8Array(n).map((_, b) => (b === hidden ? 0 : 1));
+
+    w.createContext("seen");
+    await w.append("seen", ids);
+    const first = await step(w, "seen");
+    const before = { ...w.stats };
+    const masked = await w.decodeStep("seen", { allowedBlocks: allowedBlocks(ids.length + 1), allowedTokens: null });
+    assert.equal(masked.attention[hidden], 0);
+    if (w.meta.stateShape[0] > 0) assert.equal(w.stats.reruns, before.reruns + 1);
+
+    // A context that met the mask with the same tokens resident computes the same step.
+    w.createContext("never");
+    await w.append("never", Int32Array.from([...ids, first.tokenId]));
+    const again = await w.decodeStep("never", { allowedBlocks: allowedBlocks(ids.length + 1), allowedTokens: null });
+    assert.equal(again.tokenId, masked.tokenId);
+    assert.equal(bits(again.attention), bits(masked.attention));
+
+    // Showing the position again re-runs the state once more, back to the open step.
+    const open = await w.decodeStep("seen", ALL);
+    w.createContext("open");
+    await w.append("open", Int32Array.from([...ids, first.tokenId]));
+    const want = await w.decodeStep("open", ALL);
+    assert.equal(open.tokenId, want.tokenId);
+    assert.ok(open.attention[hidden] > 0);
+    for (const name of ["seen", "never", "open"]) w.destroyContext(name);
+  });
+
+  test("fork deep-copies tokens and cache: the two contexts then decode independently", async () => {
     w.createContext("parent");
     await w.append("parent", prompt(w, "Count to five."));
     await step(w, "parent");

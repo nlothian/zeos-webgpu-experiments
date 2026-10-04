@@ -179,6 +179,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         machine.run = run
         while not run.finished:
             run.step()
+            if run.waiting_for_a_press():
+                # Nothing here presses a key, so a run parked on the console is over.
+                run.stop("parked on the console with nothing left to deliver")
         args.journal.write_bytes(run.journal_bytes())
         attention = args.attention or args.journal.with_suffix(".attention.jsonl")
         attention.write_text("".join(json.dumps(row) + "\n" for row in machine.rows))
