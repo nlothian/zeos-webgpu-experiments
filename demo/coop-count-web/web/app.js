@@ -456,7 +456,12 @@ $("run").addEventListener("click", async () => {
   send("start", state.started);
 });
 
-$("stop").addEventListener("click", () => send("stop"));
+$("stop").addEventListener("click", () => {
+  send("stop");
+  // The worker reads the message between turns, and a turn on the model machine lasts
+  // as long as the model takes: the whole of a prompt's prefill, on a job's first turn.
+  if (state.running) setStatus("stopping after the current turn");
+});
 
 function interrupt() {
   if ($("interrupt").disabled) return;
