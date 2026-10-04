@@ -109,6 +109,19 @@ function appendTo(list, lines, kindOf) {
   if ($("follow").checked) list.scrollTop = list.scrollHeight;
 }
 
+/** Empty both views and what is counted from them, leaving the selected tab as it is.
+ * No `lines` from an earlier run can land after this: the worker posts a run's
+ * `finished` after its last `lines`, and *run* is enabled again only by `finished`. */
+function clearOutput() {
+  $("journal").replaceChildren();
+  $("transcript").replaceChildren();
+  state.count = 0;
+  state.journal = null;
+  $("count").textContent = "0 events";
+  $("clock").textContent = "";
+  $("prompt").textContent = "";
+}
+
 function appendLines(lines) {
   appendTo($("journal"), lines, classify);
   state.count += lines.length;
@@ -198,7 +211,7 @@ async function digest(bytes) {
   return Array.from(hash.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function recordRun(run, finished) {
+async function recordRun(run, finished, events) {
   const hex = await digest(finished.journal);
   const row = document.createElement("tr");
   const cells = [
@@ -207,7 +220,7 @@ async function recordRun(run, finished) {
     run.schedule ? "events.jsonl" : "none",
     String(finished.presses),
     String(finished.ticks),
-    String(state.count),
+    String(events),
     hex,
   ];
   for (const text of cells) {
@@ -259,10 +272,7 @@ const handlers = {
   started: ({ name, machine, lines, transcript }) => {
     state.collecting = false;
     state.withheld = 0;
-    $("journal").replaceChildren();
-    $("transcript").replaceChildren();
-    state.count = 0;
-    state.journal = null;
+    clearOutput();
     appendLines(lines);
     appendTranscript(transcript);
     setStatus(`running ${name} on ${machine}`);
@@ -290,7 +300,9 @@ const handlers = {
     $("prompt").textContent = "";
     setStatus(`${run.name} on ${run.machine}: ${finished.reason} after ${finished.ticks} ticks, ${state.count} events`);
     refreshControls();
-    await recordRun(run, finished);
+    // The count is read now: *run* is enabled again above, and pressing it while the
+    // digest is computed empties the views.
+    await recordRun(run, finished, state.count);
     showDebugger(finished.payload);
   },
 };
@@ -348,6 +360,7 @@ $("run").addEventListener("click", async () => {
     backend: $("backend").value,
   };
   state.running = true;
+  clearOutput();
   refreshControls();
   if (state.started.machine === "transformers") {
     try {
