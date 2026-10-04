@@ -52,6 +52,14 @@ function refreshControls() {
   // A case with no tapes needs a model; the model machine runs any case that lints.
   const runnable =
     state.info !== null && (state.info.runnable || model) && state.info.errors === 0;
+  // The lint line's note on a case with no tapes depends on the machine chosen.
+  if (state.info !== null) {
+    $("lint-tapes").textContent = state.info.runnable
+      ? ""
+      : model
+        ? " — no tapes: the model decides every command"
+        : " — no tapes, so only the model machine can run this case; choose it in the machine list";
+  }
   $("case").disabled = !idle;
   $("machine").disabled = !idle;
   $("backend").disabled = !idle || !model;
@@ -71,8 +79,10 @@ function renderLint(info) {
   const head = document.createElement("div");
   head.textContent =
     `${info.descriptors} descriptors, ${info.vectors} vectors: ${info.errors} error(s), ` +
-    `${info.lint.length - info.errors} warning(s)` +
-    (info.runnable ? "" : " — no tapes, so this case needs a model and cannot run here");
+    `${info.lint.length - info.errors} warning(s)`;
+  const tapes = document.createElement("span");
+  tapes.id = "lint-tapes"; // filled by refreshControls, which knows the machine
+  head.append(tapes);
   box.append(head);
   for (const line of info.lint) {
     const div = document.createElement("div");
