@@ -63,12 +63,12 @@ LICENSE file in the root directory of this source tree.
 
   <section class="panel" id="console" aria-labelledby="console-h">
     <h2 id="console-h">console</h2>
-    <p class="hint">The keyboard device: <kbd>space</kbd> writes <code>attention</code> to
+    <p class="hint">The keyboard device: <em>interrupt</em> writes <code>attention</code> to
       <code>keys.interrupt</code>, which the vector table binds to <code>reset-count</code> at
       priority 5; then type a number and press <kbd>Enter</kbd> to write it to
       <code>keys.number</code>. Each lands at the virtual time of the next turn.</p>
     <div class="row">
-      <button id="interrupt" type="button" disabled>interrupt (space)</button>
+      <button id="interrupt" type="button" disabled>interrupt</button>
       <label>number
         <input id="number" inputmode="numeric" pattern="[0-9]*" size="8" disabled>
       </label>

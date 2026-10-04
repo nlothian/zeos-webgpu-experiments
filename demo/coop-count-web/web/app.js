@@ -407,13 +407,6 @@ $("number").addEventListener("keydown", (event) => {
   }
 });
 
-document.addEventListener("keydown", (event) => {
-  const tag = event.target.tagName;
-  if (event.key !== " " || ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(tag)) return;
-  event.preventDefault();
-  interrupt();
-});
-
 $("download").addEventListener("click", () => {
   const run = state.started;
   const blob = new Blob([state.journal], { type: "application/x-ndjson" });

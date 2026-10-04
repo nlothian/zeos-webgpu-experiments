@@ -12,7 +12,7 @@ from the same seat callbacks and journal events the CLI prints from
 (`zeos_coop_count_web.transcript`), so it never alters the journal. *journal* shows the
 journal itself, one JSON line per event. The ZEOS debugger draws the
 case's wiring and then the finished run, and the journal can be downloaded as the
-`.jsonl` file `zeos-count run --journal` would have written. A keypress on the page is the
+`.jsonl` file `zeos-count run --journal` would have written. The *interrupt* button on the page is the
 console's interrupt.
 
 ```bash
@@ -57,14 +57,14 @@ show the same digest. `coop-count-pipe` and
 machines the page lints them and draws their wiring and does not offer to run them; the
 model machine runs them, for 400 ticks, since a live counter counts for ever.
 
-**The console.** Space writes `attention` to `keys.interrupt`, which the case's vector
+**The console.** The *interrupt* button writes `attention` to `keys.interrupt`, which the case's vector
 table binds to `reset-count` at priority 5, so the handler preempts whichever counter is
 running; then a number and Enter write to `keys.number`, which the parked handler reads.
-As in the terminal, once space has sent an interrupt, further presses only move to the
+As in the terminal, once an interrupt has been sent, further presses only move to the
 number field until a number is sent; and an interrupt is withheld if, at the turn that
 would deliver it, `reset-count` is already parked on `keys.number`
 (`LiveRun.press(..., unless_waiting_on="keys.number")`, decided from the kernel). The handler's tape writes 51 whatever number is typed, because
-a tape cannot read. Untick *play `events.jsonl`* to press the key yourself; with it
+a tape cannot read. Untick *play `events.jsonl`* to press the button yourself; with it
 ticked, the case's own schedule presses it at 39 ms.
 
 **The run loop.** `zeos_coop_count_web.live.LiveRun` is the `zeos-count` run loop cut
