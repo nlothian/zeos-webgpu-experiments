@@ -42,6 +42,8 @@ from zeos.journal.writer import Journal
 from zeos.machine.base import MachineBackend, TracesRaw
 from zeos.trace import RawTrace
 
+from zeos_coop_count_web.transcript import Transcript
+
 __all__ = ["LiveRun"]
 
 
@@ -58,8 +60,12 @@ class LiveRun:
         max_ticks: int = 100_000,
         trace: bool = False,
         theta_read: float = DEFAULT_THETA_READ,
+        transcript: Transcript | None = None,
     ) -> None:
         self.bundle = bundle
+        #: The lines ``zeos-count run`` would print, when the machine was built with this
+        #: transcript's callbacks; otherwise an empty one.
+        self.transcript = transcript or Transcript()
         self.machine = machine
         self.events: list[Event] = []
         self.kernel, transport = build_kernel(
@@ -70,6 +76,7 @@ class LiveRun:
                 seed=seed, case=bundle.name, max_ticks=max_ticks, theta_read=theta_read
             ),
         )
+        self.transcript.attach(self.kernel)
         self.journal = Journal()
         self.trace = RawTrace() if trace and isinstance(machine, TracesRaw) else None
         self.driver = Driver(self.kernel, transport=transport, journal=self.journal)
@@ -113,8 +120,9 @@ class LiveRun:
     def _deliver(self, pipe: PipeName, text: str) -> None:
         try:
             self.kernel.deliver(pipe, text)
-        except PipeFull:
+        except PipeFull as exc:
             self.refused.append((pipe, text))
+            self.transcript.dropped(str(exc))
 
     def step(self) -> list[str]:
         """One turn of the loop. Returns the journal lines it added."""
@@ -132,6 +140,7 @@ class LiveRun:
 
         self.kernel.advance_time(self.now_ns)
         ran = self.kernel.tick()
+        self.transcript.drain(self.events)
         if self.trace is not None and isinstance(self.machine, TracesRaw):
             self.trace.sample(self.machine, self.events[self._sampled :], self._sampled)
             self._sampled = len(self.events)
@@ -151,6 +160,10 @@ class LiveRun:
         records = self.journal.records[self._shown :]
         self._shown = len(self.journal)
         return [to_line(r.seq, r.event) for r in records]
+
+    def transcript_lines(self) -> list[str]:
+        """Transcript lines not yet returned, each one line as ``zeos-count run`` prints it."""
+        return self.transcript.take()
 
     def stop(self, reason: str = "stopped") -> None:
         if not self.finished:

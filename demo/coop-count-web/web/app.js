@@ -82,7 +82,7 @@ function renderLint(info) {
   }
 }
 
-// -- journal ----------------------------------------------------------------
+// -- output: the user view and the journal ---------------------------------------
 
 function classify(line) {
   if (line.includes('"kind":"vector.fired"') || line.includes('"kind":"job.preempted"')) {
@@ -93,21 +93,76 @@ function classify(line) {
   return "";
 }
 
-function appendLines(lines) {
-  const list = $("journal");
+/** Append lines to a list, each with the class `kindOf` gives it, keeping to the bottom
+ * while *follow* is ticked. A hidden list has no height to scroll, so showing a tab
+ * scrolls it again. */
+function appendTo(list, lines, kindOf) {
   const fragment = document.createDocumentFragment();
   for (const line of lines) {
     const item = document.createElement("li");
     item.textContent = line;
-    const kind = classify(line);
+    const kind = kindOf(line);
     if (kind) item.className = kind;
     fragment.append(item);
   }
   list.append(fragment);
-  state.count += lines.length;
-  $("count").textContent = `${state.count} events`;
   if ($("follow").checked) list.scrollTop = list.scrollHeight;
 }
+
+function appendLines(lines) {
+  appendTo($("journal"), lines, classify);
+  state.count += lines.length;
+  $("count").textContent = `${state.count} events`;
+}
+
+// The user view: the lines `zeos-count run` prints, which the worker sends beside the
+// journal lines (zeos_coop_count_web.transcript).
+function classifyTranscript(line) {
+  if (line.includes("<RESUME>")) return "resume";
+  if (line.includes(" \u25c0\u2500\u2500 ")) return "arrive";
+  if (line.includes(" ... waiting on ")) return "wait";
+  return "";
+}
+
+function appendTranscript(lines) {
+  appendTo($("transcript"), lines, classifyTranscript);
+}
+
+const TABS = ["tab-transcript", "tab-journal"];
+
+function selectTab(id, focus = false) {
+  for (const tabId of TABS) {
+    const tab = $(tabId);
+    const selected = tabId === id;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(tab.getAttribute("aria-controls")).hidden = !selected;
+  }
+  if (focus) $(id).focus();
+  followVisible();
+}
+
+function followVisible() {
+  if (!$("follow").checked) return;
+  for (const list of [$("transcript"), $("journal")]) list.scrollTop = list.scrollHeight;
+}
+
+for (const tabId of TABS) {
+  $(tabId).addEventListener("click", () => selectTab(tabId));
+  $(tabId).addEventListener("keydown", (event) => {
+    const at = TABS.indexOf(tabId);
+    const next = {
+      ArrowRight: TABS[(at + 1) % TABS.length],
+      ArrowLeft: TABS[(at - 1 + TABS.length) % TABS.length],
+      Home: TABS[0],
+      End: TABS[TABS.length - 1],
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    selectTab(next, true);
+  });
+}
+$("follow").addEventListener("change", followVisible);
 
 // -- debugger ---------------------------------------------------------------
 
@@ -201,21 +256,24 @@ const handlers = {
     $("model-backend").textContent = `model: ${state.model}`;
     log(`model thread ready: ${state.model}`);
   },
-  started: ({ name, machine, lines }) => {
+  started: ({ name, machine, lines, transcript }) => {
     state.collecting = false;
     state.withheld = 0;
     $("journal").replaceChildren();
+    $("transcript").replaceChildren();
     state.count = 0;
     state.journal = null;
     appendLines(lines);
+    appendTranscript(transcript);
     setStatus(`running ${name} on ${machine}`);
   },
-  lines: ({ lines, virtualNs, ticks, awaiting, parked, withheld }) => {
+  lines: ({ lines, transcript, virtualNs, ticks, awaiting, parked, withheld }) => {
     if (withheld > state.withheld) {
       log("interrupt withheld: reset-count was already parked on keys.number");
       state.withheld = withheld;
     }
     appendLines(lines);
+    appendTranscript(transcript);
     $("clock").textContent = `t = ${virtualNs / 1e6} ms, ${ticks} ticks`;
     $("prompt").textContent = parked
       ? "reset-count is parked on keys.number: type a number"

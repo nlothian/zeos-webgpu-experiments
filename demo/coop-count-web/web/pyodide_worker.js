@@ -117,7 +117,13 @@ function start({ name, machine, schedule, backend = "wasm" }) {
     run = page.open_run.callKwargs(dir, "scripted", { schedule });
   }
   presses = 0;
-  post("started", { name, machine, schedule, lines: linesOf(run.lines()) });
+  post("started", {
+    name,
+    machine,
+    schedule,
+    lines: linesOf(run.lines()),
+    transcript: linesOf(run.transcript_lines()),
+  });
   setTimeout(turn, 0);
 }
 
@@ -127,6 +133,8 @@ function turn() {
     const lines = linesOf(run.step());
     post("lines", {
       lines,
+      // What `zeos-count run` would have printed this turn, for the page's user view.
+      transcript: linesOf(run.transcript_lines()),
       virtualNs: run.now_ns,
       ticks: run.ticks,
       awaiting: run.awaiting_input(),

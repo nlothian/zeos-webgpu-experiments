@@ -63,6 +63,67 @@ def test_a_finished_run_draws_its_frames() -> None:
     assert payload["frames"]["trace"], "the machine's own account rides along for the model view"
 
 
+# What `zeos-count run demo/coop-count/cases/coop-count-scripted --machine scripted --events
+# .../events.jsonl` prints between its banner and its summary.
+CLI_TRANSCRIPT = [
+    "counter-a  say 1",
+    "counter-a  say 2",
+    "counter-a  say 3",
+    "counter-a  say 4",
+    "counter-a  say 5",
+    "counter-a  say 6",
+    "counter-a  say 7",
+    "counter-a  say 8",
+    "counter-a  say 9",
+    "counter-a  say 10",
+    "counter-a  ──▶ count.progress_a 10",
+    "counter-a  ──▶ count.a2b    go",
+    "counter-a  ... waiting on count.b2a",
+    "counter-b  say 11",
+    "counter-b  say 12",
+    "counter-b  say 13",
+    "counter-b  say 14",
+    "counter-b  say 15",
+    "reset-count ◀── 51",
+    "counter-b  ◀── <STATUS count.a> 51 </STATUS>",
+    "reset-count ──▶ count.progress_a 51",
+    "counter-a  ◀── <STATUS count.b> 51 </STATUS>",
+    "reset-count ──▶ count.progress_b 51",
+    "reset-count exit",
+    "counter-b  ◀── <RESUME> Suspended 10ms. Changed state you depend on: count.a: 10 -> 51 Revalidate your current plan step before acting. </RESUME>",
+    "counter-b  say 52",
+    "counter-b  say 53",
+    "counter-b  say 54",
+    "counter-b  say 55",
+    "counter-b  say 56",
+    "counter-b  say 57",
+    "counter-b  say 58",
+    "counter-b  say 59",
+    "counter-b  say 60",
+    "counter-a  ◀── <STATUS count.b> 60 </STATUS>",
+    "counter-b  ──▶ count.progress_b 60",
+    "counter-b  ──▶ count.b2a    go",
+    "counter-b  ... waiting on count.a2b",
+    "counter-a  ◀── go",
+    "counter-a  ◀── <RESUME> Waited 48ms. Changed state you depend on: count.b: 0 -> 60 Revalidate your current plan step before acting. </RESUME>",
+    "counter-a  say 61",
+    "counter-a  say 62",
+    "counter-a  say 63",
+    "counter-a  say 64",
+    "counter-a  say 65",
+    "counter-a  exit",
+]
+
+
+def test_the_user_view_is_what_the_cli_prints() -> None:
+    run = page.open_run(str(CASES / "coop-count-scripted"), "scripted")
+    shown = run.transcript_lines()
+    while not run.finished:
+        run.step()
+        shown += run.transcript_lines()
+    assert shown == CLI_TRANSCRIPT
+
+
 @pytest.mark.skipif(shutil.which("uv") is None, reason="build.py builds the wheels with uv")
 def test_build_assembles_everything_the_page_fetches(tmp_path: Path) -> None:
     sys.path.insert(0, str(WEB))

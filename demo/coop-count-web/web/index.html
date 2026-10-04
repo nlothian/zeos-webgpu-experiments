@@ -79,12 +79,24 @@ LICENSE file in the root directory of this source tree.
 
   <section class="panel" id="journal-panel" aria-labelledby="journal-h">
     <div class="head">
-      <h2 id="journal-h">journal</h2>
+      <h2 id="journal-h">output</h2>
       <span id="count" class="meta">0 events</span>
       <label class="check"><input type="checkbox" id="follow" checked> follow</label>
       <button id="download" type="button" disabled>download .jsonl</button>
     </div>
-    <ol id="journal" class="journal" aria-live="off"></ol>
+    <!-- Two views of one run: the lines `zeos-count run` prints, and the journal itself. -->
+    <div class="tabs" role="tablist" aria-label="output view">
+      <button type="button" role="tab" id="tab-transcript" aria-controls="view-transcript"
+              aria-selected="true">user view</button>
+      <button type="button" role="tab" id="tab-journal" aria-controls="view-journal"
+              aria-selected="false" tabindex="-1">journal</button>
+    </div>
+    <div role="tabpanel" id="view-transcript" aria-labelledby="tab-transcript">
+      <ol id="transcript" class="journal transcript" aria-live="off"></ol>
+    </div>
+    <div role="tabpanel" id="view-journal" aria-labelledby="tab-journal" hidden>
+      <ol id="journal" class="journal" aria-live="off"></ol>
+    </div>
   </section>
 
   <section class="panel" id="runs-panel" aria-labelledby="runs-h">

@@ -5,7 +5,12 @@ browser, with no server beyond a file host. A member of the repository's uv work
 
 The page loads Pyodide, installs the `zeos` wheel and this package's wheel, writes the
 coop-count cases into Pyodide's in-memory filesystem, lints the chosen case and runs it.
-The journal streams onto the page one JSON line per event, the ZEOS debugger draws the
+The run's output panel has two tabs, both filled as the run streams. *user view*, the
+default, shows the transcript `zeos-count run` prints to a terminal (`counter-a  say 1`,
+`reset-count ──▶ count.progress_a 51`, `counter-a  ... waiting on count.b2a`), collected
+from the same seat callbacks and journal events the CLI prints from
+(`zeos_coop_count_web.transcript`), so it never alters the journal. *journal* shows the
+journal itself, one JSON line per event. The ZEOS debugger draws the
 case's wiring and then the finished run, and the journal can be downloaded as the
 `.jsonl` file `zeos-count run --journal` would have written. A keypress on the page is the
 console's interrupt.

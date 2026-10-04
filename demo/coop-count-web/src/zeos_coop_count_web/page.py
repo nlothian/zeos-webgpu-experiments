@@ -40,6 +40,7 @@ from zeos.machine.seat import CommandSeat, TapeSource, seat_maps
 from zeos_coop_count_web.fake_worker import tapes_from_scripts
 from zeos_coop_count_web.js_machine import Bridge, JsMachine, ZeosModelWorker
 from zeos_coop_count_web.live import LiveRun
+from zeos_coop_count_web.transcript import Transcript
 
 __all__ = ["MACHINES", "describe", "findings", "open_run", "payload_json", "tapes_json"]
 
@@ -90,15 +91,31 @@ def tapes_json(case_dir: str) -> str:
 
 
 def _machine(
-    bundle: CaseBundle, name: str, worker: ZeosModelWorker | None, bridge: Bridge | None
+    bundle: CaseBundle,
+    name: str,
+    worker: ZeosModelWorker | None,
+    bridge: Bridge | None,
+    transcript: Transcript,
 ) -> MachineBackend:
+    # The callbacks only record what the seat saw, for the page's user view; the journal
+    # is the same with or without them.
+    on_command, on_arrival = transcript.on_command, transcript.on_arrival
     if name == "scripted":
-        return CommandSeat(source=TapeSource(bundle.scripts))
+        return CommandSeat(
+            source=TapeSource(bundle.scripts), on_command=on_command, on_arrival=on_arrival
+        )
     if name == "js":
         if worker is None:
             raise ValueError("the js machine needs a ZeosModelWorker")
         descriptors, valued = seat_maps(bundle.descriptors, bundle.pipes)
-        return JsMachine(worker, bridge=bridge, descriptors=descriptors, valued=valued)
+        return JsMachine(
+            worker,
+            bridge=bridge,
+            descriptors=descriptors,
+            valued=valued,
+            on_command=on_command,
+            on_arrival=on_arrival,
+        )
     raise ValueError(f"unknown machine {name!r}; expected one of {MACHINES}")
 
 
@@ -131,14 +148,16 @@ def open_run(
 
         bridge = PyodideBridge()
     events = case / "events.jsonl"
+    transcript = Transcript()
     return LiveRun(
         bundle,
-        _machine(bundle, machine, worker, bridge),
+        _machine(bundle, machine, worker, bridge, transcript),
         schedule=load_schedule(events) if schedule and events.is_file() else (),
         seed=seed,
         max_ticks=max_ticks,
         trace=True,
         theta_read=theta_read,
+        transcript=transcript,
     )
 
 
