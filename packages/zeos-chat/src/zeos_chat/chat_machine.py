@@ -102,7 +102,9 @@ is ``<|im_end|>``; a control id, unless its piece is ``<|im_end|>``, ``<tool_cal
 ``</tool_call>``, ``<think>`` or ``</think>`` -- which the machine reads as text and never
 reports to the kernel as ``CONTROL``, since none is a kernel frame; an empty piece; and
 any piece that would complete a banned tag, ``</?(KERNEL|RESUME|FAULT|STATUS|STUB)`` or
-``</?tool_response``, across the pieces of the turn so far (``FrameGuard``). The kernel's
+``</?tool_response``, across the pieces of the turn so far (``FrameGuard``), the first three
+in any case and through invisible or look-alike characters, as the kernel matches them
+(``zeos.core.framing``). The kernel's
 frames ride on ``CONTROL`` tokens and already cannot be forged; what the guard adds is
 that the model's own text never spells one, so nothing it wrote can later be mistaken
 for one, and it cannot fake the shape of a tool result. Masks are cached per guard state.
@@ -137,7 +139,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from zeos.core.framing import FRAMES
+from zeos.core.framing import FOLDED_FRAMES, FRAMES, fold
 from zeos.core.ids import JobId, PipeName, TokenKind
 from zeos.machine.base import (
     AttentionHint,
@@ -168,6 +170,8 @@ __all__ = [
     "ChatPipes",
     "ChatToolMachine",
     "FrameGuard",
+    "GUARD_START",
+    "GuardState",
     "Sampling",
     "ToolCall",
     "format_tool_call",
@@ -301,35 +305,28 @@ def sample_index(
     return ranked[-1]
 
 
-class FrameGuard:
-    """Which pieces would complete a banned tag, given what the turn has said so far.
+class _Track:
+    """One half of a ``FrameGuard``: banned patterns over one view of the pieces.
 
-    A guard state is the longest suffix of the text so far that is a proper prefix of a
-    banned pattern (``<NAME`` or ``</NAME``), so ``""`` almost always. A piece is banned
-    from a state when the state and the piece together contain a pattern: either inside
-    the piece, which is the same from every state, or starting in the state and finished
-    by the piece's head. Matching is exact and case-sensitive, over the kernel's own
-    ``FRAMES``, as the kernel's imitation rule is (``zeos.core.framing.spells_frame``):
-    anywhere in the text, so ``x<KERNEL`` is banned. It is stricter in one way: the
-    model's next piece is not yet known, so ``<KERNELS`` is banned too, where the kernel
-    would not alarm on it.
+    A state is the longest suffix of the view so far that is a proper prefix of a
+    pattern, so ``""`` almost always. A piece is banned from a state when the state and
+    the piece's view together contain a pattern: either inside the piece, which is the
+    same from every state, or starting in the state and finished by the piece's head.
     """
 
-    def __init__(self, pieces: Sequence[str], tags: Iterable[str] = BANNED_TAGS) -> None:
-        names = sorted(set(tags))
-        if not names:
-            raise ValueError("a guard needs at least one tag")
-        self._patterns = tuple(sorted({f"<{n}" for n in names} | {f"</{n}" for n in names}))
-        self._prefixes = frozenset(p[:k] for p in self._patterns for k in range(1, len(p)))
-        self._longest = max(len(p) for p in self._patterns)
-        self._regex = re.compile("|".join(re.escape(p) for p in self._patterns))
-        self._pieces = tuple(pieces)
-        self._inside = frozenset(i for i, p in enumerate(self._pieces) if self._regex.search(p))
+    def __init__(self, patterns: Iterable[str], views: Sequence[str]) -> None:
+        self.patterns = tuple(sorted(set(patterns)))
+        self._prefixes = frozenset(p[:k] for p in self.patterns for k in range(1, len(p)))
+        self._longest = max((len(p) for p in self.patterns), default=0)
+        self._regex = (
+            re.compile("|".join(re.escape(p) for p in self.patterns)) if self.patterns else None
+        )
+        self._views = tuple(views)
+        self._inside = frozenset(i for i, v in enumerate(self._views) if self.spells(v))
         self._cache: dict[str, frozenset[int]] = {"": self._inside}
 
-    @property
-    def patterns(self) -> tuple[str, ...]:
-        return self._patterns
+    def spells(self, view: str) -> bool:
+        return self._regex is not None and self._regex.search(view) is not None
 
     def banned(self, state: str) -> frozenset[int]:
         cached = self._cache.get(state)
@@ -341,29 +338,87 @@ class FrameGuard:
                     pattern[len(tail) :]
                     for k in range(len(state))
                     if (tail := state[k:]) in self._prefixes
-                    for pattern in self._patterns
+                    for pattern in self.patterns
                     if pattern.startswith(tail)
                 }
             )
         )
         finished: frozenset[int] = frozenset(
-            i for i, p in enumerate(self._pieces) if heads and p.startswith(heads)
+            i for i, v in enumerate(self._views) if heads and v.startswith(heads)
         )
         result = self._inside | finished
         self._cache[state] = result
         return result
 
-    def advance(self, state: str, piece: str) -> str:
-        """The state after ``piece``, which must not have been banned from ``state``."""
-        text = state + piece
+    def advance(self, state: str, view: str) -> str:
+        text = state + view
         for length in range(min(len(text), self._longest - 1), 0, -1):
             if text[-length:] in self._prefixes:
                 return text[-length:]
         return ""
 
+
+#: A ``FrameGuard`` state: the exact track's, then the folded track's.
+GuardState = tuple[str, str]
+
+#: The state of a turn that has said nothing yet.
+GUARD_START: GuardState = ("", "")
+
+
+class FrameGuard:
+    """Which pieces would complete a banned tag, given what the turn has said so far.
+
+    A banned pattern is ``<NAME`` or ``</NAME``. The guard follows the kernel's imitation
+    rule (``zeos.core.framing.spells_frame``) over its own names and in two tracks, so a
+    state is a pair (``GuardState``). A name in ``FOLDED_FRAMES`` (``KERNEL``, ``RESUME``,
+    ``FAULT``) is matched in each piece's fold (``zeos.core.framing.fold``): whatever its
+    case, with invisible format characters dropped, NFKC look-alikes such as ``＜ＫＥＲＮＥＬ``
+    and the Cyrillic and Greek homoglyphs read as Latin, and across pieces, since the fold
+    of a concatenation is the concatenation of the folds. Every other name (``STATUS``,
+    ``STUB``, ``tool_response``) is matched exactly and case-sensitively. Matching is
+    anywhere in the text, so ``x<KERNEL`` is banned.
+
+    It is at least as strict as the kernel: whatever the kernel alarms on contains a
+    pattern of one track or the other, since ``<KERNEL`` in the text is ``<KERNEL`` in its
+    fold. It is stricter in one way: the model's next piece is not yet known, so
+    ``<KERNELS`` and ``<kernels`` are banned too, where the kernel would not alarm on them.
+    """
+
+    def __init__(self, pieces: Sequence[str], tags: Iterable[str] = BANNED_TAGS) -> None:
+        names = sorted(set(tags))
+        if not names:
+            raise ValueError("a guard needs at least one tag")
+        folded = [n for n in names if n in FOLDED_FRAMES]
+        exact = [n for n in names if n not in FOLDED_FRAMES]
+        self._pieces = tuple(pieces)
+        self._exact = _Track(_tag_patterns(exact), self._pieces)
+        self._folded = _Track(_tag_patterns(folded), tuple(map(fold, self._pieces)))
+        self._cache: dict[GuardState, frozenset[int]] = {}
+
+    @property
+    def patterns(self) -> tuple[str, ...]:
+        """Every banned pattern: the exact track's as written, the folded track's as
+        they appear in a fold."""
+        return tuple(sorted(self._exact.patterns + self._folded.patterns))
+
+    def banned(self, state: GuardState) -> frozenset[int]:
+        cached = self._cache.get(state)
+        if cached is None:
+            cached = self._exact.banned(state[0]) | self._folded.banned(state[1])
+            self._cache[state] = cached
+        return cached
+
+    def advance(self, state: GuardState, piece: str) -> GuardState:
+        """The state after ``piece``, which must not have been banned from ``state``."""
+        return (self._exact.advance(state[0], piece), self._folded.advance(state[1], fold(piece)))
+
     def spells(self, text: str) -> bool:
         """Whether ``text`` contains a banned pattern anywhere."""
-        return self._regex.search(text) is not None
+        return self._exact.spells(text) or self._folded.spells(fold(text))
+
+
+def _tag_patterns(names: Iterable[str]) -> list[str]:
+    return [f"{opening}{n}" for n in names for opening in ("<", "</")]
 
 
 # -- tool calls, as the app's Qwen parser reads and writes them -------------------------
@@ -479,7 +534,7 @@ class _Chat:
     #: Where in ``text`` the search for the next tool call starts.
     scan: int = 0
     #: The frame guard's state across the open turn.
-    guard: str = ""
+    guard: GuardState = GUARD_START
     calls: list[ToolCall] = field(default_factory=list[ToolCall])
     rng: random.Random | None = None
     #: Pipes still to read, in order, before the job decodes (``replay``).
@@ -592,7 +647,7 @@ class ChatToolMachine(JsMachine):
                 base[token_id] = 0
         self._base = bytes(base)
         self._guard = FrameGuard(pieces, banned_tags)
-        self._masks: dict[str, bytes] = {}
+        self._masks: dict[GuardState, bytes] = {}
 
     # -- lifecycle --------------------------------------------------------------
 
@@ -657,7 +712,7 @@ class ChatToolMachine(JsMachine):
         chat.replay = list(pipes[1:])
         chat.replay_tail = True
 
-    def allowed_tokens(self, state: str = "") -> bytes:
+    def allowed_tokens(self, state: GuardState = GUARD_START) -> bytes:
         """The token mask from a guard state, one byte per vocabulary id."""
         mask = self._masks.get(state)
         if mask is None:
@@ -857,7 +912,7 @@ class ChatToolMachine(JsMachine):
         chat.in_tool_response = False
         chat.text = ""
         chat.scan = 0
-        chat.guard = ""
+        chat.guard = GUARD_START
         chat.masked_call, chat.masked_hidden = None, ()
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:

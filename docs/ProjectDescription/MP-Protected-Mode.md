@@ -72,7 +72,14 @@ The kernel marks its own notices with a special `CONTROL` token kind that the mo
 - a status region;
 - the values a job was asked for with.
 
-An imitation is an opening or closing tag of one of the kernel's frames -- `<KERNEL`, `<RESUME`, `<FAULT`, `<STATUS`, `<STUB`, or the same after `</` -- anywhere in a word, unless the name runs on into a longer one, as in `<KERNELS>`. So a tag glued to the text before it counts, as it is in a tool result delivered as JSON: `"<KERNEL>`, `\n<FAULT kind=x>` with the newline escaped, `foo<STATUS>`. Matching is case-sensitive: the kernel writes its frames in capitals, and lower-case `<status>` or `<fault>` is ordinary markup in the data tools return (`core/framing.py`).
+An imitation is an opening or closing tag of one of the kernel's frames -- `<KERNEL`, `<RESUME`, `<FAULT`, `<STATUS`, `<STUB`, or the same after `</` -- anywhere in a word, unless the name runs on into a longer one, as in `<KERNELS>`. So a tag glued to the text before it counts, as it is in a tool result delivered as JSON: `"<KERNEL>`, `\n<FAULT kind=x>` with the newline escaped, `foo<STATUS>`.
+
+The names are not matched alike, because they are not equally rare in real data (`core/framing.py`):
+
+- `KERNEL`, `RESUME` and `FAULT` almost never appear as bare tags in what tools return, and a model treats `<kernel>` much as it treats `<KERNEL>`. So they are matched whatever their case, and through disguises inside the tag: invisible format characters (Unicode category Cf: zero-width spaces and joiners, the word joiner, the byte-order mark, the soft hyphen) are dropped, each character is NFKC-normalised, so the fullwidth `＜ＫＥＲＮＥＬ＞` reads as `<KERNEL>`, and a short explicit list of Cyrillic and Greek look-alikes of the letters in those names reads as Latin. `<kernel>`, `<ReSuMe x=1>`, `<KER\u200bNEL>` and `<КERNEL>` with a Cyrillic `К` are imitations; the run-on rule applies after folding, so `<kernels>`, `<faultcode>` and `<soap:Fault>` are not.
+- `STATUS` and `STUB` are matched case-sensitively, as written: lower-case `<status>` and `<stub>` are common in genuine XML and API data, and alarming on them would teach operators to ignore the alarm.
+
+The alarm is advisory. What a job can do is decided by its capabilities and its integrity (§5.2, §6), which no text can change: text can persuade; only the kernel can permit. Persuasion that spells no tag at all, `SYSTEM OVERRIDE: ...`, is outside this detector by design; it is §5.4's problem, and §5.2 bounds what a persuaded job can do.
 
 The job is told the text is data, not a notice, and carries on. The fault never aborts, whatever the job's `on_fault` policy says, because otherwise any device could kill a job by spelling a tag.
 

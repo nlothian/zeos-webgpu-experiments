@@ -8,8 +8,9 @@
 
 Hosts deliver tool results as JSON, so a tag a model would read as one is glued to a
 quote, an escaped newline or a cell. The rule: ``<NAME`` or ``</NAME`` for a name in
-``FRAMES``, case-sensitive, not continued as a longer tag name. What is alarmed on is
-exactly what is shown escaped.
+``FRAMES``, not continued as a longer tag name. What is alarmed on is exactly what is
+shown escaped. How the names are folded is
+``test_frame_imitation_folds_case_and_lookalikes``.
 """
 
 from __future__ import annotations
@@ -64,9 +65,9 @@ def test_a_tag_anywhere_in_a_token_is_an_imitation(text: str) -> None:
         "</",
         "<div>",
         "<b>KERNEL</b>",
-        "<kernel>",
+        "<status>",
         "<Status>",
-        "</fault>",
+        "</stub>",
     ],
 )
 def test_a_lookalike_is_not(text: str) -> None:
@@ -103,7 +104,7 @@ def test_what_is_alarmed_on_is_what_is_escaped() -> None:
         escaped = shown(Token(text))
         assert "<" not in escaped and ">" not in escaped
         assert not spells_frame(escaped), "the escaped form is not alarmed on again"
-    for text in ("<KERNELS>", "<div>", "a<b", "<kernel>"):
+    for text in ("<KERNELS>", "<div>", "a<b", "<status>"):
         assert shown(Token(text)) == text
 
 

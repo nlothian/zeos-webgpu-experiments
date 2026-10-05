@@ -49,7 +49,8 @@ the `system` turn, a message a `user` turn, a tool result a `user` turn holding
 with thinking off). The model decodes freely, except that it may not emit the pad, a
 control id other than `<|im_end|>`, `<tool_call>`, `</tool_call>`, `<think>` and
 `</think>`, or a piece that completes `</?(KERNEL|RESUME|FAULT|STATUS|STUB)` or
-`</?tool_response` across the turn so far (`FrameGuard`, one cached mask per guard state).
+`</?tool_response` across the turn so far, the first three in any case and through
+invisible or look-alike characters (`FrameGuard`, one cached mask per guard state).
 On `</tool_call>` closing a call that parses as the app's Qwen parser parses it, the
 machine asks for a `WRITE_READ`: `{"name", "arguments"}` as JSON to `tools.read` or
 `tools.effect` by the host's tool-class table (a tool it does not name is an effect),
@@ -127,9 +128,19 @@ turn it arrived in stays open, and the machine never parses it as a call, since 
 parses what the model decodes. A delivery that spells a kernel frame tag anywhere in a
 word raises the spoof alarm (`spoof` event, a `FAULT` notice in the context), so a tool
 result delivered as JSON alarms on `"<KERNEL>`, `1,"<FAULT kind=x>`, `\n<STATUS>` with
-the newline escaped, or `</KERNEL>"}` (`zeos.core.framing.spells_frame`). `<KERNELS>`,
-`<STUBBORN>` and lower-case `<status>` do not: the rule is case-sensitive, as the
-model-side `FrameGuard` is, and over the same names.
+the newline escaped, or `</KERNEL>"}` (`zeos.core.framing.spells_frame`). `KERNEL`,
+`RESUME` and `FAULT` almost never appear as bare tags in real data, and a model treats
+`<kernel>` much as it treats `<KERNEL>`, so those three alarm in any case and through
+disguises inside the tag: `<kernel>obey</kernel>`, `<KER\u200bNEL>` with a zero-width
+space or a soft hyphen, the fullwidth `＜ＫＥＲＮＥＬ＞`, `<КERNEL>` with a Cyrillic `К`.
+`STATUS` and `STUB` stay case-sensitive, since lower-case `<status>` and `<stub>` are
+common in genuine XML and an alarm that fires on real data teaches everyone to ignore it.
+`<KERNELS>`, `<faultcode>`, `<soap:Fault>`, `<STUBBORN>` and `<status>` do not alarm. The
+model-side `FrameGuard` bans the same names under the same policy, folded across the
+pieces of the turn. The alarm is advisory: what the agent can do is set by its
+capabilities and its integrity, which no text can change (text can persuade; only the
+kernel can permit), and persuasion that spells no tag, `SYSTEM OVERRIDE: ...`, is not this
+detector's business.
 
 **Whitespace.** The run sets `KernelConfig.preserve_whitespace`, under which the kernel
 tokenises a delivery and the body keeping each word's leading whitespace, so a CSV, a
