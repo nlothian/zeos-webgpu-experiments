@@ -128,10 +128,12 @@ export class SyncModelWorker {
   }
 
   decodeStep(jobId, opts) {
-    const { allowedBlocks = null, allowedTokens = null } = opts ?? {};
-    return this.call("decodeStep", jobId, {
+    const { allowedBlocks = null, allowedTokens = null, sample = null } = opts ?? {};
+    const args = {
       allowedBlocks: allowedBlocks === null ? null : Uint8Array.from(allowedBlocks),
       allowedTokens: allowedTokens === null ? null : Uint8Array.from(allowedTokens),
-    });
+    };
+    if (sample !== null) args.sample = { temperature: sample.temperature, topK: sample.topK, u: sample.u };
+    return this.call("decodeStep", jobId, args);
   }
 }

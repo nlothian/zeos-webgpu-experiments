@@ -132,17 +132,13 @@ class NodeWorker:
     def decodeStep(self, jobId: str, opts: Any) -> Step:
         blocks = opts["allowedBlocks"]
         tokens = opts["allowedTokens"]
-        raw = cast(
-            dict[str, Any],
-            self._call(
-                "decodeStep",
-                jobId,
-                {
-                    "allowedBlocks": None if blocks is None else array("B", blocks),
-                    "allowedTokens": None if tokens is None else array("B", tokens),
-                },
-            ),
-        )
+        args: dict[str, object] = {
+            "allowedBlocks": None if blocks is None else array("B", blocks),
+            "allowedTokens": None if tokens is None else array("B", tokens),
+        }
+        if opts.get("sample") is not None:
+            args["sample"] = dict(opts["sample"])
+        raw = cast(dict[str, Any], self._call("decodeStep", jobId, args))
         attention = raw["attention"]
         return Step(
             tokenId=int(raw["tokenId"]),
