@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OptZeosWorker on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>OptZeosWorker on WebGPU</h1>
+    <p>
+      Checks and times <code>web/opt_zeos_worker.js</code> through the <code>ZeosModelWorker</code>
+      interface. Query parameters: <code>model</code> (default
+      <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>), <code>ort</code> (the
+      <code>ort.webgpu.min.mjs</code> to import), <code>steps</code> (greedy steps, default 32).
+      Serve the demo directory (<code>serve.py --dir demo/coop-count-web</code>) after
+      <code>npm install</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="worker.js"></script>
+  </body>
+</html>

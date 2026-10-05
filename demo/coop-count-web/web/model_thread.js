@@ -15,9 +15,14 @@
  * `{ready: true, backend}` or `{ready: false, error}`; after that, every run of the
  * graph is reported as `{activity: {...}}` (see `TransformersWorker`'s `onActivity`),
  * which is how the page can say what the model is doing while a step blocks the kernel.
+ *
+ * The export's `meta.json` picks the worker: `OptZeosWorker` for an OPT+ZEOS export
+ * (`export/opt_zeos_surgery.py`), `TransformersWorker` for an `export_model.py` one.
+ * WebAssembly is pinned to one thread either way (`threads` overrides it).
  */
 
 import { serveChannel } from "./model_channel.js";
+import { OptZeosWorker, isOptZeosMeta } from "./opt_zeos_worker.js";
 import { TransformersWorker } from "./transformers_worker.js";
 
 async function fetchBytes(url, onProgress) {
@@ -64,12 +69,24 @@ self.onmessage = async (event) => {
     // meta.json lists every file's size, so the download can be reported as a whole.
     // It is read first by `load`, and the figures below are empty until then.
     let sizes = {};
+    let meta = null;
+    let metaBytes = null;
     let bytesBefore = 0;
     let fileIndex = 0;
+    // Files with the same hash are read once (the OPT+ZEOS embedding and the decoder's
+    // second shard), so they count once.
+    const unique = () => {
+      const seen = new Map();
+      for (const [name, f] of Object.entries(sizes)) if (!seen.has(f.sha256 ?? name)) seen.set(f.sha256 ?? name, f);
+      return [...seen.values()];
+    };
+    // The last file a load reads; ONNX Runtime builds the session after it.
+    const lastFile = () => (meta !== null && isOptZeosMeta(meta) ? meta.decoder.file : "model.onnx");
     const read = async (name) => {
+      if (name === "meta.json" && metaBytes !== null) return metaBytes;
       const total = sizes[name]?.bytes ?? 0;
-      const sum = Object.values(sizes).reduce((a, f) => a + f.bytes, 0);
-      const names = Object.keys(sizes);
+      const sum = unique().reduce((a, f) => a + f.bytes, 0);
+      const names = unique();
       const bytes = await fetchBytes(new URL(name, base), (loaded, fileTotal) =>
         self.postMessage({
           progress: {
@@ -84,10 +101,14 @@ self.onmessage = async (event) => {
           },
         }),
       );
-      if (name === "meta.json") sizes = JSON.parse(new TextDecoder().decode(bytes)).files ?? {};
+      if (name === "meta.json") {
+        metaBytes = bytes;
+        meta = JSON.parse(new TextDecoder().decode(bytes));
+        sizes = meta.files ?? {};
+      }
       bytesBefore += bytes.byteLength;
       fileIndex += 1;
-      if (name === "model.onnx") {
+      if (name === lastFile()) {
         // The graph is the last file `load` reads; what follows is ONNX Runtime
         // building the session, which has no progress to report.
         self.postMessage({ progress: { phase: "session", bytes: bytesBefore, bytes_total: sum } });
@@ -95,7 +116,10 @@ self.onmessage = async (event) => {
       return bytes;
     };
     const onActivity = (activity) => self.postMessage({ activity });
-    const worker = await TransformersWorker.load({ ort, Tokenizer, read, backend: chosen, onActivity });
+    await read("meta.json");
+    const worker = isOptZeosMeta(meta)
+      ? await OptZeosWorker.load({ ort, Tokenizer, read, backend: chosen, numThreads: threads ?? 1, onActivity })
+      : await TransformersWorker.load({ ort, Tokenizer, read, backend: chosen, onActivity });
     serveChannel(worker, buffer, (handle) => {
       port.onmessage = (message) => handle(message.data);
     });

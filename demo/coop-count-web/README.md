@@ -652,6 +652,114 @@ against 17.1) and without it (18.8 against 17.7).
 The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it, so the
 same file runs in the page and under Node (`web/node_load.mjs`).
 
+### The OPT+ZEOS worker
+
+`web/opt_zeos_worker.js` (`OptZeosWorker`) implements `ZeosModelWorker` over the OPT+ZEOS
+graph. It has the same interface, `info()`, tokenizer (`encodePlain`, so a literal
+`<|im_end|>` in content stays text) and `sample` rule (`sampleToken`) as
+`TransformersWorker`, and it imports nothing else: ONNX Runtime and the `Tokenizer` class
+are handed in. `model_thread.js` and `node_load.mjs` choose it when `meta.json` names a
+`decoder` and an `embedTokens` graph (`isOptZeosMeta`), and `TransformersWorker`
+otherwise, so `build.py --model models/Qwen3.5-4B-ZEOS-OPT` offers it to the page with no
+other change. `info()` is `{blockSize: 1, padId: 248044, controlIds: [248045, 248046,
+248044], eosId: 248046, vocabSize: 248077}`, and `meta.tokenizerSize` (what the `pieces`
+call reads) is `vocabSize`.
+
+**Two sessions.** The embedding graph turns the new ids into `inputs_embeds` (float32,
+left on the GPU) and the decoder runs them against the cache, with `key_mask` built from
+the step's `allowedBlocks`, `position_ids` the absolute positions in all three rows, and
+`num_logits_to_keep` 1. The tied embedding matrix is both the embedding graph's data and
+the decoder's second shard; files with the same SHA-256 in `meta.json` are read once.
+
+**Pending tokens.** `append` records ids and runs nothing. The next `decodeStep` runs
+every id without a cache behind it under that step's mask, in chunks of at most
+`maxChunk` (2048) cut at the snapshot positions, and reads the logits and the attention of
+the last position only. In a run of steps each step is one forward pass of one token,
+since `JsMachine` appends the chosen id before the next step.
+
+**The cache stays on the GPU.** On WebGPU every `present*` output, the logits and the
+attention are `gpu-buffer` outputs. The presents are fed back as the next run's inputs,
+and only the last chunk's logits (0.5 MB of float16) and attention are read back. A run's
+outputs are new tensors that are never written to, so a context, its snapshots and its
+forks share one set of them, with a reference count, and `dispose` it when the count
+reaches zero. `fork` copies nothing on the GPU. Cutting the softmax layers' keys and
+values to `n` positions copies the first `n` positions of each of the four heads into a
+new buffer with `copyBufferToBuffer`, without a round trip through the CPU. Under
+onnxruntime-node (`cpu`) the same code slices typed arrays.
+
+**Snapshots.** The DeltaNet state is not per position. A context keeps the state after
+every `SNAPSHOT_EVERY` (256) positions, and the state from before its latest run, as
+references to the graph's own output tensors. About 25 MB of GPU memory each (24 layers,
+a 1 MiB recurrent state and a 48 KiB window per layer). There is no copy and no
+download. Downloaded snapshots would cost 25 MB of read-back for every snapshot taken and
+25 MB of upload for every rewind. That traffic happens on every prefill, and the memory
+is bounded, so the snapshots stay on the GPU. At most `MAX_SNAPSHOTS` (16, so 400 MB) are
+kept per context. Past that, the one whose neighbours are closest is dropped, so old
+snapshots thin out and recent ones stay 256 apart.
+
+A cut goes back to the latest snapshot (or the pre-run state) at or before the position,
+and the next step replays from there. A cut is a `truncate`, or a step whose mask
+disagrees, at some past position, with the mask the cache was built under. Masks that
+hide nothing new cost nothing. Replay and a fresh prefill cut their chunks at the same
+positions, so a replay under a new mask is bit for bit the fresh prefill under that mask.
+
+Prefill speed hardly depends on the chunk size. With chunks of 256, 512, 1,024 and 2,048,
+a 2,048-token prefill ran at 250–305 tok/s, and the order changed from run to run. So
+256 costs nothing measurable and bounds a replay to 255 positions.
+
+**WebAssembly.** The worker sets `ort.env.wasm.numThreads` to 1 unless told otherwise, so
+the CPU fallback never needs a thread pool. onnxruntime-web's WebAssembly backend loads
+the graph, but a run fails with `std::bad_alloc`: a 4 GiB heap cannot hold 2.4 GB of
+weights as well as the activations. So this export needs WebGPU in the page. Under Node,
+use onnxruntime-node (`runtime: "node"`), whose CPU provider has kernels for the fused
+operators.
+
+**Measured** in Chrome on an Apple M1 Max, through the interface, with nothing else on the
+GPU. Measured by `tests/opt_zeos_webgpu.mjs`, which runs `export/bench/worker.html`, with
+ONNX Runtime Web 1.31.0-dev.20260914 (1.30.0, this demo's pinned version, gave the same
+results):
+
+| | |
+|---|---|
+| load (files in the HTTP cache) | 3.8–4.2 s |
+| prefill, a 1,020-token prompt, until the first step's choice | 3.5 s (289 tok/s) |
+| decode step at ~1,050 positions | 47–48 ms (21 tok/s) |
+| step after hiding 16 positions at 600 in a 1,052-token context (540 positions replayed from the snapshot at 512) | 2.4 s |
+
+The page's checks:
+
+- The 32 greedy steps choose what one run without a cache chooses for the same tokens.
+- The first step is bit for bit a cache-free run cut into the same chunks. Against one
+  cut into a single 2,048 chunk its KL is 4e-3: the recurrent state crosses a chunk
+  boundary in float16, and two chunkings of the graph alone differ by that much.
+- Hidden positions receive exactly zero, and the rest sums to one.
+- The replay after a mask change equals a fresh prefill under the new mask, logit for
+  logit.
+- `truncate` back to the prompt reproduces the first step exactly.
+- A fork taken before the cut keeps the longer context.
+
+```bash
+PLAYWRIGHT_MODULE=<a node_modules/playwright> node demo/coop-count-web/tests/opt_zeos_webgpu.mjs
+```
+
+`tests/js/opt_zeos_worker.test.mjs` checks the interface under onnxruntime-node, with
+snapshots every 16 positions and at most 4 kept, so short prompts cross boundaries and
+the thinning runs. It checks plain tokenisation, and that greedy steps agree with
+cache-free runs. Hiding a past position must replay fewer than 16 positions, give exactly
+zero attention there, and equal a fresh prefill bit for bit. It also covers a repeated
+step, `truncate`, `fork`, `allowedTokens`, `sample` and the refusals, and one step through
+`SyncModelWorker`.
+
+`tests/test_opt_zeos_chat.py` drives `open_chat` over it through `NodeWorker`
+(`runtime="node"`) for a three-message conversation, about 20 s with 8 threads:
+
+1. "What is two plus two?" gets the reply "Two plus two equals four."
+2. "What is the weather in Paris right now?" produces a `tool_call` event,
+   `get_weather({"city": "Paris"})` on `tools.read`.
+3. After the host delivers the result, the reply is "It is currently sunny in Paris with
+   a temperature of 21 degrees Celsius…". The job is demoted for attending it, as it
+   should be.
+
 ### Calling an asynchronous model synchronously
 
 `JsMachine.decode` is synchronous, the kernel loop that calls it stays synchronous, and
@@ -922,6 +1030,10 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   worker's interface under Node, directly and through the synchronous channel, including
   a cut past a snapshot of the recurrent state and a mask that hides what the state had
   taken in, each of which must compute what a fresh context would.
+- `tests/js/opt_zeos_worker.test.mjs`, `test_opt_zeos_chat.py` and
+  `tests/opt_zeos_webgpu.mjs` (a browser script, not collected by pytest) — the OPT+ZEOS
+  worker; see "The OPT+ZEOS worker". They skip without the export at
+  `models/Qwen3.5-4B-ZEOS-OPT`.
 - `test_js_machine_contract.py` also runs the contract suite over the real model worker
   (`js-transformers`), driven from Node.
 - `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model

@@ -47,6 +47,7 @@ PAGE = (
     "style.css",
     "coi_serviceworker.js",
     "transformers_worker.js",
+    "opt_zeos_worker.js",
     "model_channel.js",
     "model_host.js",
     "model_thread.js",
