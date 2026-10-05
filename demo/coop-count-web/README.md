@@ -15,18 +15,57 @@ case's wiring and then the finished run, and the journal can be downloaded as th
 `.jsonl` file `zeos-count run --journal` would have written. The *interrupt* button on the page is the
 console's interrupt.
 
+## Getting it running
+
+**You need** [uv](https://docs.astral.sh/uv/), Node.js with npm (tested with Node 22),
+and a browser with WebGPU (tested in Chrome on an Apple M1 Max). Exporting the model
+once needs about 20 GB of free memory, about 30 GB of free disk while it runs, and a
+network connection to download 8.7 GB of weights from the Hugging Face Hub.
+
+Every command runs from the repository root.
+
 ```bash
-uv sync --all-packages                       # from the repository root
-uv run python demo/coop-count-web/build.py   # builds the wheels into web/dist/
-uv run python demo/coop-count-web/serve.py   # web/dist/ on port 8765, cross-origin isolated, no-cache
-# open http://localhost:8765/
+# 1. Python packages, including the export group (PyTorch, transformers, onnx).
+uv sync --all-packages --group export
+
+# 2. ONNX Runtime Web and the tokenizer, which build.py copies into the page.
+npm install --prefix demo/coop-count-web
+
+# 3. Export Qwen3.5-4B to the graph the page runs, quantised to q4.
+#    Downloads to demo/coop-count-web/models/Qwen3.5-4B/ and writes
+#    demo/coop-count-web/models/Qwen3.5-4B-zeos-q4/ (3.3 GB). About five minutes
+#    after the download.
+uv run python demo/coop-count-web/export/export_model.py
+
+# 4. Optional: drop PyTorch and the rest of the export group again.
+uv sync --all-packages
+
+# 5. Assemble the page into demo/coop-count-web/web/dist/.
+uv run python demo/coop-count-web/build.py
+
+# 6. Serve it, cross-origin isolated, on port 8765.
+uv run python demo/coop-count-web/serve.py
 ```
 
-Any static file host serves `web/dist/` as well; the page fetches Pyodide from the
-jsDelivr CDN, so the browser needs a network connection the first time. The model
-machine (see *The model machine* below) needs the page cross-origin isolated: `serve.py`
-sends the two headers that takes, and on a host that cannot send them
-`coi_serviceworker.js` adds them in the browser after one reload. The scripted and stub
+Open <http://localhost:8765/> and press **run**. The defaults are the language model on
+the GPU, the scenario `coop-count-scripted`, and *press the keys automatically*, which
+sends the interrupt at 39 ms of virtual time. The first run downloads the 3.3 GB of
+weights into the browser and prefills the first prompt; on the machine above the first
+command came about 35 s after pressing run, and each decode step took about 220 ms.
+The *transcript* tab shows the counters counting and the interrupt handler resetting
+the count.
+
+`build.py` prints the model it put on the page. If it says `model: none`, step 2 or 3
+is missing. The page then still runs every scenario that has recorded answers, and
+offers the language model as *(not in this build)*. To offer another export, pass
+`--model`, for example `--model demo/coop-count-web/models/Qwen3.5-2B-zeos-q4`.
+
+**Serving it elsewhere.** `web/dist/models/` is a symbolic link to the export, so copy
+the export in with `build.py --copy-model` before uploading `web/dist/` to a file host.
+The page fetches Pyodide from the jsDelivr CDN, so the browser needs a network
+connection the first time. The language model needs the page cross-origin isolated:
+`serve.py` sends the two headers that takes, and on a host that cannot send them
+`coi_serviceworker.js` adds them in the browser after one reload. The recorded-answer
 machines run on any host, `python -m http.server` included.
 
 ## What runs
@@ -36,13 +75,13 @@ reads no clock, starts no thread and opens no socket, and the driver injects tim
 virtual millisecond per tick, so a run in the browser writes the same journal bytes as
 the same run under CPython. `tests/test_pyodide_determinism.py` checks exactly that.
 
-Two machines are offered for a case:
+Three machines are offered for a case, under *answered by*:
 
-| machine | what answers each decode |
-|---|---|
-| scripted | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
-| JsMachine | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
-| JsMachine — Qwen3.5-2B | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. Offered when the build found an export. |
+| on the page | machine | what answers each decode |
+|---|---|---|
+| Qwen3.5-4B language model, in your browser | `transformers` | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. The default; offered when the build found an export. |
+| recorded answers (no model) | `scripted` | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
+| recorded answers, via the JavaScript model interface | `stub` | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
 
 On `coop-count-scripted` the two decode the same words and their journals hold the same
 events in the same order, with two exceptions, both about attention. The seat's mask
@@ -275,8 +314,8 @@ In the browser the page builds the stub with `createStubWorker(tapes)` and passe
 
 ## The model machine
 
-The third machine on the page is `JsMachine` over a real language model: Qwen3.5-2B,
-exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
+The page's default machine is `JsMachine` over a real language model: Qwen3.5-4B at q4
+(Qwen3.5-2B with `build.py --model`), exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
 `web/transformers_worker.js`, with the tokenizer Transformers.js uses. It supplies all
 four things ZEOS asks of a serving stack: the allowed-block mask is applied inside the
 forward pass, in every layer (before the softmax in the softmax layers; see *The
@@ -287,6 +326,13 @@ therefore receives measured attention, `DecodeResult.attention`, where every oth
 backend in the repository gives it a hint, and integrity demotes on it.
 
 ### The model
+
+The page offers Qwen3.5-4B at q4 by default; *Getting it running* gives its timings.
+In its first run on `coop-count-scripted` the handler did what the procedure says: it
+read 51 from the console, wrote it to both counters' progress, and exited, and the
+preempted counter resumed. The counters still stray from the procedure: counter-a
+started again from 1 after the reset and counted past 10 without waking its peer. The
+measurements and runs below are of the 2B, mostly at int8 on WebAssembly.
 
 **Qwen3.5-2B** (`Qwen/Qwen3.5-2B`, the post-trained model; its base is
 `Qwen3.5-2B-Base`). It speaks ChatML, which is what `JsMachine` frames prompts in
@@ -400,15 +446,17 @@ the rest sum to one, and hiding it changes the logits. `tests/test_exported_grap
 repeats that check. The script still exports Qwen2 instruct models (`model_type`
 `qwen2`: every layer softmax, an empty state); the worker then cuts its cache directly.
 
-**Quantisation.** The default, `int8`, is ONNX Runtime's dynamic quantisation of every
+**Quantisation.** The default, `q4`, is 4-bit weight-only `MatMulNBits`, the form
+ONNX Runtime's WebGPU backend runs: 3.27 GB of weights for the 4B, 1.69 GB for the 2B.
+`int8` is ONNX Runtime's dynamic quantisation of every
 weight matmul (per-channel int8 weights, int8 activations computed per run), plus a
 per-row int8 embedding table and a separately quantised output projection: 2.40 GB of
 weights. It was chosen by measurement, under Node on onnxruntime-web 1.30's WebAssembly
-backend, one thread, Apple M1 Max: a decode step takes about 316 ms and a prefill about
+backend, one thread, Apple M1 Max: for the 2B a decode step takes about 316 ms and a prefill about
 83 ms a token; the export loads in 4.6 s and the process settles at 3.3 GB resident
 (6.6 GB at its peak while loading, when the weight files and the WebAssembly heap both
-hold the weights). The q4 export (`--quant q4`, 4-bit `MatMulNBits`, 1.69 GB) is what the
-WebGPU backend can run (see *Backends*). fp32 (7.5 GB) does not fit a 4 GB WebAssembly
+hold the weights). The q4 export is many times slower than int8
+per step on the WebAssembly backend (see *Backends*). fp32 (7.5 GB) does not fit a 4 GB WebAssembly
 heap.
 
 The chunk also bounds the int8 error. Dynamic quantisation gives a matmul's activations
@@ -550,8 +598,8 @@ long as the run lasts.
 
 ### Running it
 
-In the page: build with an export present and `npm install` done, serve with `serve.py`,
-choose *JsMachine -- Qwen3.5-2B* and a case, and run. A run stops at 400 ticks, as
+In the page: follow *Getting it running*, leave *answered by* on the language model,
+choose a scenario, and run. A run stops at 400 ticks, as
 `demo/coop-count/run_all.py` stops a live seat, or earlier when no job can run: quiescent
 when every job is asleep on another, and, in the page, held open while a job waits on
 the console.
