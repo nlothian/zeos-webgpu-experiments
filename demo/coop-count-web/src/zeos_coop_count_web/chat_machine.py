@@ -27,7 +27,8 @@ machine turns three moments of a turn into requests itself:
 * ``</tool_call>`` closing a call that parses: a ``WRITE_READ`` to ``tools.read`` or
   ``tools.effect`` -- the host's tool-class table decides which, and a tool it does not
   name is an effect -- with the JSON ``{"name": ..., "arguments": {...}}`` as payload,
-  then a read of ``tools.results``. The arguments are decoded as the app's parser
+  then a read of ``tools.results`` -- or of ``tools.results.trusted`` when the host's
+  trusted-results table names the call (below). The arguments are decoded as the app's parser
   decodes them (``parseQwenToolCallBody`` in the gemma-data-agent site): a parameter
   the tool declares as a string is kept verbatim, anything else is JSON when it parses.
   A block that does not parse stays text, as it does there.
@@ -50,6 +51,15 @@ kernel's capability check on ``tools.effect`` is the only thing that decides whe
 runs without the user. Patterns should stay inside the syntax Python's ``re`` and
 JavaScript's ``RegExp`` share, so a host can show the same verdict before it asks.
 
+**Trusted results.** A host whose tool returns text it wrote itself -- a reference card
+bundled with the app, say -- can say so: ``trusted_results`` maps a tool name to
+``{PARAM: PATTERN}``, matched as a ``read_if`` rule is, and a call that matches it reads
+its result from ``tools.results.trusted`` (TRUSTED, principal ``device``) rather than
+``tools.results`` (EXTERNAL). The choice is made from the call the model wrote, before
+anything is run, so the kernel knows which ring the answer will carry while the job
+waits for it. The result is framed as any other: a ``<tool_response>`` in a ``user``
+turn.
+
 **History.** ``replay`` sets a job that has not spoken yet to read a list of pipes in
 order before it decodes anything: a past conversation, delivered one turn at a time. A
 delivery on ``chat.history`` or ``chat.history.trusted`` is a past assistant turn, framed
@@ -66,7 +76,7 @@ kernel's words exactly as ``JsMachine`` folds its own, so no kernel offset moves
 
 * the descriptor body is the ``system`` turn;
 * a message on ``chat.user`` is a ``user`` turn;
-* a result on ``tools.results`` is a ``user`` turn holding
+* a result on ``tools.results`` or ``tools.results.trusted`` is a ``user`` turn holding
   ``<tool_response>\\n...\\n</tool_response>``, and a second one before the model speaks
   joins it, as consecutive tool messages do in the template;
 * a kernel frame (a ``FAULT`` notice, say) joins the ``user`` turn, opening one if the
@@ -134,6 +144,7 @@ from zeos_coop_count_web.js_machine import (
 
 __all__ = [
     "BANNED_TAGS",
+    "ArgumentRule",
     "EFFECT",
     "READ",
     "ToolClass",
@@ -178,6 +189,10 @@ FRAMING_MARKERS = (
 READ = "read"
 EFFECT = "effect"
 
+#: A rule over a call's arguments: exactly these parameters, each a string the pattern
+#: matches in full.
+ArgumentRule = Mapping[str, str]
+
 #: A tool's class in the host's table: ``READ``, ``EFFECT``, or ``{"read_if": {param:
 #: pattern}}``, a read only when the arguments are exactly those parameters and each is a
 #: string the pattern matches in full.
@@ -198,6 +213,8 @@ class ChatPipes:
     user: PipeName = PipeName("chat.user")
     out: PipeName = PipeName("chat.out")
     results: PipeName = PipeName("tools.results")
+    #: Results the host wrote itself, for calls its trusted-results table names.
+    results_trusted: PipeName = PipeName("tools.results.trusted")
     read: PipeName = PipeName("tools.read")
     effect: PipeName = PipeName("tools.effect")
     #: Past assistant turns, at EXTERNAL and at TRUSTED.
@@ -207,6 +224,10 @@ class ChatPipes:
     @property
     def tool_sinks(self) -> tuple[PipeName, PipeName]:
         return (self.read, self.effect)
+
+    @property
+    def result_pipes(self) -> tuple[PipeName, PipeName]:
+        return (self.results, self.results_trusted)
 
     @property
     def history_pipes(self) -> tuple[PipeName, PipeName]:
@@ -396,6 +417,9 @@ class ToolCall:
     sink: PipeName
     #: The ``<tool_call>...</tool_call>`` text the model produced.
     raw: str
+    #: Where its result is read from: ``tools.results``, or ``tools.results.trusted``
+    #: for a call the trusted-results table names.
+    results: PipeName = PipeName("tools.results")
 
     @property
     def payload(self) -> str:
@@ -469,6 +493,7 @@ class ChatToolMachine(JsMachine):
         sampling: Sampling | None = None,
         seed: int = 0,
         param_types: Mapping[str, Mapping[str, str]] | None = None,
+        trusted_results: Mapping[str, ArgumentRule] | None = None,
         banned_tags: Iterable[str] = BANNED_TAGS,
         block_size: int = DEFAULT_BLOCK_SIZE,
     ) -> None:
@@ -486,10 +511,12 @@ class ChatToolMachine(JsMachine):
                 continue
             if set(kind) != {_READ_IF} or not isinstance(kind[_READ_IF], Mapping):
                 raise ValueError(f"{name}: a rule is {{{_READ_IF!r}: {{param: pattern}}}}")
-            self._read_if[name] = {
-                param: re.compile(pattern, re.IGNORECASE | re.DOTALL)
-                for param, pattern in kind[_READ_IF].items()
-            }
+            self._read_if[name] = _compile_rule(kind[_READ_IF])
+        self._trusted: dict[str, dict[str, re.Pattern[str]]] = {}
+        for name, rule in (trusted_results or {}).items():
+            if not isinstance(rule, Mapping):
+                raise ValueError(f"{name}: a trusted-results rule is {{param: pattern}}")
+            self._trusted[name] = _compile_rule(rule)
         self._prefix = thinking_prefix(thinking) if assistant_prefix is None else assistant_prefix
         self._sampling = sampling
         self._seed = seed
@@ -561,13 +588,15 @@ class ChatToolMachine(JsMachine):
         rule = self._read_if.get(name)
         if rule is None:
             return self._tool_classes.get(name, EFFECT)
-        if arguments is None or set(arguments) != set(rule):
-            return EFFECT
-        for param, pattern in rule.items():
-            value = arguments[param]
-            if not isinstance(value, str) or pattern.fullmatch(value) is None:
-                return EFFECT
-        return READ
+        return READ if _rule_matches(rule, arguments) else EFFECT
+
+    def results_pipe(self, name: str, arguments: Mapping[str, Any] | None = None) -> PipeName:
+        """Where a call's result is read from: ``tools.results.trusted`` when the
+        trusted-results table names the call, ``tools.results`` otherwise."""
+        rule = self._trusted.get(name)
+        if rule is not None and _rule_matches(rule, arguments):
+            return self.pipes.results_trusted
+        return self.pipes.results
 
     def replay(self, job: JobId, pipes: Sequence[PipeName]) -> None:
         """Have a job that has not spoken read ``pipes`` in order before it decodes. The
@@ -577,7 +606,7 @@ class ChatToolMachine(JsMachine):
             raise RuntimeError(f"job {job} has already spoken; only a fresh job replays")
         if not pipes or pipes[0] != self.pipes.user:
             raise ValueError(f"a replay starts with a message on {self.pipes.user}")
-        allowed = {self.pipes.user, self.pipes.results, *self.pipes.history_pipes}
+        allowed = {self.pipes.user, *self.pipes.result_pipes, *self.pipes.history_pipes}
         stray = sorted({str(p) for p in pipes} - {str(p) for p in allowed})
         if stray:
             raise ValueError(f"a replay reads only {sorted(map(str, allowed))}, not {stray}")
@@ -650,7 +679,7 @@ class ChatToolMachine(JsMachine):
             chat.role = _ASSISTANT
             chat.in_tool_response = False
             chat.arrived = True
-        elif chat.awaiting == self.pipes.results:
+        elif chat.awaiting in self.pipes.result_pipes:
             head = ("" if chat.role == _USER else close) + f"\n{TOOL_RESPONSE_OPEN}\n"
             tail = f"\n{TOOL_RESPONSE_CLOSE}"
             chat.role = _USER
@@ -797,12 +826,12 @@ class ChatToolMachine(JsMachine):
         call = self._closed_call(chat)
         if call is not None:
             chat.calls.append(call)
-            chat.awaiting, chat.arrived = self.pipes.results, False
+            chat.awaiting, chat.arrived = call.results, False
             request = MachineRequest(
                 op=OpKind.WRITE_READ,
                 pipe=call.sink,
                 payload=tokens_from_text(call.payload, preserve_whitespace=True),
-                read_pipe=self.pipes.results,
+                read_pipe=call.results,
             )
         return DecodeResult(
             tokens=(token,),
@@ -834,4 +863,23 @@ class ChatToolMachine(JsMachine):
             arguments=arguments,
             sink=sink,
             raw=text[opened : chat.scan],
+            results=self.results_pipe(name, arguments),
         )
+
+
+def _compile_rule(rule: Mapping[str, str]) -> dict[str, re.Pattern[str]]:
+    return {
+        param: re.compile(pattern, re.IGNORECASE | re.DOTALL) for param, pattern in rule.items()
+    }
+
+
+def _rule_matches(rule: Mapping[str, re.Pattern[str]], arguments: Mapping[str, Any] | None) -> bool:
+    """Whether the arguments are exactly the rule's parameters, each a string its pattern
+    matches in full."""
+    if arguments is None or set(arguments) != set(rule):
+        return False
+    for param, pattern in rule.items():
+        value = arguments[param]
+        if not isinstance(value, str) or pattern.fullmatch(value) is None:
+            return False
+    return True

@@ -23,6 +23,20 @@
   device: true
   capacity: 16384
 
+# A result the host wrote itself rather than fetched -- a reference card bundled with the
+# app, say -- for a call the host's trusted-results table names
+# (``open_chat(trusted_results=...)``). The machine picks this pipe from the call before
+# it runs, so the ring is the host's word about its own text, never the text's word
+# about itself. Reading it leaves the session floor alone: it is not a request the job
+# serves, and setting the floor to 2 would undo the 3 an earlier tool result set.
+
+- name: tools.results.trusted
+  ring: TRUSTED
+  principal: device
+  device: true
+  capacity: 16384
+  session_floor: false
+
 # A past conversation, replayed into a fresh run (``ChatRun.import_history``): the
 # assistant's own earlier turns. They come back from the host's storage (principal
 # device), not from the model, so they arrive at EXTERNAL unless the host recorded that a turn was written at

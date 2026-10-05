@@ -26,11 +26,14 @@ Events are plain dicts, one per thing the host can show or must act on, in journ
 order. Every one has ``type``; the other fields are:
 
 ``token``         ``text``: one piece the model decoded, for streaming.
-``tool_call``     ``call``, ``name``, ``arguments``, ``sink``: a call that landed on
-                  ``tools.read`` or ``tools.effect``. The host runs it, then
+``tool_call``     ``call``, ``name``, ``arguments``, ``sink``, ``results``: a call that
+                  landed on ``tools.read`` or ``tools.effect``. The host runs it, then
                   ``deliver_tool_result``. It also drains the sink (``drain``).
+                  ``results`` is the pipe the job reads the answer from:
+                  ``tools.results``, or ``tools.results.trusted`` for a call the
+                  host's ``trusted_results`` table names.
 ``approval_required``
-                  ``call``, ``name``, ``arguments``, ``sink``, ``fault``, ``detail``,
+                  ``call``, ``name``, ``arguments``, ``sink``, ``results``, ``fault``, ``detail``,
                   ``integrity``, ``effective_integrity``, ``session_floor``,
                   ``demotions``: a call the kernel refused for privilege. Nothing landed.
                   On approval the host runs it under the user's authority and delivers
@@ -49,7 +52,7 @@ order. Every one has ``type``; the other fields are:
 ``spoof``         ``pipe``, ``detail``: a delivery spelled a kernel frame. It is inert
                   data; the kernel alarms and the job carries on.
 ``fault``         ``fault``, ``detail``, ``pipe``: any other fault.
-``waiting``       ``pipe``: the job blocked reading ``chat.user`` or ``tools.results``, or
+``waiting``       ``pipe``: the job blocked reading ``chat.user`` or a results pipe, or
                   a history pipe during ``import_history``.
 
 ``arrived`` and ``waiting`` cover the history pipes too, so a host that replays a past
@@ -63,6 +66,11 @@ write on ``tools.effect`` (``min_integrity: 2``): the job's watermark, which fal
 for good once it attends a tool result past ``theta_read``, and the session floor, the
 ring of the pipe it last read (MP's confused-deputy rule), which is 3 from reading a
 tool result until the next user message. ``effective_integrity`` is the worse of them.
+
+``tools.results.trusted`` is for results the host wrote itself (``trusted_results``): it
+is TRUSTED, so attending it never demotes, and it is declared ``session_floor: false``,
+so reading it leaves the floor where it was -- it neither raises the floor to 3 nor
+lowers a floor an earlier tool result raised.
 """
 
 from __future__ import annotations
@@ -158,6 +166,7 @@ def open_chat(
     pipes: ChatPipes | None = None,
     max_ticks: int = 10**9,
     gate_mode: str = STRICT,
+    trusted_results: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ChatRun:
     """A conversation, booted and waiting for its first message.
 
@@ -168,7 +177,10 @@ def open_chat(
     Pyodide's under Pyodide and the identity bridge under CPython. ``gate_mode`` is
     ``STRICT`` or ``ATTENTION`` (see ``GATE_MODES``); ``ATTENTION`` declares the
     untrusted inbound pipes -- ``tools.results`` and ``chat.history`` -- with
-    ``session_floor: false``. Refuses a case that does not lint.
+    ``session_floor: false``. ``trusted_results[tool]`` is a ``{param: pattern}`` rule,
+    matched as ``read_if`` is: a call it matches reads its result from
+    ``tools.results.trusted``, for text the host wrote itself rather than fetched.
+    Refuses a case that does not lint.
     """
     if gate_mode not in GATE_MODES:
         raise ValueError(f"gate_mode is one of {GATE_MODES}, not {gate_mode!r}")
@@ -210,6 +222,7 @@ def open_chat(
         sampling=sampling,
         seed=seed,
         param_types=param_types,
+        trusted_results=trusted_results,
         block_size=block_size,
     )
     return ChatRun(bundle, machine, seed=seed, theta_read=theta_read, max_ticks=max_ticks)
@@ -272,22 +285,40 @@ class ChatRun:
         self._queued = True
         self.run.press(self.pipes.user, text)
 
-    def deliver_tool_result(self, text: str) -> None:
-        """What a tool returned, delivered on ``tools.results`` (ring 3)."""
-        self.pending_approval = None
-        self._queued = True
-        self.run.press(self.pipes.results, text)
+    def deliver_tool_result(self, text: str, *, trusted: bool = False) -> None:
+        """What a tool returned, as the answer to the latest call: on ``tools.results``
+        (ring 3), or with ``trusted`` on ``tools.results.trusted`` (ring 2).
+
+        The job already waits on the pipe the call's ``results`` names, chosen from the
+        call when the model wrote it, so ``trusted`` states what the host believes it is
+        delivering and must agree: a host that thinks a result trusted when the table
+        did not name its call, or the reverse, is refused here rather than left to hang.
+        """
+        pipe = self._last_call().results
+        if (pipe == self.pipes.results_trusted) != trusted:
+            raise ValueError(
+                f"the latest call's result is read from {pipe}; deliver it with "
+                f"trusted={pipe == self.pipes.results_trusted}"
+            )
+        self._settle(pipe, text)
 
     def deliver_refusal(self, text: str = DEFAULT_REFUSAL) -> None:
-        """The answer to a call the host will not run, on ``tools.results``."""
-        self.deliver_tool_result(text)
+        """The answer to a call the host will not run, on the pipe the call reads its
+        result from."""
+        self._settle(self._last_call().results, text)
+
+    def _settle(self, pipe: PipeName, text: str) -> None:
+        self.pending_approval = None
+        self._queued = True
+        self.run.press(pipe, text)
 
     def import_history(self, turns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         """Replay a past conversation into a fresh run, one turn per delivery.
 
         Each turn is ``{"role": "user" | "assistant" | "tool", "text": ...}``. A user turn
         arrives on ``chat.user`` (TRUSTED), a tool result on ``tools.results``
-        (EXTERNAL), and an assistant turn on ``chat.history`` (EXTERNAL) or, with
+        (EXTERNAL) or, with ``"trusted": True``, on ``tools.results.trusted`` (TRUSTED),
+        and an assistant turn on ``chat.history`` (EXTERNAL) or, with
         ``"integrity": 2`` or less, on ``chat.history.trusted`` (TRUSTED): a host that
         recorded the integrity a turn was written at says so, and anything else is held
         as untrusted. The first turn must be the user's. Nothing is decoded, so nothing
@@ -302,7 +333,7 @@ class ChatRun:
             if role == "user":
                 pipe = self.pipes.user
             elif role == "tool":
-                pipe = self.pipes.results
+                pipe = self.pipes.results_trusted if turn.get("trusted") else self.pipes.results
             elif role == "assistant":
                 trusted = int(turn.get("integrity", 3)) <= 2
                 pipe = self.pipes.history_trusted if trusted else self.pipes.history
@@ -401,7 +432,7 @@ class ChatRun:
                     }
                 ]
             return []
-        replayed = (pipes.user, pipes.results, *pipes.history_pipes)
+        replayed = (pipes.user, *pipes.result_pipes, *pipes.history_pipes)
         if isinstance(event, Injected) and event.pipe in replayed:
             return [
                 {
@@ -521,6 +552,7 @@ def _call_fields(call: ToolCall) -> dict[str, Any]:
         "name": call.name,
         "arguments": dict(call.arguments),
         "sink": str(call.sink),
+        "results": str(call.results),
     }
 
 

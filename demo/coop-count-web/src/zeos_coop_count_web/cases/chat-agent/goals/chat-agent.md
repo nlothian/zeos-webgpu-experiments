@@ -19,6 +19,7 @@ pipes:
   stdin: chat.user
   stdout: chat.out
   results: tools.results
+  results_trusted: tools.results.trusted
   read: tools.read
   effect: tools.effect
   history: chat.history
