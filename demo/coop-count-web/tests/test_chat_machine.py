@@ -465,3 +465,201 @@ def test_greedy_sends_no_sample() -> None:
     run.send_user("one")
     until_waiting(run)
     assert worker.seen and all("sample" not in opts for opts in worker.seen)
+
+
+# -- classes that depend on the call ------------------------------------------------
+
+READ_ONLY_SQL = r"\s*(?:SELECT|WITH)\b[^;]*;?\s*"
+RULED = {**CLASSES, "RunSQL": {"read_if": {"sql": READ_ONLY_SQL}}}
+
+
+def test_a_rule_classifies_a_call_by_its_arguments() -> None:
+    machine = ChatToolMachine(ScriptedChatWorker([]), tool_classes=RULED)
+    assert machine.tool_class("RunSQL", {"sql": "select * from t"}) == "read"
+    assert machine.tool_class("RunSQL", {"sql": "SELECT 1;\n"}) == "read"
+    assert machine.tool_class("RunSQL", {"sql": "SELECT 1; DROP TABLE t"}) == "effect"
+    assert machine.tool_class("RunSQL", {"sql": "CREATE TABLE t (a INT)"}) == "effect"
+    # Exactly the rule's parameters, each a string.
+    assert machine.tool_class("RunSQL", {"sql": "SELECT 1", "register_as": "x"}) == "effect"
+    assert machine.tool_class("RunSQL", {"sql": 5}) == "effect"
+    assert machine.tool_class("RunSQL", {}) == "effect"
+    assert machine.tool_class("RunSQL") == "effect"
+    assert machine.tool_class("ReadLines") == "read"
+    with pytest.raises(ValueError, match="a rule is"):
+        ChatToolMachine(ScriptedChatWorker([]), tool_classes={"X": {"write_if": {}}})
+    with pytest.raises(ValueError, match="a tool class is"):
+        ChatToolMachine(ScriptedChatWorker([]), tool_classes={"X": "maybe"})
+
+
+def test_a_ruled_call_lands_on_the_sink_its_arguments_choose() -> None:
+    worker = ScriptedChatWorker(
+        [
+            call("RunSQL", sql="SELECT count(*) FROM t"),
+            call("RunSQL", sql="DELETE FROM t"),
+            "Done.",
+        ],
+        attend=attend_first,
+    )
+    run = open_chat(worker, tool_classes=RULED, system_prompt=PROMPT)
+    run.send_user("count, then empty t")
+    events = until_waiting(run)
+    assert [e["sink"] for e in events if e["type"] == "tool_call"] == ["tools.read"]
+    run.deliver_tool_result("3")
+    events = until_waiting(run)
+    # After a tool result the session floor refuses the effect.
+    refused = next(e for e in events if e["type"] == "approval_required")
+    assert refused["sink"] == "tools.effect" and refused["arguments"] == {"sql": "DELETE FROM t"}
+
+
+# -- history ----------------------------------------------------------------------------
+
+HISTORY = [
+    {"role": "user", "text": "what is in a.csv?"},
+    {"role": "assistant", "text": f"Let me look.\n\n{call('ReadLines', path='a.csv')}"},
+    {"role": "tool", "text": TABLE},
+    {"role": "assistant", "text": "Two rows.", "integrity": 2},
+]
+
+
+def test_imported_history_is_framed_as_the_app_renders_it_at_the_rings_the_host_names() -> None:
+    run, worker = chat(["Ada and Grace."])
+    events = run.import_history(HISTORY)
+    arrived = [(e["pipe"], e["ring"]) for e in events if e["type"] == "arrived"]
+    assert arrived == [
+        ("chat.user", 2),
+        ("chat.history", 3),
+        ("tools.results", 3),
+        ("chat.history.trusted", 2),
+    ]
+    assert not [e for e in events if e["type"] in ("token", "tool_call", "reply", "demoted")]
+    assert run.waiting_on() == "chat.user"
+    assert run.state()["integrity"] == 2
+    context = run.machine.context_text(run.job().job_id).replace("<pad>", "")
+    assert (
+        "<|im_start|>user\nwhat is in a.csv?<|im_end|>\n"
+        "<|im_start|>assistant\nLet me look.\n\n<tool_call>\n<function=ReadLines>\n"
+        "<parameter=path>\na.csv\n</parameter>\n</function>\n</tool_call><|im_end|>\n"
+        "<|im_start|>user\n<tool_response>\n" + TABLE + "\n</tool_response><|im_end|>\n"
+        "<|im_start|>assistant\nTwo rows."
+    ) in context
+    # The imported call is history, not a call this run made.
+    assert run.state()["calls"] == []
+
+    run.send_user("their names?")
+    events = until_waiting(run)
+    assert [e["text"] for e in events if e["type"] == "reply"] == ["Ada and Grace."]
+    assert context in text_of(worker).replace("<pad>", "")
+    assert (
+        text_of(worker)
+        .replace("<pad>", "")
+        .endswith(
+            "Two rows.<|im_end|>\n<|im_start|>user\ntheir names?<|im_end|>\n"
+            "<|im_start|>assistant\n<think>\n\n</think>\n\nAda and Grace."
+        )
+    )
+
+
+def test_attending_untrusted_history_demotes_the_job() -> None:
+    run, _ = chat([call("WriteLines", path="b", lines=[]), "No."], attend=attend_uniformly)
+    run.import_history(HISTORY[:2] + [{"role": "tool", "text": TABLE}])
+    run.send_user("now write b")
+    events = until_waiting(run)
+    assert "demoted" in types(events) and "approval_required" in types(events)
+    demoted = next(e for e in events if e["type"] == "demoted")
+    assert {s["pipe"] for s in demoted["because"]} <= {"chat.history", "tools.results"}
+
+
+def test_history_is_imported_only_into_a_fresh_run() -> None:
+    run, _ = chat(["Hi."])
+    with pytest.raises(ValueError, match="starts with a message on chat.user"):
+        run.import_history([{"role": "assistant", "text": "hello"}])
+    run.send_user("hi")
+    until_waiting(run)
+    with pytest.raises(RuntimeError, match="fresh"):
+        run.import_history(HISTORY)
+    with pytest.raises(ValueError, match="role"):
+        chat([])[0].import_history([{"role": "system", "text": "x"}])
+
+
+def test_a_closed_run_frees_the_worker_for_the_next() -> None:
+    worker = ScriptedChatWorker(["One.", "Two."], attend=attend_first)
+    first = open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT)
+    first.send_user("a")
+    until_waiting(first)
+    first.close()
+    assert worker.contexts == {}
+    second = open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT)
+    second.import_history([{"role": "user", "text": "a"}, {"role": "assistant", "text": "One."}])
+    assert second.waiting_on() == "chat.user"
+
+
+@pytest.mark.determinism
+def test_an_imported_conversation_writes_the_same_journal_every_time() -> None:
+    def journal() -> bytes:
+        run, _ = chat(["Fine."], attend=attend_uniformly)
+        run.import_history(HISTORY)
+        run.send_user("ok?")
+        until_waiting(run)
+        return run.journal_bytes()
+
+    assert journal() == journal()
+
+
+# -- gate modes -----------------------------------------------------------------------
+
+
+def read_then_write(**kwargs: Any) -> list[dict[str, Any]]:
+    run, _ = chat(
+        [call("ReadLines", path="a.csv"), call("WriteLines", path="b", lines=[]), "Done."],
+        **kwargs,
+    )
+    run.send_user("copy a to b")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    return until_waiting(run)
+
+
+def test_strict_refuses_an_effect_after_any_tool_result() -> None:
+    events = read_then_write(attend=attend_first)
+    assert "demoted" not in types(events)
+    refused = next(e for e in events if e["type"] == "approval_required")
+    assert refused["integrity"] == 2 and refused["session_floor"] == 3
+
+
+def test_attention_only_lets_an_unattended_result_through() -> None:
+    events = read_then_write(attend=attend_first, gate_mode="attention")
+    assert types(events) == ["arrived", "tool_call", "waiting"]
+    assert events[1]["name"] == "WriteLines" and events[1]["sink"] == "tools.effect"
+
+
+def test_attention_only_still_refuses_after_a_demotion() -> None:
+    events = read_then_write(attend=attend_uniformly, gate_mode="attention")
+    assert types(events) == ["arrived", "demoted", "approval_required", "waiting"]
+    refused = events[2]
+    assert refused["integrity"] == 3 and refused["session_floor"] == 2
+
+
+def test_attention_only_leaves_the_case_on_disk_alone() -> None:
+    run, _ = chat([], gate_mode="attention")
+    flags = {str(p.name): p.session_floor for p in run.run.bundle.pipes}
+    assert flags["tools.results"] is False and flags["chat.history"] is False
+    assert flags["chat.user"] is True
+    assert all(p.session_floor for p in load_case(CHAT_CASE).pipes)
+    with pytest.raises(ValueError, match="gate_mode"):
+        chat([], gate_mode="lenient")
+
+
+@pytest.mark.determinism
+def test_strict_is_the_default_journal() -> None:
+    assert scripted_journal() == scripted_journal(gate_mode="strict")
+
+
+def test_a_case_can_declare_the_opt_out_itself(tmp_path: Path) -> None:
+    case = tmp_path / "chat-agent"
+    shutil.copytree(CHAT_CASE, case)
+    pipes = case / "system" / "pipes.yaml"
+    text = pipes.read_text()
+    marker = "- name: tools.results\n"
+    pipes.write_text(text.replace(marker, marker + "  session_floor: false\n"))
+    events = read_then_write(attend=attend_first, case_dir=case)
+    assert types(events) == ["arrived", "tool_call", "waiting"]

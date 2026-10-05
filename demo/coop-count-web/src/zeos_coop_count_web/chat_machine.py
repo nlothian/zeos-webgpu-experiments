@@ -41,6 +41,23 @@ machine turns three moments of a turn into requests itself:
   the host to settle it -- the result of running it with the user's approval, or a
   refusal -- and the model reads the notice and the settlement together.
 
+**Tool classes** are ``"read"``, ``"effect"``, or a rule, ``{"read_if": {PARAM: PATTERN}}``:
+the call is a read when its arguments are exactly the rule's parameters, each a string
+that ``PATTERN`` matches in full (``re.fullmatch``, case-insensitive, ``.`` matching a
+newline), and an effect otherwise. A tool whose class depends on what it is asked -- SQL
+that only reads, say -- is classified here, from the call the model wrote, so the
+kernel's capability check on ``tools.effect`` is the only thing that decides whether it
+runs without the user. Patterns should stay inside the syntax Python's ``re`` and
+JavaScript's ``RegExp`` share, so a host can show the same verdict before it asks.
+
+**History.** ``replay`` sets a job that has not spoken yet to read a list of pipes in
+order before it decodes anything: a past conversation, delivered one turn at a time. A
+delivery on ``chat.history`` or ``chat.history.trusted`` is a past assistant turn, framed
+as the app's own renderer frames one (``<|im_start|>assistant\n`` and the text, with no
+thinking prefix); its ring is the pipe's, so the host says how far it trusts its own
+transcript by the pipe it picks. Once the list is read, a job whose context ends in a
+replayed past reads ``chat.user`` next, whatever its last turn was.
+
 A step that runs no forward pass reports ``attention={}``: it attended nothing. The
 first step of a job that has had no message yet is such a step, a read of ``chat.user``.
 
@@ -119,6 +136,7 @@ __all__ = [
     "BANNED_TAGS",
     "EFFECT",
     "READ",
+    "ToolClass",
     "ChatPipes",
     "ChatToolMachine",
     "FrameGuard",
@@ -160,6 +178,13 @@ FRAMING_MARKERS = (
 READ = "read"
 EFFECT = "effect"
 
+#: A tool's class in the host's table: ``READ``, ``EFFECT``, or ``{"read_if": {param:
+#: pattern}}``, a read only when the arguments are exactly those parameters and each is a
+#: string the pattern matches in full.
+ToolClass = str | Mapping[str, Mapping[str, str]]
+
+_READ_IF = "read_if"
+
 
 def thinking_prefix(thinking: bool) -> str:
     """What Qwen3.5's template pre-fills after ``<|im_start|>assistant\\n``."""
@@ -175,10 +200,17 @@ class ChatPipes:
     results: PipeName = PipeName("tools.results")
     read: PipeName = PipeName("tools.read")
     effect: PipeName = PipeName("tools.effect")
+    #: Past assistant turns, at EXTERNAL and at TRUSTED.
+    history: PipeName = PipeName("chat.history")
+    history_trusted: PipeName = PipeName("chat.history.trusted")
 
     @property
     def tool_sinks(self) -> tuple[PipeName, PipeName]:
         return (self.read, self.effect)
+
+    @property
+    def history_pipes(self) -> tuple[PipeName, PipeName]:
+        return (self.history, self.history_trusted)
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,6 +430,10 @@ class _Chat:
     guard: str = ""
     calls: list[ToolCall] = field(default_factory=list[ToolCall])
     rng: random.Random | None = None
+    #: Pipes still to read, in order, before the job decodes (``replay``).
+    replay: list[PipeName] = field(default_factory=list[PipeName])
+    #: Whether a replay has yet to hand over to ``chat.user`` once its pipes are read.
+    replay_tail: bool = False
 
     def copy(self) -> _Chat:
         clone = _Chat(
@@ -409,6 +445,8 @@ class _Chat:
             scan=self.scan,
             guard=self.guard,
             calls=list(self.calls),
+            replay=list(self.replay),
+            replay_tail=self.replay_tail,
         )
         if self.rng is not None:
             clone.rng = random.Random()
@@ -423,7 +461,7 @@ class ChatToolMachine(JsMachine):
         self,
         worker: ZeosModelWorker,
         *,
-        tool_classes: Mapping[str, str],
+        tool_classes: Mapping[str, ToolClass],
         bridge: Bridge | None = None,
         pipes: ChatPipes | None = None,
         thinking: bool = False,
@@ -435,11 +473,23 @@ class ChatToolMachine(JsMachine):
         block_size: int = DEFAULT_BLOCK_SIZE,
     ) -> None:
         super().__init__(worker, bridge=bridge, block_size=block_size, chat_template="chatml")
-        unknown = sorted({c for c in tool_classes.values() if c not in (READ, EFFECT)})
-        if unknown:
-            raise ValueError(f"tool classes must be {READ!r} or {EFFECT!r}, not {unknown}")
         self.pipes = pipes or ChatPipes()
-        self._tool_classes = dict(tool_classes)
+        self._tool_classes: dict[str, str] = {}
+        self._read_if: dict[str, dict[str, re.Pattern[str]]] = {}
+        for name, kind in tool_classes.items():
+            if isinstance(kind, str):
+                if kind not in (READ, EFFECT):
+                    raise ValueError(
+                        f"{name}: a tool class is {READ!r}, {EFFECT!r} or a rule, not {kind!r}"
+                    )
+                self._tool_classes[name] = kind
+                continue
+            if set(kind) != {_READ_IF} or not isinstance(kind[_READ_IF], Mapping):
+                raise ValueError(f"{name}: a rule is {{{_READ_IF!r}: {{param: pattern}}}}")
+            self._read_if[name] = {
+                param: re.compile(pattern, re.IGNORECASE | re.DOTALL)
+                for param, pattern in kind[_READ_IF].items()
+            }
         self._prefix = thinking_prefix(thinking) if assistant_prefix is None else assistant_prefix
         self._sampling = sampling
         self._seed = seed
@@ -506,8 +556,33 @@ class ChatToolMachine(JsMachine):
         """Every tool call this job has asked to write, in order."""
         return tuple(self._chat_of(job).calls)
 
-    def tool_class(self, name: str) -> str:
-        return self._tool_classes.get(name, EFFECT)
+    def tool_class(self, name: str, arguments: Mapping[str, Any] | None = None) -> str:
+        """``READ`` or ``EFFECT`` for a call; a rule needs the call's ``arguments``."""
+        rule = self._read_if.get(name)
+        if rule is None:
+            return self._tool_classes.get(name, EFFECT)
+        if arguments is None or set(arguments) != set(rule):
+            return EFFECT
+        for param, pattern in rule.items():
+            value = arguments[param]
+            if not isinstance(value, str) or pattern.fullmatch(value) is None:
+                return EFFECT
+        return READ
+
+    def replay(self, job: JobId, pipes: Sequence[PipeName]) -> None:
+        """Have a job that has not spoken read ``pipes`` in order before it decodes. The
+        first is read where a fresh job reads anyway, so it must be ``chat.user``."""
+        chat = self._chat_of(job)
+        if chat.role != _SYSTEM or chat.calls or chat.replay_tail:
+            raise RuntimeError(f"job {job} has already spoken; only a fresh job replays")
+        if not pipes or pipes[0] != self.pipes.user:
+            raise ValueError(f"a replay starts with a message on {self.pipes.user}")
+        allowed = {self.pipes.user, self.pipes.results, *self.pipes.history_pipes}
+        stray = sorted({str(p) for p in pipes} - {str(p) for p in allowed})
+        if stray:
+            raise ValueError(f"a replay reads only {sorted(map(str, allowed))}, not {stray}")
+        chat.replay = list(pipes[1:])
+        chat.replay_tail = True
 
     def allowed_tokens(self, state: str = "") -> bytes:
         """The token mask from a guard state, one byte per vocabulary id."""
@@ -570,6 +645,11 @@ class ChatToolMachine(JsMachine):
             if chat.role == _ASSISTANT:
                 chat.role = _USER
             chat.in_tool_response = False
+        elif chat.awaiting in self.pipes.history_pipes:
+            head = f"{IM_END}\n{IM_START}{_ASSISTANT}\n"
+            chat.role = _ASSISTANT
+            chat.in_tool_response = False
+            chat.arrived = True
         elif chat.awaiting == self.pipes.results:
             head = ("" if chat.role == _USER else close) + f"\n{TOOL_RESPONSE_OPEN}\n"
             tail = f"\n{TOOL_RESPONSE_CLOSE}"
@@ -652,6 +732,15 @@ class ChatToolMachine(JsMachine):
         if chat.awaiting is not None and not chat.arrived:
             # Asked to read and nothing came: the kernel refused the write before it.
             return self._quiet(MachineRequest(op=OpKind.READ, pipe=chat.awaiting))
+        if chat.replay_tail and chat.role != _SYSTEM:
+            # Replaying: the next pipe of the past conversation, and once it is all read,
+            # whatever the user says now. Nothing of the past is decoded.
+            if chat.replay:
+                pipe = chat.replay.pop(0)
+            else:
+                pipe, chat.replay_tail = self.pipes.user, False
+            chat.awaiting, chat.arrived = pipe, False
+            return self._quiet(MachineRequest(op=OpKind.READ, pipe=pipe))
         if chat.role == _SYSTEM:
             # Nobody has spoken yet.
             chat.awaiting, chat.arrived = self.pipes.user, False
@@ -738,7 +827,7 @@ class ChatToolMachine(JsMachine):
         if parsed is None:
             return None
         name, arguments = parsed
-        sink = self.pipes.read if self.tool_class(name) == READ else self.pipes.effect
+        sink = self.pipes.read if self.tool_class(name, arguments) == READ else self.pipes.effect
         return ToolCall(
             index=len(chat.calls),
             name=name,

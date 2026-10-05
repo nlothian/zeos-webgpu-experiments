@@ -21,6 +21,8 @@ pipes:
   results: tools.results
   read: tools.read
   effect: tools.effect
+  history: chat.history
+  history_trusted: chat.history.trusted
 capabilities:
   # Reading tools are open to a job at any integrity.
   - pipe: tools.read

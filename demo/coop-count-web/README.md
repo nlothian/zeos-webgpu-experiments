@@ -918,6 +918,8 @@ prompt and tool declarations:
 | `tools.read` | sink, capability `min_integrity: 3` | EXTERNAL | calls that only read |
 | `tools.effect` | sink, capability `min_integrity: 2` | TRUSTED | calls with side effects |
 | `chat.out` | sink, capability `min_integrity: 3` | EXTERNAL | the reply that ends a turn |
+| `chat.history` | device, principal `device` | EXTERNAL (3) | a past assistant turn, replayed |
+| `chat.history.trusted` | device, principal `device` | TRUSTED (2) | a past turn the host vouches for |
 
 It declares `on_fault: retry` and `integrity.dynamics: low-watermark` (without dynamics
 the confused-deputy lint refuses a job holding `tools.effect` and reading
@@ -934,7 +936,12 @@ control id other than `<|im_end|>`, `<tool_call>`, `</tool_call>`, `<think>` and
 On `</tool_call>` closing a call that parses as the app's Qwen parser parses it, the
 machine asks for a `WRITE_READ`: `{"name", "arguments"}` as JSON to `tools.read` or
 `tools.effect` by the host's tool-class table (a tool it does not name is an effect),
-then a read of `tools.results`. When the model chooses `<|im_end|>` the machine does not
+then a read of `tools.results`. A table entry is `"read"`, `"effect"`, or a rule
+`{"read_if": {param: pattern}}`: a read when the call's arguments are exactly those
+parameters, each a string the pattern matches in full (case-insensitive, `.` matching a
+newline), and an effect otherwise -- so a tool whose class depends on what it is asked,
+such as SQL that only reads, is still classified inside the machine, and the kernel's
+check on `tools.effect` stays the only gate. When the model chooses `<|im_end|>` the machine does not
 append it: it writes the turn's text to `chat.out` and reads `chat.user`, and the marker
 becomes framing in front of the next message. A write the kernel refuses is answered with
 a `FAULT` notice; the machine's next step reads `tools.results` again rather than
@@ -971,14 +978,30 @@ run.deliver_refusal()               # the same, with a refusal
 run.waiting_on()                    # "chat.user", "tools.results" or None
 run.state()                         # integrity, session floor, segments, demotions
 run.journal_bytes()
+run.import_history(turns)           # a fresh run only: replay a past conversation
+run.close()                         # free the worker's contexts for the next run
 ```
+
+`import_history` takes `{"role": "user" | "assistant" | "tool", "text"}` turns, the first
+the user's, and delivers them one at a time while the machine reads each pipe in turn
+without decoding: a user turn on `chat.user`, a tool result on `tools.results`, and an
+assistant turn on `chat.history`, or on `chat.history.trusted` when the turn carries
+`"integrity": 2` (the host recorded it was written at TRUSTED). A past assistant turn is
+framed as `<|im_start|>assistant\n` and its text, with no thinking prefix, as the app's
+own renderer writes past turns. Nothing is attended, so the watermark does not move until
+the next live turn reads the past; the run then waits on `chat.user`.
 
 `step` returns plain dicts: `token`, `tool_call`, `approval_required`, `tool_refused`,
 `reply`, `arrived`, `demoted`, `spoof`, `fault` and `waiting`, with the fields the module
 docstring lists. A tool call on `tools.effect` is refused for privilege when the job's
 watermark has fallen to 3 -- it attended a tool result past `theta_read` -- or when its
 session floor is 3 because the last thing it read was a tool result (MP's confused-deputy
-rule), which holds until the next user message. `approval_required` carries the call,
+rule), which holds until the next user message. That is `gate_mode="strict"`, the
+default. With `gate_mode="attention"`, `open_chat` declares `tools.results` and
+`chat.history` with `session_floor: false` (a `PipeSpec` field, default true, which a
+case's `pipes.yaml` can also set), so reading a tool result leaves the floor where the
+user's message put it and only the watermark -- what the job measurably attended --
+refuses an effect. `approval_required` carries the call,
 both integrities and the demotion history; on approval the host runs the call itself and
 delivers the result, and on denial it delivers a refusal.
 
@@ -1007,7 +1030,9 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   (`tests/chat_workers.py`): a multi-turn chat whose `<|im_end|>` is intercepted, a tool
   call round trip whose result keeps its line breaks, demotion after attending a ring-3
   result and the privilege fault on `tools.effect` that follows while `tools.read` still
-  lands, the session floor's refusal without demotion, a frame tag in a tool result
+  lands, the session floor's refusal without demotion, `read_if` rules choosing a sink
+  from the call's arguments, a replayed history framed and ringed as the host named it
+  (and demoting a job that attends its untrusted turns), `close` freeing the worker, a frame tag in a tool result
   raising the spoof alarm, the frame guard, the parser, the sampler against the
   JavaScript one, and the same journal bytes for the same seed.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the

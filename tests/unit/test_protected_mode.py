@@ -442,3 +442,8 @@ def test_descriptor_name_is_carried_on_findings() -> None:
     d = deputy()
     findings = lint({d.name: d}, pipes=DIRTY_PIPES)
     assert all(f.descriptor == DescriptorName("deputy") for f in findings if f.descriptor)
+
+
+def test_a_pipe_sets_the_session_floor_unless_it_opts_out() -> None:
+    assert PipeSpec(name=PipeName("tools.results")).session_floor is True
+    assert PipeSpec(name=PipeName("tools.results"), session_floor=False).session_floor is False

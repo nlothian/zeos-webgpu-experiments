@@ -49,7 +49,11 @@ order. Every one has ``type``; the other fields are:
 ``spoof``         ``pipe``, ``detail``: a delivery spelled a kernel frame. It is inert
                   data; the kernel alarms and the job carries on.
 ``fault``         ``fault``, ``detail``, ``pipe``: any other fault.
-``waiting``       ``pipe``: the job blocked reading ``chat.user`` or ``tools.results``.
+``waiting``       ``pipe``: the job blocked reading ``chat.user`` or ``tools.results``, or
+                  a history pipe during ``import_history``.
+
+``arrived`` and ``waiting`` cover the history pipes too, so a host that replays a past
+conversation (``import_history``) learns each past turn's segment as it is read.
 
 A segment is ``{"segment", "pipe", "principal", "tag", "ring", "integrity", "tokens",
 "resident", "injected_at"}``, every value a string or an integer.
@@ -66,7 +70,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -93,18 +97,36 @@ from zeos_coop_count_web.chat_machine import (
     ChatToolMachine,
     Sampling,
     ToolCall,
+    ToolClass,
 )
 from zeos_coop_count_web.js_machine import DEFAULT_BLOCK_SIZE, Bridge, PythonBridge, ZeosModelWorker
 from zeos_coop_count_web.live import LiveRun
 from zeos_coop_count_web.page import findings
 
-__all__ = ["CHAT_CASE", "DEFAULT_REFUSAL", "ChatRun", "open_chat"]
+__all__ = [
+    "ATTENTION",
+    "CHAT_CASE",
+    "DEFAULT_REFUSAL",
+    "GATE_MODES",
+    "STRICT",
+    "ChatRun",
+    "open_chat",
+]
 
 #: The case this package ships: one pinned chat job and its five pipes.
 CHAT_CASE = Path(str(resources.files("zeos_coop_count_web") / "cases" / "chat-agent"))
 
 #: What the model reads when the user declines a tool call.
 DEFAULT_REFUSAL = "The user declined this tool call. It was not run."
+
+#: How a tool result gates effects. ``STRICT``: reading one sets the session floor to 3
+#: until the next user message, so any effect after it needs approval (MP's
+#: confused-deputy rule). ``ATTENTION``: reading one leaves the floor alone, and only the
+#: watermark -- whether the job measurably attended the result past ``theta_read`` --
+#: refuses effects.
+STRICT = "strict"
+ATTENTION = "attention"
+GATE_MODES = (STRICT, ATTENTION)
 
 #: Lint rules about the syscall ABI's commands in a body. The chat machine speaks no ABI,
 #: so a system prompt that quotes, say, a SQL statement ending in a semicolon is not a
@@ -123,7 +145,7 @@ def _default_bridge() -> Bridge:
 def open_chat(
     worker: ZeosModelWorker,
     *,
-    tool_classes: Mapping[str, str],
+    tool_classes: Mapping[str, ToolClass],
     case_dir: str | Path | None = None,
     system_prompt: str | None = None,
     thinking: bool = False,
@@ -135,17 +157,32 @@ def open_chat(
     bridge: Bridge | None = None,
     pipes: ChatPipes | None = None,
     max_ticks: int = 10**9,
+    gate_mode: str = STRICT,
 ) -> ChatRun:
     """A conversation, booted and waiting for its first message.
 
-    ``tool_classes`` maps a tool name to ``"read"`` or ``"effect"``; a tool it does not
-    name is an effect. ``system_prompt`` replaces the case's one descriptor body, and
+    ``tool_classes`` maps a tool name to ``"read"``, ``"effect"`` or a ``read_if`` rule
+    (``chat_machine``); a tool it does not name is an effect. ``system_prompt`` replaces the case's one descriptor body, and
     should hold the tool declarations. ``param_types[tool][param]`` is a parameter's
     JSON-schema type, so a string parameter is never JSON-decoded. ``bridge`` defaults to
-    Pyodide's under Pyodide and the identity bridge under CPython. Refuses a case that
-    does not lint.
+    Pyodide's under Pyodide and the identity bridge under CPython. ``gate_mode`` is
+    ``STRICT`` or ``ATTENTION`` (see ``GATE_MODES``); ``ATTENTION`` declares the
+    untrusted inbound pipes -- ``tools.results`` and ``chat.history`` -- with
+    ``session_floor: false``. Refuses a case that does not lint.
     """
+    if gate_mode not in GATE_MODES:
+        raise ValueError(f"gate_mode is one of {GATE_MODES}, not {gate_mode!r}")
     bundle = load_case(Path(case_dir) if case_dir is not None else CHAT_CASE)
+    chat_pipes = pipes or ChatPipes()
+    if gate_mode == ATTENTION:
+        consulted = {chat_pipes.results, chat_pipes.history}
+        bundle = dataclasses.replace(
+            bundle,
+            pipes=tuple(
+                dataclasses.replace(p, session_floor=False) if p.name in consulted else p
+                for p in bundle.pipes
+            ),
+        )
     if len(bundle.descriptors) != 1:
         raise ValueError(
             f"a chat case has exactly one descriptor; {bundle.name} has {len(bundle.descriptors)}"
@@ -168,7 +205,7 @@ def open_chat(
         worker,
         tool_classes=tool_classes,
         bridge=bridge or _default_bridge(),
-        pipes=pipes,
+        pipes=chat_pipes,
         thinking=thinking,
         sampling=sampling,
         seed=seed,
@@ -245,6 +282,59 @@ class ChatRun:
         """The answer to a call the host will not run, on ``tools.results``."""
         self.deliver_tool_result(text)
 
+    def import_history(self, turns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        """Replay a past conversation into a fresh run, one turn per delivery.
+
+        Each turn is ``{"role": "user" | "assistant" | "tool", "text": ...}``. A user turn
+        arrives on ``chat.user`` (TRUSTED), a tool result on ``tools.results``
+        (EXTERNAL), and an assistant turn on ``chat.history`` (EXTERNAL) or, with
+        ``"integrity": 2`` or less, on ``chat.history.trusted`` (TRUSTED): a host that
+        recorded the integrity a turn was written at says so, and anything else is held
+        as untrusted. The first turn must be the user's. Nothing is decoded, so nothing
+        is attended and the watermark does not move; the run ends waiting on
+        ``chat.user``. Returns the events of the replay.
+        """
+        if self.waiting_on() != str(self.pipes.user) or self.machine.calls(self.job().job_id):
+            raise RuntimeError("history is imported into a fresh run, before its first message")
+        plan: list[tuple[PipeName, str]] = []
+        for turn in turns:
+            role, text = turn["role"], str(turn["text"])
+            if role == "user":
+                pipe = self.pipes.user
+            elif role == "tool":
+                pipe = self.pipes.results
+            elif role == "assistant":
+                trusted = int(turn.get("integrity", 3)) <= 2
+                pipe = self.pipes.history_trusted if trusted else self.pipes.history
+            else:
+                raise ValueError(f"a turn's role is user, assistant or tool, not {role!r}")
+            plan.append((pipe, text))
+        if not plan:
+            return []
+        self.machine.replay(self.job().job_id, [pipe for pipe, _ in plan])
+        events: list[dict[str, Any]] = []
+        for pipe, text in plan:
+            for _ in range(64):
+                if self.waiting_on() == str(pipe):
+                    break
+                events += self.step(16)
+            else:
+                raise RuntimeError(f"the replay never came to read {pipe}")
+            self._queued = True
+            self.run.press(pipe, text)
+        while self.waiting_on() != str(self.pipes.user):
+            before = self.run.ticks
+            events += self.step(16)
+            if self.run.ticks == before:
+                raise RuntimeError(f"the replay stalled waiting on {self.waiting_on()}")
+        return events
+
+    def close(self) -> None:
+        """End the run and free the worker's contexts, so another run can use it."""
+        for job in self.kernel.sched.jobs():
+            self.machine.destroy_context(job.job_id)
+        self.run.stop("closed")
+
     def drain(self, pipe: str) -> list[str]:
         """Every write on a sink since it was last drained, one string per write."""
         name = PipeName(pipe)
@@ -311,7 +401,8 @@ class ChatRun:
                     }
                 ]
             return []
-        if isinstance(event, Injected) and event.pipe in (pipes.user, pipes.results):
+        replayed = (pipes.user, pipes.results, *pipes.history_pipes)
+        if isinstance(event, Injected) and event.pipe in replayed:
             return [
                 {
                     "type": "arrived",
@@ -330,7 +421,7 @@ class ChatRun:
                     "because": [self.segment_info(s) for s in event.because],
                 }
             ]
-        if isinstance(event, JobBlocked) and event.pipe in (pipes.user, pipes.results):
+        if isinstance(event, JobBlocked) and event.pipe in replayed:
             return [{"type": "waiting", "pipe": str(event.pipe)}]
         if isinstance(event, FaultRaised):
             return [self._fault(event)]

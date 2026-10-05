@@ -23,6 +23,23 @@
   device: true
   capacity: 16384
 
+# A past conversation, replayed into a fresh run (``ChatRun.import_history``): the
+# assistant's own earlier turns. They come back from the host's storage (principal
+# device), not from the model, so they arrive at EXTERNAL unless the host recorded that a turn was written at
+# TRUSTED and says so by delivering it on the trusted pipe.
+
+- name: chat.history
+  ring: EXTERNAL
+  principal: device
+  device: true
+  capacity: 16384
+
+- name: chat.history.trusted
+  ring: TRUSTED
+  principal: device
+  device: true
+  capacity: 16384
+
 # The two halves of a tool call, split by what the call can do. The host's tool-class
 # table decides which a call goes to, and a tool the table does not name is an effect.
 # A sink's ring is what the host may assume of what it drains: a read can be asked for

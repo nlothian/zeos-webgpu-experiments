@@ -2578,8 +2578,10 @@ class Kernel:
         # that pipe's integrity as a floor, so a high-trust service answering a
         # low-trust requester writes at the *requester's* integrity. Scoped to the
         # most recent request, since M0 pipes carry no message framing to bound it
-        # more precisely.
-        job.session_floor = pipe.spec.floor
+        # more precisely. A pipe declared ``session_floor: false`` opts out, leaving
+        # its content to the watermark alone.
+        if pipe.spec.session_floor:
+            job.session_floor = pipe.spec.floor
         self._inject(
             job,
             tokens,
