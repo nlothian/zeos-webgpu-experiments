@@ -682,6 +682,11 @@ class ChatToolMachine(JsMachine):
         """Every tool call this job has asked to write, in order."""
         return tuple(self._chat_of(job).calls)
 
+    def awaiting(self, job: JobId) -> PipeName | None:
+        """The pipe the job asked to read and has had nothing on yet, or None."""
+        chat = self._chat_of(job)
+        return None if chat.arrived else chat.awaiting
+
     def tool_class(self, name: str, arguments: Mapping[str, Any] | None = None) -> str:
         """``READ`` or ``EFFECT`` for a call; a rule needs the call's ``arguments``."""
         rule = self._read_if.get(name)

@@ -3617,6 +3617,27 @@ class Kernel:
         """Terminal jobs whose context is still materialised, oldest first."""
         return tuple(self._unreaped)
 
+    def carry_watermark(self, job_id: JobId, integrity: Integrity) -> None:
+        """Lower a live job's watermark to one a host carries over from a record of an
+        earlier run: a conversation rebuilt from its history starts where it ended, not
+        clean. Journalled as a demotion with no segment behind it, since what caused it
+        lies in that earlier run. A watermark never rises, so an ``integrity`` more
+        trusted than the job's is refused, and the job's own is no change.
+        """
+        job = self.sched.get(job_id)
+        if job.state.is_terminal:
+            raise KernelError(f"job {job_id} is terminal; its watermark is final")
+        if not job.descriptor.integrity.is_dynamic:
+            raise KernelError(f"job {job_id} declares no integrity dynamics to carry over")
+        if int(integrity) < int(job.current_integrity):
+            raise KernelError(
+                f"job {job_id} is at integrity {int(job.current_integrity)}; a watermark "
+                f"never rises to {int(integrity)}"
+            )
+        self._apply_demotion(
+            job, Demotion(before=job.current_integrity, after=integrity, because=())
+        )
+
     def _apply_completion_policy(self, job: Job) -> None:
         policy = job.descriptor.on_complete
         match policy.kind:

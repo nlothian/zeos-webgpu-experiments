@@ -34,7 +34,7 @@ from zeos.descriptor.loader import load_case
 from zeos.machine.base import Token, tokens_from_text
 from zeos_browser.page import findings
 
-from zeos_chat.chat import CHAT_CASE, DEFAULT_REFUSAL, ChatRun, open_chat
+from zeos_chat.chat import CHAT_CASE, DEFAULT_REFUSAL, NO_OUTPUT, ChatRun, open_chat
 from zeos_chat.chat_machine import (
     GUARD_START,
     ChatToolMachine,
@@ -967,7 +967,13 @@ def test_imported_history_replays_a_trusted_result_on_the_trusted_pipe() -> None
         [
             {"role": "user", "text": "use sql"},
             {"role": "assistant", "text": call("CallSkill", skill="sql")},
-            {"role": "tool", "text": SKILL_CARD, "trusted": True},
+            {
+                "role": "tool",
+                "text": SKILL_CARD,
+                "trusted": True,
+                "name": "CallSkill",
+                "arguments": {"skill": "sql"},
+            },
             {"role": "assistant", "text": call("ReadLines", path="a")},
             {"role": "tool", "text": TABLE},
         ]
@@ -1313,3 +1319,139 @@ def test_attention_in_the_last_steps_before_a_call_still_gates_it() -> None:
     assert types(events) == ["arrived", "demoted", "approval_required", "waiting"]
     assert [s["pipe"] for s in events[1]["because"]] == ["tools.results"]
     assert run.drain("tools.effect") == []
+
+
+# -- replaying history: shapes, values and the watermark carried over -------------------
+
+
+@pytest.mark.parametrize(
+    "turns",
+    [
+        [{"role": "user", "text": "one"}, {"role": "user", "text": "two"}],
+        [
+            {"role": "user", "text": "hi"},
+            {"role": "assistant", "text": "Hello."},
+            {"role": "user", "text": "trailing"},
+        ],
+        [
+            {"role": "user", "text": "hi"},
+            {"role": "assistant", "text": call("ReadLines", path="a")},
+            {"role": "tool", "text": "first"},
+            {"role": "tool", "text": "second"},
+        ],
+        [
+            {"role": "user", "text": "hi"},
+            {"role": "assistant", "text": "One."},
+            {"role": "assistant", "text": "Two."},
+            {"role": "assistant", "text": "Three.", "integrity": 2},
+            {"role": "assistant", "text": "Four.", "integrity": 2},
+        ],
+    ],
+    ids=["user-user", "trailing-user", "tool-tool", "assistant-assistant"],
+)
+def test_adjacent_turns_on_one_pipe_replay_as_deliveries_of_their_own(
+    turns: list[dict[str, Any]],
+) -> None:
+    run, _ = chat(["Ok."])
+    events = run.import_history(turns)
+    arrived = [e for e in events if e["type"] == "arrived"]
+    assert len(arrived) == len(turns)
+    texts = [run.segment_info(e["segment"])["tokens"] for e in arrived]
+    assert texts == [len(tokens_from_text(t["text"], preserve_whitespace=True)) for t in turns]
+    assert run.waiting_on() == "chat.user"
+    run.send_user("and?")
+    assert [e["text"] for e in until_waiting(run) if e["type"] == "reply"] == ["Ok."]
+
+
+@pytest.mark.parametrize(
+    ("turn", "error"),
+    [
+        ({"role": "tool", "text": "x", "trusted": "false"}, TypeError),
+        ({"role": "tool", "text": "x", "trusted": 1}, TypeError),
+        ({"role": "assistant", "text": "x", "integrity": "2"}, ValueError),
+        ({"role": "assistant", "text": "x", "integrity": True}, ValueError),
+        ({"role": "assistant", "text": "x", "integrity": 7}, ValueError),
+        ({"role": "assistant", "text": 3}, TypeError),
+        ({"role": "assistant", "text": ""}, ValueError),
+        ({"role": "tool", "text": "x", "trusted": True}, ValueError),
+        (
+            {
+                "role": "tool",
+                "text": "x",
+                "trusted": True,
+                "name": "CallSkill",
+                "arguments": {"skill": "SQL"},
+            },
+            ValueError,
+        ),
+        (
+            {
+                "role": "tool",
+                "text": "x",
+                "trusted": True,
+                "name": "ReadLines",
+                "arguments": {"path": "a"},
+            },
+            ValueError,
+        ),
+    ],
+)
+def test_a_replayed_turn_is_refused_unless_its_values_say_exactly_what_they_mean(
+    turn: dict[str, Any], error: type[Exception]
+) -> None:
+    run, _ = skill_chat(["Ok."])
+    with pytest.raises(error):
+        run.import_history([{"role": "user", "text": "hi"}, turn])
+
+
+def test_an_empty_tool_result_arrives_as_no_output() -> None:
+    run, worker = chat([call("ReadLines", path="a"), "Empty."])
+    run.send_user("read a")
+    until_waiting(run)
+    run.deliver_tool_result("")
+    assert [e["text"] for e in until_waiting(run) if e["type"] == "reply"] == ["Empty."]
+    assert f"<tool_response>\n{NO_OUTPUT}\n</tool_response>" in text_of(worker)
+
+    replayed, _ = chat(["Ok."])
+    events = replayed.import_history([{"role": "user", "text": "hi"}, {"role": "tool", "text": ""}])
+    assert [e["pipe"] for e in events if e["type"] == "arrived"] == ["chat.user", "tools.results"]
+
+
+def test_an_empty_message_or_a_delivery_nothing_reads_is_refused() -> None:
+    run, _ = chat([call("ReadLines", path="a"), "Done."])
+    with pytest.raises(ValueError, match="empty"):
+        run.send_user("")
+    run.send_user("read a")
+    with pytest.raises(RuntimeError, match="already queued"):
+        run.send_user("again")
+    until_waiting(run)
+    with pytest.raises(RuntimeError, match="nothing reads chat.user"):
+        run.send_user("not now")
+    run.deliver_tool_result("x")
+    with pytest.raises(RuntimeError, match="already queued"):
+        run.deliver_tool_result("y")
+    until_waiting(run)
+    with pytest.raises(RuntimeError, match="nothing reads tools.results"):
+        run.deliver_tool_result("late")
+
+
+def test_a_replay_can_start_demoted() -> None:
+    run, _ = chat([call("WriteLines", path="b", lines=[]), "No."], gate_mode="attention")
+    events = run.import_history(HISTORY, start_integrity=3)
+    demoted = [e for e in events if e["type"] == "demoted"]
+    assert demoted == [{"type": "demoted", "from_integrity": 2, "to_integrity": 3, "because": []}]
+    assert run.state()["integrity"] == 3
+    run.send_user("now write b")
+    refused = next(e for e in until_waiting(run) if e["type"] == "approval_required")
+    assert refused["integrity"] == 3 and refused["session_floor"] == 2
+
+    clean, _ = chat(["Ok."])
+    assert "demoted" not in types(clean.import_history(HISTORY, start_integrity=2))
+    assert clean.state()["integrity"] == 2
+
+
+@pytest.mark.parametrize("value", [1, 4, "3", 3.0, True, None])
+def test_a_replay_refuses_a_start_integrity_it_cannot_carry(value: Any) -> None:
+    run, _ = chat(["Ok."])
+    with pytest.raises(ValueError, match="start_integrity"):
+        run.import_history(HISTORY, start_integrity=value)

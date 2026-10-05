@@ -84,7 +84,7 @@ import sys
 from collections.abc import Collection, Mapping, Sequence
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from zeos.core.events import (
     CapabilityChecked,
@@ -96,7 +96,7 @@ from zeos.core.events import (
     JobBlocked,
     PipeWritten,
 )
-from zeos.core.ids import FaultKind, JobState, PipeName, Ring, SegmentId
+from zeos.core.ids import FaultKind, Integrity, JobState, PipeName, Ring, SegmentId
 from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.core.pcb import Job
 from zeos.descriptor.lint import Severity
@@ -119,6 +119,7 @@ __all__ = [
     "CHAT_CASE",
     "DEFAULT_REFUSAL",
     "GATE_MODES",
+    "NO_OUTPUT",
     "STRICT",
     "ChatRun",
     "open_chat",
@@ -129,6 +130,10 @@ CHAT_CASE = Path(str(resources.files("zeos_chat") / "cases" / "chat-agent"))
 
 #: What the model reads when the user declines a tool call.
 DEFAULT_REFUSAL = "The user declined this tool call. It was not run."
+
+#: What the model reads for a tool that returned nothing: an empty delivery would
+#: arrive as no tokens at all, and the job would wait on for it.
+NO_OUTPUT = "(no output)"
 
 #: How a tool result gates effects. ``STRICT``: reading one sets the session floor to 3
 #: until the next user message, so any effect after it needs approval (MP's
@@ -290,19 +295,26 @@ class ChatRun:
     # -- the host's side of the pipes ---------------------------------------------
 
     def send_user(self, text: str) -> None:
-        """A message the user typed, delivered on ``chat.user`` before the next tick."""
+        """A message the user typed, delivered on ``chat.user`` before the next tick.
+        An empty message is refused: it would deliver nothing, and the job would wait
+        on for it."""
+        text = _message(text, "a user message")
+        self._expect(self.pipes.user)
         self._queued = True
         self.run.press(self.pipes.user, text)
 
     def deliver_tool_result(self, text: str, *, trusted: bool = False) -> None:
         """What a tool returned, as the answer to the latest call: on ``tools.results``
-        (ring 3), or with ``trusted`` on ``tools.results.trusted`` (ring 2).
+        (ring 3), or with ``trusted`` on ``tools.results.trusted`` (ring 2). An empty
+        result is delivered as ``NO_OUTPUT``, since nothing would arrive otherwise.
 
         The job already waits on the pipe the call's ``results`` names, chosen from the
         call when the model wrote it, so ``trusted`` states what the host believes it is
         delivering and must agree: a host that thinks a result trusted when the table
         did not name its call, or the reverse, is refused here rather than left to hang.
         """
+        if not isinstance(trusted, bool):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"trusted is a bool, not {type(trusted).__name__}")
         pipe = self._last_call().results
         if (pipe == self.pipes.results_trusted) != trusted:
             raise ValueError(
@@ -317,57 +329,128 @@ class ChatRun:
         self._settle(self._last_call().results, text)
 
     def _settle(self, pipe: PipeName, text: str) -> None:
+        text = _result(text)
+        self._expect(pipe)
         self.pending_approval = None
         self._queued = True
         self.run.press(pipe, text)
 
-    def import_history(self, turns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _expect(self, pipe: PipeName) -> None:
+        """Refuse a delivery the job is not waiting for, or not about to read: it would
+        sit in the pipe and be read as the answer to something else. A second delivery
+        before the job has stepped is refused too, since the two would arrive as one."""
+        waiting = self.waiting_on()
+        reading = self.machine.awaiting(self.job().job_id)
+        if pipe not in (waiting, reading) or self._queued:
+            raise RuntimeError(
+                f"the job is waiting on {waiting or reading}"
+                + (", with a delivery already queued" if self._queued else "")
+                + f"; nothing reads {pipe} now"
+            )
+
+    def import_history(
+        self, turns: Sequence[Mapping[str, Any]], start_integrity: int = 2
+    ) -> list[dict[str, Any]]:
         """Replay a past conversation into a fresh run, one turn per delivery.
 
-        Each turn is ``{"role": "user" | "assistant" | "tool", "text": ...}``. A user turn
-        arrives on ``chat.user`` (TRUSTED), a tool result on ``tools.results``
-        (EXTERNAL) or, with ``"trusted": True``, on ``tools.results.trusted`` (TRUSTED),
-        and an assistant turn on ``chat.history`` (EXTERNAL) or, with
-        ``"integrity": 2`` or less, on ``chat.history.trusted`` (TRUSTED): a host that
+        Each turn is ``{"role": "user" | "assistant" | "tool", "text": str}``. A user turn
+        arrives on ``chat.user`` (TRUSTED). A tool result arrives on ``tools.results``
+        (EXTERNAL), or with ``"trusted": True`` on ``tools.results.trusted`` (TRUSTED);
+        a trusted one must also carry the call, ``"name"`` and ``"arguments"``, which the
+        run's ``trusted_results`` table must name exactly, as it would have to name the
+        call live. An assistant turn arrives on ``chat.history`` (EXTERNAL), or with
+        ``"integrity": 2`` or less on ``chat.history.trusted`` (TRUSTED): a host that
         recorded the integrity a turn was written at says so, and anything else is held
-        as untrusted. The first turn must be the user's. Nothing is decoded, so nothing
-        is attended and the watermark does not move; the run ends waiting on
-        ``chat.user``. Returns the events of the replay.
+        as untrusted. ``trusted`` is a bool and ``integrity`` an int from 0 to 3; any
+        other value is refused rather than read by its truthiness. The first turn must
+        be the user's. A user or assistant turn may not be empty; an empty tool result
+        is replayed as ``NO_OUTPUT``, as ``deliver_tool_result`` delivers one.
+
+        Adjacent turns on the same pipe (two user messages, two results, two assistant
+        turns) are delivered one at a time, each once the one before it has arrived, so
+        each stays a delivery of its own.
+
+        Nothing is decoded, so nothing is attended and the watermark does not move by
+        the replay. ``start_integrity`` is the watermark the run starts its next turn
+        at: 2, a fresh job's, or 3 when the host's record says the conversation had
+        been demoted, which carries the demotion over (``Kernel.carry_watermark``, a
+        ``demoted`` event with no segments). The run ends waiting on ``chat.user``.
+        Returns the events of the replay.
         """
         if self.waiting_on() != str(self.pipes.user) or self.machine.calls(self.job().job_id):
             raise RuntimeError("history is imported into a fresh run, before its first message")
-        plan: list[tuple[PipeName, str]] = []
-        for turn in turns:
-            role, text = turn["role"], str(turn["text"])
-            if role == "user":
-                pipe = self.pipes.user
-            elif role == "tool":
-                pipe = self.pipes.results_trusted if turn.get("trusted") else self.pipes.results
-            elif role == "assistant":
-                trusted = int(turn.get("integrity", 3)) <= 2
-                pipe = self.pipes.history_trusted if trusted else self.pipes.history
-            else:
-                raise ValueError(f"a turn's role is user, assistant or tool, not {role!r}")
-            plan.append((pipe, text))
-        if not plan:
-            return []
-        self.machine.replay(self.job().job_id, [pipe for pipe, _ in plan])
+        current = int(self.job().current_integrity)
+        if type(start_integrity) is not int or not current <= start_integrity <= int(Ring.EXTERNAL):
+            raise ValueError(
+                f"start_integrity is an int from {current} to {int(Ring.EXTERNAL)}, "
+                f"not {start_integrity!r}"
+            )
+        plan = [self._planned(turn) for turn in turns]
         events: list[dict[str, Any]] = []
-        for pipe, text in plan:
-            for _ in range(64):
-                if self.waiting_on() == str(pipe):
-                    break
+        if plan:
+            self.machine.replay(self.job().job_id, [pipe for pipe, _ in plan])
+            for pipe, text in plan:
+                for _ in range(64):
+                    if self.waiting_on() == str(pipe):
+                        break
+                    events += self.step(16)
+                else:
+                    raise RuntimeError(f"the replay never came to read {pipe}")
+                seen = len(self.run.events)
+                self._queued = True
+                self.run.press(pipe, text)
+                for _ in range(64):
+                    events += self.step(16)
+                    if any(
+                        isinstance(e, Injected) and e.pipe == pipe for e in self.run.events[seen:]
+                    ):
+                        break
+                else:
+                    raise RuntimeError(f"the replay's delivery on {pipe} never arrived")
+            while self.waiting_on() != str(self.pipes.user):
+                before = self.run.ticks
                 events += self.step(16)
-            else:
-                raise RuntimeError(f"the replay never came to read {pipe}")
-            self._queued = True
-            self.run.press(pipe, text)
-        while self.waiting_on() != str(self.pipes.user):
-            before = self.run.ticks
-            events += self.step(16)
-            if self.run.ticks == before:
-                raise RuntimeError(f"the replay stalled waiting on {self.waiting_on()}")
+                if self.run.ticks == before:
+                    raise RuntimeError(f"the replay stalled waiting on {self.waiting_on()}")
+        if start_integrity != current:
+            self.kernel.carry_watermark(self.job().job_id, Integrity(start_integrity))
+            events += self._collect()
         return events
+
+    def _planned(self, turn: Mapping[str, Any]) -> tuple[PipeName, str]:
+        """The pipe a replayed turn arrives on, and its text."""
+        role, text = turn.get("role"), turn.get("text")
+        if not isinstance(text, str):
+            raise TypeError(f"a turn's text is a str, not {type(text).__name__}")
+        if role == "user":
+            return self.pipes.user, _message(text, "a replayed user turn")
+        if role == "assistant":
+            integrity = turn.get("integrity", int(Ring.EXTERNAL))
+            if type(integrity) is not int or not 0 <= integrity <= int(Ring.EXTERNAL):
+                raise ValueError(f"an assistant turn's integrity is an int 0-3, not {integrity!r}")
+            trusted = integrity <= int(Ring.TRUSTED)
+            pipe = self.pipes.history_trusted if trusted else self.pipes.history
+            return pipe, _message(text, "a replayed assistant turn")
+        if role == "tool":
+            trusted = turn.get("trusted", False)
+            if not isinstance(trusted, bool):
+                raise TypeError(f"a tool turn's trusted is a bool, not {trusted!r}")
+            if not trusted:
+                return self.pipes.results, _result(text)
+            name, arguments = turn.get("name"), turn.get("arguments")
+            if not isinstance(name, str) or not isinstance(arguments, Mapping):
+                raise ValueError(
+                    "a trusted tool turn carries its call: a str 'name' and a mapping 'arguments'"
+                )
+            arguments = cast("Mapping[str, Any]", arguments)
+            if self.machine.results_pipe(name, arguments) != self.pipes.results_trusted:
+                raise ValueError(
+                    f"the trusted-results table does not name the call {name}"
+                    f"({json.dumps(dict(arguments), ensure_ascii=False)}); "
+                    "its result cannot replay as trusted"
+                )
+            return self.pipes.results_trusted, _result(text)
+        raise ValueError(f"a turn's role is user, assistant or tool, not {role!r}")
 
     def close(self) -> None:
         """End the run and free the worker's contexts, so another run can use it."""
@@ -565,6 +648,20 @@ class ChatRun:
 
     def state_json(self) -> str:
         return json.dumps(self.state(), separators=(",", ":"))
+
+
+def _message(text: str, what: str) -> str:
+    if not isinstance(text, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(f"{what} is a str, not {type(text).__name__}")
+    if not text:
+        raise ValueError(f"{what} is empty; nothing would arrive, and the job would wait on")
+    return text
+
+
+def _result(text: str) -> str:
+    if not isinstance(text, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(f"a tool result is a str, not {type(text).__name__}")
+    return text or NO_OUTPUT
 
 
 def _name(pipe: PipeName | None) -> str | None:
