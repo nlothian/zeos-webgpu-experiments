@@ -483,6 +483,126 @@ of memory; on a 34 GB machine it took about five minutes. `--model Qwen/Qwen3.5-
 (4.3 GB download) and `--quant int8` give the 2B and int8 exports described below. Two
 exports from the same source are byte-identical.
 
+### The OPT+ZEOS graph
+
+`export/opt_zeos_surgery.py` writes a second graph for Qwen3.5-4B. It is not a re-export:
+it edits `onnx-community/Qwen3.5-4B-ONNX-OPT`, whose decoder runs every DeltaNet layer as
+the fused `com.microsoft` operators `LinearAttention` and `CausalConvWithState` and every
+softmax layer as `GroupQueryAttention`, all with 4-bit `MatMulNBits` weights, which ONNX
+Runtime Web runs on WebGPU. Every one of those nodes, and every weight byte, is kept; only
+the way the mask reaches them changes, and the measured attention is added.
+
+```bash
+uv run python demo/coop-count-web/export/opt_zeos_surgery.py \
+    --src <the -OPT download> --out demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT
+```
+
+It takes seconds and loads no weights. The output (2.8 GB) is:
+
+- `onnx/decoder_zeos_q4f16.onnx`, plus `onnx/decoder_zeos_q4f16.onnx_data` (1.9 GiB) and
+  `onnx/decoder_zeos_q4f16.onnx_data_1`, the `-OPT` decoder's two data files copied byte
+  for byte under the new name.
+- `onnx/embed_tokens_q4f16.onnx` and its data, copied unchanged: the token ids go through
+  this graph first and the decoder takes its `inputs_embeds`.
+- `config.json`, `generation_config.json`, `tokenizer.json`, `tokenizer_config.json` and
+  `chat_template.jinja` from `-OPT`.
+- `meta.json`: the decoder's inputs and outputs with their shapes and types, the layer
+  types, the cache shapes, `eosId` (`<|im_end|>`, 248046), `padId` (`<|endoftext|>`,
+  248044), `controlIds` (`<|im_start|>`, `<|im_end|>`, `<|endoftext|>`), `vocabSize`
+  (248,077: the `-OPT` tokenizer's ids, added tokens included; the logits are 248,320
+  wide), and the size and SHA-256 of every file.
+
+**The decoder's contract** (batch 1; `S` new positions, `P` past positions, `T = P + S`):
+
+| input | type | shape | |
+|---|---|---|---|
+| `inputs_embeds` | float32 | `[1, S, 2560]` | the embedding graph's output for the new ids |
+| `key_mask` | bool | `[1, T]` | true = visible, over every position, past and new |
+| `position_ids` | int64 | `[3, 1, S]` | the absolute positions, the same in all three rows (text) |
+| `num_logits_to_keep` | int64 | scalar | 1 for the last position only |
+| `past_key_values.N.key`, `.value` | float16 | `[1, 4, P, 256]` | softmax layers N = 3, 7, ..., 31 (BNSH) |
+| `past_conv.N` | float16 | `[1, 8192, 3]` | DeltaNet layers N = 0, 1, 2, 4, ..., 30: the convolution's carried inputs |
+| `past_recurrent.N` | float16 | `[1, 32, 128, 128]` | DeltaNet layer N: the recurrent state |
+
+| output | type | shape | |
+|---|---|---|---|
+| `logits` | float16 | `[1, num_logits_to_keep, 248320]` | |
+| `present.N.key`, `.value` | float16 | `[1, 4, T, 256]` | the whole cache, past and new |
+| `present_conv.N`, `present_recurrent.N` | float16 | as the inputs | after the last new position |
+| `attention` | float32 | `[T]` | the last position's attention, per position |
+
+`attention_mask` is gone: the graph casts `key_mask` back to it internally, so the
+lengths `GroupQueryAttention` reads (`seqlens_k`, `total_sequence_length`) are still the
+full length. A run takes any number of new positions; `LinearAttention` solves a prefill
+chunk-parallel, so there is no 16-position bound, and `meta.json` gives `maxChunk` 2048,
+the size the tests and benchmark run.
+
+**The mask.** In the softmax layers `GroupQueryAttention`'s `attention_bias` input,
+which `-OPT` filled from its padding mask, is now 0 at a visible key and -65504 at a
+hidden one, on top of the operator's own causal mask, so a hidden key gets exactly zero
+weight; a position whose every causal key is hidden sees itself, as in `ZeosQwen`, so its
+softmax is defined. No operator is replaced: the bias input can hide an arbitrary
+position, where `seqlens_k` cannot. In the DeltaNet layers, a hidden *new* position has
+its write strength (beta) and its log decay set to zero, so the state passes it by
+unchanged; its projection enters `CausalConvWithState` as zeros, so neither later
+positions' taps nor the carried `present_conv` window hold it; and it still reads its
+own projection through the last tap, which the graph adds back before the SiLU (the
+convolution runs with `activation` none for that). The `-OPT` graph's padding mask on the
+output gate and on the inputs of beta and the decay is removed. With every position
+visible the logits are `-OPT`'s up to float16 rounding (2e-2 at most, KL under 1e-5).
+
+A position that was visible when the state took it in cannot be hidden by the graph, as
+with the `ZeosQwen` export: the state is not per position. Whoever drives the graph
+rewinds `past_recurrent` and `past_conv` to a snapshot from before the position and runs
+the positions after it again under the new mask, as `web/transformers_worker.js` does
+for that export. The softmax layers' cache needs no replay; the mask acts on it at every
+run.
+
+**Measured attention.** `attention` is recomputed beside each `GroupQueryAttention`
+from the tensors it reads, the rotated query of the last new position and
+`present.N.key`: the scaled scores, the hidden keys set to -1e9, a softmax, summed over
+the 16 heads, then averaged over the 8 layers and multiplied by the visibility. A hidden
+position is exactly zero and the vector sums to one. As with `ZeosQwen`, the 24 DeltaNet
+layers contribute nothing to it.
+
+**Checks.** `tests/test_opt_zeos_graph.py` runs the decoder under ONNX Runtime CPU,
+which has kernels for every fused operator in it. Prefilled in chunks of 1 and 7 (an
+88-token chat turn) and of 16 and 512 (a 634-token one), with the cache carried, then one
+decode step, its logits match `-OPT`'s and agree with `transformers` (float32) as
+closely as `-OPT`'s do: KL 0.003 on the short turn and 0.016 on the long one, for both
+graphs, and the same first choice. Hiding the three tokens of a password the last
+position must recall moves its distribution by a KL of 9.4, against 9.3 for `ZeosQwen`
+in float32 under the same mask, to the same first choice (KL 0.2 between the two). The
+hidden positions receive exactly zero, the rest sums to one, and a chunk of 2048 after a
+cache runs. The reference logits need the bf16 weights at `models/Qwen3.5-4B` and about
+20 GB of memory once; they are cached under `models/.reference/`.
+
+**Speed.** `export/bench/` is a page that times the decoder on WebGPU with ONNX
+Runtime Web 1.31.0-dev.20260914, the build Transformers.js 4.3 runs `-OPT` with, and the
+cache kept on the GPU between runs. Serve the demo directory and open it:
+
+```bash
+uv run python demo/coop-count-web/serve.py --dir demo/coop-count-web --port 8766
+# http://localhost:8766/export/bench/?opt=/models/Qwen3.5-4B-ONNX-OPT/
+```
+
+In Chrome 154 on an Apple M1 Max, three runs each, with nothing else on the GPU (the
+runs agreed within 3%; with another WebGPU page running they halved):
+
+| | OPT+ZEOS | `-OPT` |
+|---|---|---|
+| prefill, 512 from empty | 324 tok/s | 299 tok/s |
+| prefill, 2048 from empty | 326 tok/s | 270 tok/s |
+| prefill, 4 x 512 with the cache carried | 313 tok/s | 270 tok/s |
+| prefill, 2048 after 2048 | 302 tok/s | 236 tok/s |
+| decode step, ~64 positions | 45 ms (22 tok/s) | 40 ms (25 tok/s) |
+| decode step, ~4,100 positions | 56 ms (18 tok/s) | 46 ms (22 tok/s) |
+
+The decode times include reading back the logits and, for OPT+ZEOS, the attention
+vector. Without the attention output and the convolution's own-tap correction a step
+took 42 ms and 49 ms, so most of the decode cost is the attention output, which reads
+every layer's whole key cache once per step.
+
 ### The worker
 
 `web/transformers_worker.js` implements `ZeosModelWorker` over the graph, driving it with
@@ -693,6 +813,12 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   worker's chunks with the state carried between them: a hidden position receives
   exactly zero, the rest sum to one, and hiding one changes the logits. Needs the export
   and the `export` dependency group.
+- `test_opt_zeos_graph.py` — the OPT+ZEOS decoder under ONNX Runtime CPU, in chunks of
+  1, 7, 16 and 512 with the cache carried: with nothing hidden it is the `-OPT` graph and
+  agrees with `transformers`; a hidden position receives exactly zero and the rest sums
+  to one; hiding moves the logits as `ZeosQwen`'s mask does; a chunk of 2048 runs. Needs
+  the surgery's output; the comparisons also need `models/Qwen3.5-4B-ONNX-OPT` and
+  `models/Qwen3.5-4B`. About five minutes once the reference logits are cached.
 - `test_transformers_grammar.py` — the token mask against the real model after
   adversarial injected text: only commands, never a control id.
 - `test_node_run.py` — a kernel run over the real model: one attention line per decode
