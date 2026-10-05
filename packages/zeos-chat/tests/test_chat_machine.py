@@ -1283,3 +1283,33 @@ def test_a_splice_or_trunc_moves_the_hidden_ranges_with_the_words() -> None:
 @pytest.mark.determinism
 def test_a_masked_conversation_writes_the_same_journal_every_time() -> None:
     assert scripted_journal(mask_tool_choice=True) == scripted_journal(mask_tool_choice=True)
+
+
+# -- a write counts the open block's attention -------------------------------------------
+
+
+def test_attention_in_the_last_steps_before_a_call_still_gates_it() -> None:
+    """Mass paid to a result in the steps just before ``</tool_call>`` -- fewer than a
+    block, so no boundary has folded it -- is judged when the write is checked."""
+    vocab = ScriptedChatWorker([]).vocab
+    ends = "</function>\n"
+
+    def attend_late(ids: Sequence[int], allowed: Sequence[bool]) -> list[float]:
+        text = "".join(vocab[i] for i in ids)
+        if text.endswith(ends):
+            return attend_marker(ids, allowed)
+        return attend_first(ids, allowed)
+
+    run, _ = chat(
+        [call("ReadLines", path="a"), call("WriteLines", path="b", lines=[]), "Done."],
+        attend=attend_late,
+        gate_mode="attention",
+        theta_read=0.5,
+    )
+    run.send_user("copy")
+    until_waiting(run)
+    run.deliver_tool_result("ZZZZ")
+    events = until_waiting(run)
+    assert types(events) == ["arrived", "demoted", "approval_required", "waiting"]
+    assert [s["pipe"] for s in events[1]["because"]] == ["tools.results"]
+    assert run.drain("tools.effect") == []

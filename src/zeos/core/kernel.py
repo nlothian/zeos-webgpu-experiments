@@ -2646,11 +2646,20 @@ class Kernel:
             return
 
         # A write is a boundary too: what the job could see must count before it acts,
-        # not only at the next block.
-        if job.attention_guessed and job.descriptor.integrity.is_dynamic:
-            self._apply_demotion(
-                job, demote_by_provenance(job.current_integrity, table=job.segments)
-            )
+        # not only at the next block. Measured mass is judged on what the open block has
+        # gathered so far, without folding it: the boundary still folds it, and demotion
+        # is monotone, so counting it twice cannot demote twice.
+        if job.descriptor.integrity.is_dynamic:
+            if job.attention_guessed:
+                demotion = demote_by_provenance(job.current_integrity, table=job.segments)
+            else:
+                demotion = demote_for_boundary(
+                    job.current_integrity,
+                    table=job.segments,
+                    mass_this_block=job.segments.pending_attention(),
+                    theta_read=self.config.theta_read,
+                )
+            self._apply_demotion(job, demotion)
 
         # Effects are syscalls. This check is the enforcement floor that
         # still holds when every layer above it has failed: a fully persuaded model

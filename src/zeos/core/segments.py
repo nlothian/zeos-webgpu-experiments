@@ -525,6 +525,10 @@ class SegmentTable:
             if record is not None:
                 record.attn.accumulate(mass, token_clock=token_clock)
 
+    def pending_attention(self) -> dict[SegmentId, float]:
+        """The mass each segment has gathered since the last fold, without folding it."""
+        return {s.id: s.attn.pending for s in self.all()}
+
     def fold_attention(self, tau_blocks: float) -> dict[SegmentId, float]:
         """Fold pending mass into EMAs at a block boundary; return this block's mass."""
         return {s.id: s.attn.fold(tau_blocks) for s in self.all()}
