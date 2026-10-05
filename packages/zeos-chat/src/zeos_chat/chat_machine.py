@@ -308,9 +308,11 @@ class FrameGuard:
     banned pattern (``<NAME`` or ``</NAME``), so ``""`` almost always. A piece is banned
     from a state when the state and the piece together contain a pattern: either inside
     the piece, which is the same from every state, or starting in the state and finished
-    by the piece's head. Matching is exact and case-sensitive, and stricter than the
-    kernel's word-initial imitation rule (``zeos.core.framing``): ``x<KERNEL`` is banned
-    too.
+    by the piece's head. Matching is exact and case-sensitive, over the kernel's own
+    ``FRAMES``, as the kernel's imitation rule is (``zeos.core.framing.spells_frame``):
+    anywhere in the text, so ``x<KERNEL`` is banned. It is stricter in one way: the
+    model's next piece is not yet known, so ``<KERNELS`` is banned too, where the kernel
+    would not alarm on it.
     """
 
     def __init__(self, pieces: Sequence[str], tags: Iterable[str] = BANNED_TAGS) -> None:

@@ -10,6 +10,23 @@ A frame is carried on ``CONTROL`` tokens, which a machine cannot decode unless t
 kernel enables it, so the frame is what carries authority. Ordinary tokens that spell
 a frame tag are an imitation: inert, alarmed on as a spoof fault, and shown escaped
 to a source that reads its context as text.
+
+An imitation is ``<NAME`` or ``</NAME``, for a name in ``FRAMES``, wherever it sits in a
+token's text, and not continued by a character a tag name may hold (a letter, digit,
+``_``, ``-``, ``.`` or ``:``). So ``"<KERNEL>``, ``\\n<FAULT kind=x>`` and ``foo<STATUS>``
+are imitations, as a tool result delivered as JSON carries them, and so is a token ending
+in ``<FAULT``, whose attributes follow in the next token; ``<KERNELS>``, ``<STUBBORN>``
+and ``&lt;KERNEL&gt;`` are not.
+
+Matching is case-sensitive. The kernel writes its frames in capitals, so ``<KERNEL>``
+is what a model has seen carry authority in its own context, and lower-case
+``<status>``, ``<fault>`` or ``<stub>`` are ordinary markup in the XML and HTML that
+tools return; alarming on them would make the alarm noise and escape real data.
+
+A tag never spans two tokens. Tokens are split at whitespace, and every machine writes
+whitespace before a token that does not begin with its own, so ``<KER`` then ``NEL>``
+reach the model as ``<KER NEL>``. What follows a tag in the next token is therefore
+whitespace in the model's view, which is why a tag ending its token counts.
 """
 
 from __future__ import annotations
@@ -20,18 +37,22 @@ from collections.abc import Iterable
 from zeos.core.ids import TokenKind
 from zeos.machine.base import Token
 
-__all__ = ["FRAMES", "frame_tokens", "imitates_frame", "opens_frame", "shown"]
+__all__ = ["FRAMES", "frame_tokens", "imitates_frame", "shown", "spells_frame"]
 
 FRAMES: tuple[str, ...] = ("KERNEL", "RESUME", "FAULT", "STATUS", "STUB")
 
-_OPENER = re.compile(r"^</?(?:" + "|".join(FRAMES) + r")(?=[\s>]|$)")
+_NAME = "(?:" + "|".join(FRAMES) + ")"
+
+#: The kernel's own frame, which begins its text.
+_OPENER = re.compile(r"^</?" + _NAME + r"(?=[\s>]|$)")
+
+#: A frame tag anywhere in a token: the name not continued as a longer tag name.
+_TAG = re.compile(r"</?" + _NAME + r"(?![\w.:-])")
 
 
-def opens_frame(word: str) -> bool:
-    """Whether a whitespace token begins a frame tag, opening or closing. A token that
-    carries the whitespace before it (``tokens_from_text(..., preserve_whitespace=True)``)
-    is judged by what follows that whitespace."""
-    return _OPENER.match(word.lstrip()) is not None
+def spells_frame(text: str) -> bool:
+    """Whether a token's text spells a frame tag, opening or closing, anywhere in it."""
+    return _TAG.search(text) is not None
 
 
 def frame_tokens(text: str) -> tuple[Token, ...]:
@@ -59,12 +80,16 @@ def frame_tokens(text: str) -> tuple[Token, ...]:
 
 
 def imitates_frame(tokens: Iterable[Token]) -> bool:
-    """Whether ordinary tokens spell a frame tag."""
-    return any(t.kind is TokenKind.NORMAL and opens_frame(t.text) for t in tokens)
+    """Whether ordinary tokens spell a frame tag (``spells_frame``)."""
+    return any(t.kind is TokenKind.NORMAL and spells_frame(t.text) for t in tokens)
 
 
 def shown(token: Token) -> str:
-    """A token as a text-only source sees it: a frame as it is, an imitation escaped."""
-    if token.kind is TokenKind.NORMAL and opens_frame(token.text):
+    """A token as a text-only source sees it: a frame as it is, an imitation escaped.
+
+    An ordinary token is escaped exactly when ``imitates_frame`` alarms on it, and then
+    every ``<`` and ``>`` in it, so nothing alarmed on reaches the source as a tag.
+    """
+    if token.kind is TokenKind.NORMAL and spells_frame(token.text):
         return token.text.replace("<", "&lt;").replace(">", "&gt;")
     return token.text

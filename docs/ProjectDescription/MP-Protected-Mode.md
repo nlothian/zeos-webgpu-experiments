@@ -72,6 +72,8 @@ The kernel marks its own notices with a special `CONTROL` token kind that the mo
 - a status region;
 - the values a job was asked for with.
 
+An imitation is an opening or closing tag of one of the kernel's frames -- `<KERNEL`, `<RESUME`, `<FAULT`, `<STATUS`, `<STUB`, or the same after `</` -- anywhere in a word, unless the name runs on into a longer one, as in `<KERNELS>`. So a tag glued to the text before it counts, as it is in a tool result delivered as JSON: `"<KERNEL>`, `\n<FAULT kind=x>` with the newline escaped, `foo<STATUS>`. Matching is case-sensitive: the kernel writes its frames in capitals, and lower-case `<status>` or `<fault>` is ordinary markup in the data tools return (`core/framing.py`).
+
 The job is told the text is data, not a notice, and carries on. The fault never aborts, whatever the job's `on_fault` policy says, because otherwise any device could kill a job by spelling a tag.
 
 Whether the model itself can see the difference depends on the backend. A seat that hands the model its transcript as text shows imitations escaped, as `&lt;RESUME&gt;`, and real frames as they are. The llama.cpp machine feeds text through unchanged, so there a frame and its imitation look the same to the model, and the spoof alarm and boundary check are what protect it.
