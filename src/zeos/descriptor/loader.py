@@ -255,6 +255,7 @@ def _load_pipes(path: Path) -> tuple[PipeSpec, ...]:
                 reply_to=(
                     None if spec.get("reply_to") is None else PipeName(str(spec["reply_to"]))
                 ),
+                session_floor=bool(spec.get("session_floor", True)),
             )
         )
     return tuple(specs)

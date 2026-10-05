@@ -103,13 +103,30 @@ from zeos_coop_count_web.js_machine import DEFAULT_BLOCK_SIZE, Bridge, PythonBri
 from zeos_coop_count_web.live import LiveRun
 from zeos_coop_count_web.page import findings
 
-__all__ = ["CHAT_CASE", "DEFAULT_REFUSAL", "ChatRun", "open_chat"]
+__all__ = [
+    "ATTENTION",
+    "CHAT_CASE",
+    "DEFAULT_REFUSAL",
+    "GATE_MODES",
+    "STRICT",
+    "ChatRun",
+    "open_chat",
+]
 
 #: The case this package ships: one pinned chat job and its five pipes.
 CHAT_CASE = Path(str(resources.files("zeos_coop_count_web") / "cases" / "chat-agent"))
 
 #: What the model reads when the user declines a tool call.
 DEFAULT_REFUSAL = "The user declined this tool call. It was not run."
+
+#: How a tool result gates effects. ``STRICT``: reading one sets the session floor to 3
+#: until the next user message, so any effect after it needs approval (MP's
+#: confused-deputy rule). ``ATTENTION``: reading one leaves the floor alone, and only the
+#: watermark -- whether the job measurably attended the result past ``theta_read`` --
+#: refuses effects.
+STRICT = "strict"
+ATTENTION = "attention"
+GATE_MODES = (STRICT, ATTENTION)
 
 #: Lint rules about the syscall ABI's commands in a body. The chat machine speaks no ABI,
 #: so a system prompt that quotes, say, a SQL statement ending in a semicolon is not a
@@ -140,6 +157,7 @@ def open_chat(
     bridge: Bridge | None = None,
     pipes: ChatPipes | None = None,
     max_ticks: int = 10**9,
+    gate_mode: str = STRICT,
 ) -> ChatRun:
     """A conversation, booted and waiting for its first message.
 
@@ -147,10 +165,24 @@ def open_chat(
     (``chat_machine``); a tool it does not name is an effect. ``system_prompt`` replaces the case's one descriptor body, and
     should hold the tool declarations. ``param_types[tool][param]`` is a parameter's
     JSON-schema type, so a string parameter is never JSON-decoded. ``bridge`` defaults to
-    Pyodide's under Pyodide and the identity bridge under CPython. Refuses a case that
-    does not lint.
+    Pyodide's under Pyodide and the identity bridge under CPython. ``gate_mode`` is
+    ``STRICT`` or ``ATTENTION`` (see ``GATE_MODES``); ``ATTENTION`` declares the
+    untrusted inbound pipes -- ``tools.results`` and ``chat.history`` -- with
+    ``session_floor: false``. Refuses a case that does not lint.
     """
+    if gate_mode not in GATE_MODES:
+        raise ValueError(f"gate_mode is one of {GATE_MODES}, not {gate_mode!r}")
     bundle = load_case(Path(case_dir) if case_dir is not None else CHAT_CASE)
+    chat_pipes = pipes or ChatPipes()
+    if gate_mode == ATTENTION:
+        consulted = {chat_pipes.results, chat_pipes.history}
+        bundle = dataclasses.replace(
+            bundle,
+            pipes=tuple(
+                dataclasses.replace(p, session_floor=False) if p.name in consulted else p
+                for p in bundle.pipes
+            ),
+        )
     if len(bundle.descriptors) != 1:
         raise ValueError(
             f"a chat case has exactly one descriptor; {bundle.name} has {len(bundle.descriptors)}"
@@ -173,7 +205,7 @@ def open_chat(
         worker,
         tool_classes=tool_classes,
         bridge=bridge or _default_bridge(),
-        pipes=pipes,
+        pipes=chat_pipes,
         thinking=thinking,
         sampling=sampling,
         seed=seed,

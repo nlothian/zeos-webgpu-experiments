@@ -888,7 +888,12 @@ the next live turn reads the past; the run then waits on `chat.user`.
 docstring lists. A tool call on `tools.effect` is refused for privilege when the job's
 watermark has fallen to 3 -- it attended a tool result past `theta_read` -- or when its
 session floor is 3 because the last thing it read was a tool result (MP's confused-deputy
-rule), which holds until the next user message. `approval_required` carries the call,
+rule), which holds until the next user message. That is `gate_mode="strict"`, the
+default. With `gate_mode="attention"`, `open_chat` declares `tools.results` and
+`chat.history` with `session_floor: false` (a `PipeSpec` field, default true, which a
+case's `pipes.yaml` can also set), so reading a tool result leaves the floor where the
+user's message put it and only the watermark -- what the job measurably attended --
+refuses an effect. `approval_required` carries the call,
 both integrities and the demotion history; on approval the host runs the call itself and
 delivers the result, and on denial it delivers a refusal.
 

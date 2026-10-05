@@ -79,6 +79,13 @@ class PipeSpec:
     #: confirm. Required on a front door, because a door nobody can be answered through
     #: leaves a speaker watching a job fail at an actuator nothing warned them about.
     reply_to: PipeName | None = None
+    #: Whether reading this pipe sets the reader's session floor to the pipe's ring
+    #: (the confused-deputy rule, ``Kernel._consume_read``). Off, a read leaves the
+    #: floor where the last pipe that sets one put it, and only the integrity
+    #: watermark -- what the job measurably attended -- speaks for this pipe's content.
+    #: For a pipe that carries data the job consults rather than requests it serves,
+    #: where the host would rather gate on attention than on having read at all.
+    session_floor: bool = True
 
     @property
     def floor(self) -> Integrity:

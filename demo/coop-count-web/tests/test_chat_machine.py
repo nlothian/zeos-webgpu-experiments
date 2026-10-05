@@ -603,3 +603,63 @@ def test_an_imported_conversation_writes_the_same_journal_every_time() -> None:
         return run.journal_bytes()
 
     assert journal() == journal()
+
+
+# -- gate modes -----------------------------------------------------------------------
+
+
+def read_then_write(**kwargs: Any) -> list[dict[str, Any]]:
+    run, _ = chat(
+        [call("ReadLines", path="a.csv"), call("WriteLines", path="b", lines=[]), "Done."],
+        **kwargs,
+    )
+    run.send_user("copy a to b")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    return until_waiting(run)
+
+
+def test_strict_refuses_an_effect_after_any_tool_result() -> None:
+    events = read_then_write(attend=attend_first)
+    assert "demoted" not in types(events)
+    refused = next(e for e in events if e["type"] == "approval_required")
+    assert refused["integrity"] == 2 and refused["session_floor"] == 3
+
+
+def test_attention_only_lets_an_unattended_result_through() -> None:
+    events = read_then_write(attend=attend_first, gate_mode="attention")
+    assert types(events) == ["arrived", "tool_call", "waiting"]
+    assert events[1]["name"] == "WriteLines" and events[1]["sink"] == "tools.effect"
+
+
+def test_attention_only_still_refuses_after_a_demotion() -> None:
+    events = read_then_write(attend=attend_uniformly, gate_mode="attention")
+    assert types(events) == ["arrived", "demoted", "approval_required", "waiting"]
+    refused = events[2]
+    assert refused["integrity"] == 3 and refused["session_floor"] == 2
+
+
+def test_attention_only_leaves_the_case_on_disk_alone() -> None:
+    run, _ = chat([], gate_mode="attention")
+    flags = {str(p.name): p.session_floor for p in run.run.bundle.pipes}
+    assert flags["tools.results"] is False and flags["chat.history"] is False
+    assert flags["chat.user"] is True
+    assert all(p.session_floor for p in load_case(CHAT_CASE).pipes)
+    with pytest.raises(ValueError, match="gate_mode"):
+        chat([], gate_mode="lenient")
+
+
+@pytest.mark.determinism
+def test_strict_is_the_default_journal() -> None:
+    assert scripted_journal() == scripted_journal(gate_mode="strict")
+
+
+def test_a_case_can_declare_the_opt_out_itself(tmp_path: Path) -> None:
+    case = tmp_path / "chat-agent"
+    shutil.copytree(CHAT_CASE, case)
+    pipes = case / "system" / "pipes.yaml"
+    text = pipes.read_text()
+    marker = "- name: tools.results\n"
+    pipes.write_text(text.replace(marker, marker + "  session_floor: false\n"))
+    events = read_then_write(attend=attend_first, case_dir=case)
+    assert types(events) == ["arrived", "tool_call", "waiting"]
