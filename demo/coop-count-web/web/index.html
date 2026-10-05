@@ -17,7 +17,7 @@ LICENSE file in the root directory of this source tree.
 
 <header>
   <div>
-    <h1>coop-count <span class="sub">— the ZEOS kernel under Pyodide</span></h1>
+    <h1>coop-count <span class="sub">— the ZEOS kernel, running in your browser</span></h1>
     <p id="status" class="status" role="status">starting the Pyodide worker…</p>
   </div>
   <!-- AGPL section 13: whoever this page is served to is owed the Corresponding Source. -->
@@ -28,25 +28,25 @@ LICENSE file in the root directory of this source tree.
   <section class="panel" id="controls" aria-labelledby="controls-h">
     <h2 id="controls-h">run</h2>
     <div class="row">
-      <label>case
+      <label>scenario
         <select id="case" disabled></select>
       </label>
-      <label>machine
+      <label>answered by
         <select id="machine" disabled>
-          <option value="scripted">scripted — CommandSeat over the case's tapes</option>
-          <option value="stub">JsMachine — stub worker in JavaScript</option>
-          <option value="transformers" id="model-option" disabled>JsMachine — Qwen3.5-2B on ONNX Runtime Web</option>
+          <option value="transformers" id="model-option" disabled selected>language model, in your browser</option>
+          <option value="scripted">recorded answers (no model)</option>
+          <option value="stub">recorded answers, via the JavaScript model interface</option>
         </select>
       </label>
-      <label>backend
+      <label>model runs on
         <select id="backend" disabled>
-          <option value="wasm">WebAssembly — reproducible</option>
-          <option value="webgpu">WebGPU — faster, not reproducible across devices</option>
+          <option value="webgpu" selected>GPU (WebGPU) — fast</option>
+          <option value="wasm">CPU (WebAssembly) — slower</option>
         </select>
       </label>
       <label class="check"><input type="checkbox" id="schedule" checked disabled>
-        play <code>events.jsonl</code></label>
-      <label>speed
+        press the keys automatically</label>
+      <label>delay per turn
         <input type="range" id="speed" min="0" max="400" step="20" value="120"
                aria-describedby="speed-out">
         <output id="speed-out">120 ms/turn</output>
@@ -68,13 +68,13 @@ LICENSE file in the root directory of this source tree.
 
   <section class="panel" id="console" aria-labelledby="console-h">
     <h2 id="console-h">console</h2>
-    <p class="hint">The keyboard device: <em>interrupt</em> writes <code>attention</code> to
-      <code>keys.interrupt</code>, which the vector table binds to <code>reset-count</code> at
-      priority 5; then type a number and press <kbd>Enter</kbd> to write it to
-      <code>keys.number</code>. Each lands at the virtual time of the next turn.</p>
+    <p class="hint">A simulated keyboard, live while a run is going. <em>interrupt</em> wakes
+      the <code>reset-count</code> handler, which pauses whichever counter is running; then
+      type the new count and press <kbd>Enter</kbd>. Untick <em>press the keys
+      automatically</em> to do this yourself.</p>
     <div class="row">
       <button id="interrupt" type="button" disabled>interrupt</button>
-      <label>number
+      <label>new count
         <input id="number" inputmode="numeric" pattern="[0-9]*" size="8" disabled>
       </label>
       <button id="send" type="button" disabled>send (Enter)</button>
@@ -87,14 +87,14 @@ LICENSE file in the root directory of this source tree.
       <h2 id="journal-h">output</h2>
       <span id="count" class="meta">0 events</span>
       <label class="check"><input type="checkbox" id="follow" checked> follow</label>
-      <button id="download" type="button" disabled>download .jsonl</button>
+      <button id="download" type="button" disabled>download event log</button>
     </div>
     <!-- Two views of one run: the lines `zeos-count run` prints, and the journal itself. -->
     <div class="tabs" role="tablist" aria-label="output view">
       <button type="button" role="tab" id="tab-transcript" aria-controls="view-transcript"
-              aria-selected="true">user view</button>
+              aria-selected="true">transcript</button>
       <button type="button" role="tab" id="tab-journal" aria-controls="view-journal"
-              aria-selected="false" tabindex="-1">journal</button>
+              aria-selected="false" tabindex="-1">event log (JSON)</button>
     </div>
     <div role="tabpanel" id="view-transcript" aria-labelledby="tab-transcript">
       <ol id="transcript" class="journal transcript" aria-live="off"></ol>
@@ -106,11 +106,12 @@ LICENSE file in the root directory of this source tree.
 
   <section class="panel" id="runs-panel" aria-labelledby="runs-h">
     <h2 id="runs-h">finished runs</h2>
-    <p class="hint">A run's journal is a pure function of the case, the schedule and the
-      presses, so two runs with the same inputs show the same digest.</p>
+    <p class="hint">A run's event log depends only on the scenario, who answered and the
+      key presses, so repeating a run with the same inputs gives the same fingerprint.
+      Matching fingerprints are highlighted.</p>
     <table id="runs">
-      <thead><tr><th>case</th><th>machine</th><th>schedule</th><th>presses</th>
-        <th>ticks</th><th>events</th><th>sha-256</th></tr></thead>
+      <thead><tr><th>scenario</th><th>answered by</th><th>auto keys</th><th>your presses</th>
+        <th>turns</th><th>events</th><th>fingerprint (SHA-256)</th></tr></thead>
       <tbody></tbody>
     </table>
   </section>
@@ -121,7 +122,7 @@ LICENSE file in the root directory of this source tree.
   </section>
 
   <section class="panel wide" id="log-panel" aria-labelledby="log-h">
-    <h2 id="log-h">worker log</h2>
+    <h2 id="log-h">diagnostic log</h2>
     <pre id="log"></pre>
   </section>
 </main>

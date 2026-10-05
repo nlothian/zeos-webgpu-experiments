@@ -45,6 +45,7 @@ Run it with the export dependency group (see the demo README)::
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import math
@@ -61,7 +62,7 @@ import torch.nn.functional as F
 from torch import nn
 
 DEMO = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL = "Qwen/Qwen3.5-2B"
+DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
 #: The DeltaNet layers solve a unit lower-triangular system over each chunk: by repeated
 #: squaring within blocks of ``SOLVE_BLOCK`` positions (exact for ``2 ** SOLVE_STEPS``
 #: of them, and, in float32, accurate to 4e-5 at 16 where 32 already drifts by 1.5 in
@@ -637,13 +638,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--quant",
         choices=("q4", "q4a8", "q8", "int8", "fp32"),
-        default="int8",
+        default="q4",
         help=(
-            "int8: per-channel int8 weights with dynamic int8 activations, the fast path on "
-            "ONNX Runtime's WebAssembly backend (default); q4/q8: weight-only blocks "
-            "(MatMulNBits), smaller, and the form ONNX Runtime's WebGPU backend runs, but "
-            "many times slower per decode step on its WebAssembly backend; q4a8: q4 "
-            "with int8 compute; fp32: none"
+            "q4/q8: weight-only blocks (MatMulNBits), smaller, and the form ONNX "
+            "Runtime's WebGPU backend runs, but many times slower per decode step on its "
+            "WebAssembly backend (q4 is the default); int8: per-channel int8 weights with "
+            "dynamic int8 activations, the fast path on ONNX Runtime's WebAssembly "
+            "backend; q4a8: q4 with int8 compute; fp32: none"
         ),
     )
     parser.add_argument(
@@ -691,15 +692,6 @@ def main(argv: list[str] | None = None) -> int:
             if drift > limit:
                 raise SystemExit(f"the rewrite disagrees with transformers by {drift}")
 
-    with tempfile.TemporaryDirectory() as scratch:
-        model_path = export_graph(core, Path(scratch))
-        models = {"model.onnx": quantise(model_path, args.quant)}
-        if out.exists():
-            shutil.rmtree(out)
-        out.mkdir(parents=True)
-        shards = write_shared(models, out)
-    del hf
-
     vocab = tokenizer.get_vocab()
     special = {t.content: i for i, t in tokenizer.added_tokens_decoder.items()}
     meta = {
@@ -718,6 +710,22 @@ def main(argv: list[str] | None = None) -> int:
         "stateShape": list(core.empty_state().shape),
         "convShape": list(core.empty_conv().shape),
         "logitsSize": int(core.lm_head_t.shape[1]),
+    }
+
+    with tempfile.TemporaryDirectory() as scratch:
+        model_path = export_graph(core, Path(scratch))
+        # The quantiser holds the whole float32 graph in memory; with the PyTorch model
+        # still resident as well, a 4B model needs twice its float32 size at once.
+        del core, hf
+        gc.collect()
+        models = {"model.onnx": quantise(model_path, args.quant)}
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        shards = write_shared(models, out)
+        del models
+
+    meta |= {
         "weights": shards,
         "tokenizerSize": len(vocab),
         "eosId": special["<|im_end|>"],

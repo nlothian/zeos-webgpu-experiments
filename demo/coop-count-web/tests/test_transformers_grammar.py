@@ -41,7 +41,9 @@ def worker() -> Iterator[NodeWorker]:
     if not node_available():
         pytest.skip("needs node and `npm install` in demo/coop-count-web")
     if not (DEFAULT_MODEL / "meta.json").is_file():
-        pytest.skip(f"no export at {DEFAULT_MODEL}; run export/export_model.py")
+        pytest.skip(
+            f"no export at {DEFAULT_MODEL}; run export/export_model.py --model Qwen/Qwen3.5-2B --quant int8"
+        )
     with NodeWorker() as w:
         yield w
 

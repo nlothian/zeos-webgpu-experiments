@@ -28,6 +28,20 @@ const state = {
 const worker = new Worker("pyodide_worker.js", { type: "module" });
 const send = (type, body = {}) => worker.postMessage({ type, ...body });
 
+/** What the page calls each machine, case and finish reason; the worker uses the ids. */
+const MACHINE_NAMES = {
+  transformers: "the language model",
+  scripted: "recorded answers",
+  stub: "recorded answers (JS)",
+};
+const CASE_NAMES = {
+  "coop-count-scripted": "counters + interrupt (recorded answers available)",
+  "coop-count-pipe": "counters taking turns over pipes (model only)",
+  "coop-count-vector": "counters starting each other (model only)",
+};
+const REASONS = { quiescent: "finished — every job is idle", stopped: "stopped" };
+const machineName = (id) => MACHINE_NAMES[id] || id;
+
 function setStatus(text, error = false) {
   $("status").textContent = text;
   $("status").classList.toggle("error", error);
@@ -57,8 +71,8 @@ function refreshControls() {
     $("lint-tapes").textContent = state.info.runnable
       ? ""
       : model
-        ? " — no tapes: the model decides every command"
-        : " — no tapes, so only the model machine can run this case; choose it in the machine list";
+        ? " — no recorded answers: the model decides everything"
+        : " — no recorded answers, so only the Qwen model can run this scenario; choose it under “answered by”";
   }
   $("case").disabled = !idle;
   $("machine").disabled = !idle;
@@ -77,9 +91,14 @@ function renderLint(info) {
   const box = $("lint");
   box.replaceChildren();
   const head = document.createElement("div");
+  const warnings = info.lint.length - info.errors;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   head.textContent =
-    `${info.descriptors} descriptors, ${info.vectors} vectors: ${info.errors} error(s), ` +
-    `${info.lint.length - info.errors} warning(s)`;
+    `scenario check: ${plural(info.descriptors, "job")}, ` +
+    `${plural(info.vectors, "interrupt handler")} — ` +
+    (info.errors || warnings
+      ? `${plural(info.errors, "error")}, ${plural(warnings, "warning")}`
+      : "no problems");
   const tapes = document.createElement("span");
   tapes.id = "lint-tapes"; // filled by refreshControls, which knows the machine
   head.append(tapes);
@@ -299,8 +318,8 @@ async function recordRun(run, finished, events) {
   const row = document.createElement("tr");
   const cells = [
     run.name,
-    run.machine,
-    run.schedule ? "events.jsonl" : "none",
+    machineName(run.machine),
+    run.schedule ? "on" : "off",
     String(finished.presses),
     String(finished.ticks),
     String(events),
@@ -332,12 +351,26 @@ const handlers = {
   ready: ({ cases, pyodide, python, model, isolated }) => {
     const option = $("model-option");
     option.disabled = !(model && isolated);
+    if (model) {
+      // The export's directory name, less the `-zeos-<quant>` the exporter appends.
+      MACHINE_NAMES.transformers = model.replace(/-zeos-[^-]+$/, "");
+      option.textContent = `${MACHINE_NAMES.transformers} language model, in your browser`;
+    }
     if (!model) option.textContent += " (not in this build)";
     else if (!isolated) option.textContent += " (needs a cross-origin isolated page)";
     const select = $("case");
-    for (const name of cases) select.add(new Option(name, name));
+    for (const name of cases) {
+      select.add(new Option(CASE_NAMES[name] || name, name));
+    }
+    // The model is the default when this page can run it; WebGPU when the browser has it.
+    $("machine").value = option.disabled ? "scripted" : "transformers";
+    if (!navigator.gpu) {
+      $("backend").value = "wasm";
+      $("backend").options[0].textContent += " (not available in this browser)";
+      $("backend").options[0].disabled = true;
+    }
     if (cases.includes("coop-count-scripted")) select.value = "coop-count-scripted";
-    setStatus(`Pyodide ${pyodide}, Python ${python}: ready`);
+    setStatus(`ready — Python ${python} (Pyodide ${pyodide}) loaded; press run`);
     send("describe", { name: select.value });
   },
   described: ({ info }) => {
@@ -361,7 +394,7 @@ const handlers = {
     clearOutput();
     appendLines(lines);
     appendTranscript(transcript);
-    setStatus(`running ${name} on ${machine}`);
+    setStatus(`running “${CASE_NAMES[name] || name}”, answered by ${machineName(machine)}`);
   },
   lines: ({ lines, transcript, virtualNs, ticks, awaiting, parked, withheld }) => {
     if (withheld > state.withheld) {
@@ -370,11 +403,11 @@ const handlers = {
     }
     appendLines(lines);
     appendTranscript(transcript);
-    $("clock").textContent = `t = ${virtualNs / 1e6} ms, ${ticks} ticks`;
+    $("clock").textContent = `virtual time ${virtualNs / 1e6} ms (turn ${ticks})`;
     $("prompt").textContent = parked
-      ? "reset-count is parked on keys.number: type a number"
+      ? "reset-count is waiting for the new count: type a number and press Enter"
       : awaiting
-        ? "a job waits on the console"
+        ? "a job is waiting for keyboard input"
         : "";
   },
   pressed: ({ pipe, text, atNs }) =>
@@ -384,7 +417,8 @@ const handlers = {
     state.running = false;
     state.journal = finished.journal;
     $("prompt").textContent = "";
-    setStatus(`${run.name} on ${run.machine}: ${finished.reason} after ${finished.ticks} ticks, ${state.count} events`);
+    const reason = REASONS[finished.reason] || finished.reason;
+    setStatus(`${machineName(run.machine)}: ${reason} after ${finished.ticks} turns, ${state.count} events`);
     refreshControls();
     // The count is read now: *run* is enabled again above, and pressing it while the
     // digest is computed empties the views.
@@ -421,7 +455,7 @@ async function ensureModel(backend) {
   if (modelThreads.has(backend)) return;
   const { startBrowserModel } = await import("./model_host.js");
   const manifest = await (await fetch("manifest.json")).json();
-  setStatus(`loading ${manifest.model} on ${backend}`);
+  setStatus(`loading ${manifest.model} on ${backend === "webgpu" ? "the GPU" : "the CPU"}`);
   const model = await startBrowserModel({
     modelUrl: `models/${manifest.model}/`,
     ortWasmUrl: "vendor/onnxruntime-web/ort.wasm.min.mjs",

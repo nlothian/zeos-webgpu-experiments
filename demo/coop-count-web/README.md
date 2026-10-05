@@ -5,11 +5,11 @@ browser, with no server beyond a file host. A member of the repository's uv work
 
 The page loads Pyodide, installs the `zeos` wheel and this package's wheel, writes the
 coop-count cases into Pyodide's in-memory filesystem, lints the chosen case and runs it.
-The run's output panel has two tabs, both filled as the run streams. *user view*, the
+The run's output panel has two tabs, both filled as the run streams. *transcript*, the
 default, shows the transcript `zeos-count run` prints to a terminal (`counter-a  say 1`,
 `reset-count ──▶ count.progress_a 51`, `counter-a  ... waiting on count.b2a`), collected
 from the same seat callbacks and journal events the CLI prints from
-(`zeos_coop_count_web.transcript`), so it never alters the journal. *journal* shows the
+(`zeos_coop_count_web.transcript`), so it never alters the journal. *event log (JSON)* shows the
 journal itself, one JSON line per event. The ZEOS debugger draws the
 case's wiring and then the finished run, and the journal can be downloaded as the
 `.jsonl` file `zeos-count run --journal` would have written. The *interrupt* button on the page is the
@@ -64,7 +64,7 @@ As in the terminal, once an interrupt has been sent, further presses only move t
 number field until a number is sent; and an interrupt is withheld if, at the turn that
 would deliver it, `reset-count` is already parked on `keys.number`
 (`LiveRun.press(..., unless_waiting_on="keys.number")`, decided from the kernel). The handler's tape writes 51 whatever number is typed, because
-a tape cannot read. Untick *play `events.jsonl`* to press the button yourself; with it
+a tape cannot read. Untick *press the keys automatically* (which plays the case's `events.jsonl`) to press the button yourself; with it
 ticked, the case's own schedule presses it at 39 ms.
 
 **The run loop.** `zeos_coop_count_web.live.LiveRun` is the `zeos-count` run loop cut
@@ -424,13 +424,16 @@ so the root `uv sync --all-packages` never installs them:
 
 ```bash
 uv sync --all-packages --group export                     # from the repository root
-uv run python demo/coop-count-web/export/export_model.py  # about 4 minutes; 2.4 GB
+uv run python demo/coop-count-web/export/export_model.py  # Qwen3.5-4B at q4; 3.3 GB
 uv sync --all-packages                                    # drop the export group again
 ```
 
-The script downloads the model from the Hugging Face Hub (4.3 GB of bf16 safetensors)
-into `models/<name>/` first, and needs about 17 GB of memory. Two exports from the same
-source are byte-identical.
+The script downloads the model from the Hugging Face Hub (8.7 GB of bf16 safetensors for
+Qwen3.5-4B) into `models/<name>/` first. It holds the model in float32 while it traces
+the graph, and releases it before quantising, so the 4B export peaks at roughly 20 GB
+of memory; on a 34 GB machine it took about five minutes. `--model Qwen/Qwen3.5-2B`
+(4.3 GB download) and `--quant int8` give the 2B and int8 exports described below. Two
+exports from the same source are byte-identical.
 
 ### The worker
 
@@ -507,8 +510,13 @@ the main thread too.
 **Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
 clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
 alone (see *Determinism* below); with more threads the model thread did not finish
-loading in the browser this was tested in. The page's default is the int8 export on
-WebAssembly. In Chrome (the desktop app's browser pane, Apple M1 Max) the model thread
+loading in the browser this was tested in. The page's default is the Qwen model on WebGPU, falling back to the recorded answers when
+the page is not cross-origin isolated and to WebAssembly when the browser has no WebGPU.
+The build's default export is Qwen3.5-4B at q4 (`models/Qwen3.5-4B-zeos-q4`, 3.27 GB of
+weights, which `export/export_model.py` writes by default), which
+WebGPU runs: in Chrome on an Apple M1 Max its first prompt prefilled within about 35 s of
+pressing run and a decode step took about 220 ms. Pass `--model` to offer another export,
+such as `models/Qwen3.5-2B-zeos-q4` or the int8 export measured below. With int8 on WebAssembly, in Chrome (the desktop app's browser pane, Apple M1 Max) the model thread
 was ready within 10 s of pressing run, the first command came after about two minutes of
 prefill, and the 99-tick `coop-count-pipe` run below took 329 s in all, against 304 s for
 the same run under Node -- a step in the page costs within about 10% of one under Node.

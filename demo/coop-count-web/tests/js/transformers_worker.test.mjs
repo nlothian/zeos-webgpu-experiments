@@ -20,7 +20,7 @@ import { startNodeModel } from "../../web/node_model_thread.mjs";
 
 const MODEL = process.env.ZEOS_WEB_MODEL_DIR ?? DEFAULT_MODEL_DIR;
 const present = existsSync(join(MODEL, "meta.json"));
-const skip = present ? false : `no export at ${MODEL}; run export/export_model.py`;
+const skip = present ? false : `no export at ${MODEL}; run export/export_model.py --model Qwen/Qwen3.5-2B --quant int8`;
 
 const ALL = { allowedBlocks: null, allowedTokens: null };
 
