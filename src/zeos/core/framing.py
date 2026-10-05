@@ -28,8 +28,10 @@ _OPENER = re.compile(r"^</?(?:" + "|".join(FRAMES) + r")(?=[\s>]|$)")
 
 
 def opens_frame(word: str) -> bool:
-    """Whether a whitespace token begins a frame tag, opening or closing."""
-    return _OPENER.match(word) is not None
+    """Whether a whitespace token begins a frame tag, opening or closing. A token that
+    carries the whitespace before it (``tokens_from_text(..., preserve_whitespace=True)``)
+    is judged by what follows that whitespace."""
+    return _OPENER.match(word.lstrip()) is not None
 
 
 def frame_tokens(text: str) -> tuple[Token, ...]:

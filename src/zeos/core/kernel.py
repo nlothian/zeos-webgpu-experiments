@@ -292,6 +292,11 @@ class KernelConfig:
     #: Print every ``Decoded`` event to stderr as it is journalled. A debugging
     #: aid only; the journal is the record.
     trace_decode: bool = False
+    #: Keep the whitespace of text the kernel tokenises on a job's behalf -- a
+    #: delivery, and the descriptor body -- with each token, so line breaks and
+    #: indentation reach the machine (``tokens_from_text(..., preserve_whitespace=True)``).
+    #: Off by default, and off it changes nothing: every journal is the one it was.
+    preserve_whitespace: bool = False
 
 
 @dataclass
@@ -582,7 +587,7 @@ class Kernel:
         # agents fit on this GPU" from folklore into a number.
         refusal = admission_check(
             descriptor.context,
-            pinned_tokens=len(tokens_from_text(descriptor.body)),
+            pinned_tokens=len(self._words(descriptor.body)),
         )
         if refusal is not None:
             self._raise_fault(
@@ -643,6 +648,10 @@ class Kernel:
         return child
 
     # -- external input ------------------------------------------------------
+
+    def _words(self, text: str) -> tuple[Token, ...]:
+        """Text the kernel tokenises on a job's behalf, as ``KernelConfig`` says to."""
+        return tokens_from_text(text, preserve_whitespace=self.config.preserve_whitespace)
 
     def advance_to(self, virtual_ns: int) -> None:
         """The driver supplies wall-clock time; the kernel never reads one.
@@ -723,7 +732,7 @@ class Kernel:
 
     def _deliver_now(self, pipe_name: PipeName, text: str, *, refuse: bool = True) -> None:
         pipe = self.pipes.ensure(pipe_name)
-        tokens = tokens_from_text(text)
+        tokens = self._words(text)
         latched = bool(pipe.spec.world_object)
         fits = len(tokens) <= pipe.spec.capacity_tokens if latched else pipe.writable(len(tokens))
         if not fits:
@@ -747,7 +756,7 @@ class Kernel:
 
     def _guard_delivery(self, gate: GateSpec, text: str) -> None:
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(text)
+        asked = self._words(text)
         if len(asked) > requests.spec.capacity_tokens:
             self._answer_delivery(
                 gate,
@@ -795,7 +804,7 @@ class Kernel:
     def _pump_queued_deliveries(self, gate: GateSpec) -> None:
         queue = self._queued_deliveries.get(gate.pipe)
         requests = self.pipes.ensure(gate.requests)
-        while queue and requests.writable(len(tokens_from_text(queue[0]))):
+        while queue and requests.writable(len(self._words(queue[0]))):
             self._guard_delivery(gate, queue.pop(0))
 
     # -- the quantum ---------------------------------------------------------
@@ -1142,7 +1151,7 @@ class Kernel:
         job.started = True
         self._inject(
             job,
-            tokens_from_text(job.descriptor.body or f"task {job.name}"),
+            self._words(job.descriptor.body or f"task {job.name}"),
             pipe=KERNEL_PIPE,
             principal=Principal.KERNEL,
             ring=job.descriptor.ring,
