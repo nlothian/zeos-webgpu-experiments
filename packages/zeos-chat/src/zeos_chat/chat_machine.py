@@ -53,9 +53,13 @@ JavaScript's ``RegExp`` share, so a host can show the same verdict before it ask
 
 **Trusted results.** A host whose tool returns text it wrote itself -- a reference card
 bundled with the app, say -- can say so: ``trusted_results`` maps a tool name to
-``{PARAM: PATTERN}``, matched as a ``read_if`` rule is, and a call that matches it reads
-its result from ``tools.results.trusted`` (TRUSTED, principal ``device``) rather than
-``tools.results`` (EXTERNAL). The choice is made from the call the model wrote, before
+``{PARAM: [VALUE, ...]}``, and a call whose arguments are exactly the rule's parameters,
+each a string equal to one of its values, reads its result from ``tools.results.trusted``
+(TRUSTED, principal ``device``) rather than ``tools.results`` (EXTERNAL). The match is
+exact and case-sensitive, with no patterns: unlike ``read_if``, which only routes a call
+to a sink the kernel still checks, this rule raises the ring of what the job reads, so
+``SQL`` or ``sql\n`` for a host that bundles ``sql`` is an unknown name and stays on
+ring 3. The choice is made from the call the model wrote, before
 anything is run, so the kernel knows which ring the answer will carry while the job
 waits for it. The result is framed as any other: a ``<tool_response>`` in a ``user``
 turn.
@@ -129,7 +133,7 @@ import json
 import math
 import random
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -205,6 +209,10 @@ EFFECT = "effect"
 #: A rule over a call's arguments: exactly these parameters, each a string the pattern
 #: matches in full.
 ArgumentRule = Mapping[str, str]
+
+#: A trusted-results rule: exactly these parameters, each a string equal to one of the
+#: listed values -- compared exactly and case-sensitively, never as a pattern.
+ExactRule = Mapping[str, Collection[str]]
 
 #: A tool's class in the host's table: ``READ``, ``EFFECT``, or ``{"read_if": {param:
 #: pattern}}``, a read only when the arguments are exactly those parameters and each is a
@@ -523,7 +531,7 @@ class ChatToolMachine(JsMachine):
         sampling: Sampling | None = None,
         seed: int = 0,
         param_types: Mapping[str, Mapping[str, str]] | None = None,
-        trusted_results: Mapping[str, ArgumentRule] | None = None,
+        trusted_results: Mapping[str, ExactRule] | None = None,
         banned_tags: Iterable[str] = BANNED_TAGS,
         block_size: int = DEFAULT_BLOCK_SIZE,
         mask_tool_choice: bool = False,
@@ -544,11 +552,9 @@ class ChatToolMachine(JsMachine):
             if set(kind) != {_READ_IF} or not isinstance(kind[_READ_IF], Mapping):
                 raise ValueError(f"{name}: a rule is {{{_READ_IF!r}: {{param: pattern}}}}")
             self._read_if[name] = _compile_rule(kind[_READ_IF])
-        self._trusted: dict[str, dict[str, re.Pattern[str]]] = {}
-        for name, rule in (trusted_results or {}).items():
-            if not isinstance(rule, Mapping):
-                raise ValueError(f"{name}: a trusted-results rule is {{param: pattern}}")
-            self._trusted[name] = _compile_rule(rule)
+        self._trusted: dict[str, dict[str, frozenset[str]]] = {
+            name: _exact_rule(name, rule) for name, rule in (trusted_results or {}).items()
+        }
         self._prefix = thinking_prefix(thinking) if assistant_prefix is None else assistant_prefix
         self._sampling = sampling
         self._seed = seed
@@ -628,9 +634,9 @@ class ChatToolMachine(JsMachine):
 
     def results_pipe(self, name: str, arguments: Mapping[str, Any] | None = None) -> PipeName:
         """Where a call's result is read from: ``tools.results.trusted`` when the
-        trusted-results table names the call, ``tools.results`` otherwise."""
+        trusted-results table names the call exactly, ``tools.results`` otherwise."""
         rule = self._trusted.get(name)
-        if rule is not None and _rule_matches(rule, arguments):
+        if rule is not None and _exact_matches(rule, arguments):
             return self.pipes.results_trusted
         return self.pipes.results
 
@@ -999,3 +1005,28 @@ def _rule_matches(rule: Mapping[str, re.Pattern[str]], arguments: Mapping[str, A
         if not isinstance(value, str) or pattern.fullmatch(value) is None:
             return False
     return True
+
+
+def _exact_rule(name: str, rule: object) -> dict[str, frozenset[str]]:
+    shape = "a trusted-results rule is {param: [value, ...]}, exact values, not patterns"
+    if not isinstance(rule, Mapping):
+        raise ValueError(f"{name}: {shape}")
+    exact: dict[str, frozenset[str]] = {}
+    for param, values in rule.items():  # pyright: ignore[reportUnknownVariableType]
+        if (
+            not isinstance(param, str)
+            or isinstance(values, str)
+            or not isinstance(values, Collection)
+            or not all(isinstance(v, str) for v in values)  # pyright: ignore[reportUnknownVariableType]
+        ):
+            raise ValueError(f"{name}: {shape}")
+        exact[param] = frozenset(values)  # pyright: ignore[reportUnknownArgumentType]
+    return exact
+
+
+def _exact_matches(rule: Mapping[str, frozenset[str]], arguments: Mapping[str, Any] | None) -> bool:
+    """Whether the arguments are exactly the rule's parameters, each a string equal to one
+    of its values, compared exactly and case-sensitively."""
+    if arguments is None or set(arguments) != set(rule):
+        return False
+    return all(isinstance(arguments[p], str) and arguments[p] in v for p, v in rule.items())

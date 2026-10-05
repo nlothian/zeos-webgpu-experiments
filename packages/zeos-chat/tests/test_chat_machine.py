@@ -674,7 +674,9 @@ def test_an_imported_conversation_writes_the_same_journal_every_time() -> None:
 
 # -- trusted results ------------------------------------------------------------------
 
-TRUSTED = {"CallSkill": {"skill": "sql|react"}}
+TRUSTED = {"CallSkill": {"skill": ["sql", "react"]}}
+#: Names that differ from a bundled one only in case or whitespace: not exact, so ring 3.
+NEAR_MISSES = ["SQL", "Sql", " sql", "sql ", "sql\n", "\nsql"]
 SKILL_CARD = "# SQL\n\nUse DuckDB.\n"
 
 
@@ -714,13 +716,76 @@ def test_a_call_the_table_names_reads_its_result_on_the_trusted_pipe() -> None:
 def test_a_call_the_table_does_not_match_reads_the_untrusted_pipe() -> None:
     machine = ChatToolMachine(ScriptedChatWorker([]), tool_classes={}, trusted_results=TRUSTED)
     assert machine.results_pipe("CallSkill", {"skill": "sql"}) == "tools.results.trusted"
-    assert machine.results_pipe("CallSkill", {"skill": "SQL"}) == "tools.results.trusted"
+    assert machine.results_pipe("CallSkill", {"skill": "react"}) == "tools.results.trusted"
+    for name in NEAR_MISSES:
+        assert machine.results_pipe("CallSkill", {"skill": name}) == "tools.results", name
     assert machine.results_pipe("CallSkill", {"skill": "sqlite"}) == "tools.results"
+    assert machine.results_pipe("CallSkill", {"skill": "sql|react"}) == "tools.results"
+    assert machine.results_pipe("CallSkill", {"skill": "s.l"}) == "tools.results"
+    assert machine.results_pipe("CallSkill", {"skill": ["sql"]}) == "tools.results"
     assert machine.results_pipe("CallSkill", {"skill": "sql", "x": "1"}) == "tools.results"
     assert machine.results_pipe("CallSkill", {}) == "tools.results"
     assert machine.results_pipe("ReadLines", {"path": "a"}) == "tools.results"
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "sql",
+        {"skill": "sql"},  # a pattern, the old form: refused rather than read as a set
+        {"skill": "sql|react"},
+        {"skill": [1]},
+        {"skill": ["sql", None]},
+        {"skill": {"sql": True}.items()},
+    ],
+)
+def test_a_trusted_results_rule_lists_exact_values(rule: Any) -> None:
     with pytest.raises(ValueError, match="trusted-results rule"):
-        ChatToolMachine(ScriptedChatWorker([]), tool_classes={}, trusted_results={"X": "sql"})  # pyright: ignore[reportArgumentType]
+        ChatToolMachine(ScriptedChatWorker([]), tool_classes={}, trusted_results={"X": rule})
+
+
+def test_a_trusted_results_rule_takes_any_collection_of_names() -> None:
+    for values in (("sql",), {"sql"}, frozenset({"sql"})):
+        machine = ChatToolMachine(
+            ScriptedChatWorker([]),
+            tool_classes={},
+            trusted_results={"CallSkill": {"skill": values}},
+        )
+        assert machine.results_pipe("CallSkill", {"skill": "sql"}) == "tools.results.trusted"
+
+
+def test_read_if_stays_a_case_insensitive_pattern() -> None:
+    machine = ChatToolMachine(
+        ScriptedChatWorker([]),
+        tool_classes={"CallSkill": {"read_if": {"skill": "sql|react"}}},
+        trusted_results=TRUSTED,
+    )
+    assert machine.tool_class("CallSkill", {"skill": "SQL"}) == "read"
+    assert machine.tool_class("CallSkill", {"skill": "React"}) == "read"
+    assert machine.tool_class("CallSkill", {"skill": "sql\n"}) == "effect"
+    assert machine.results_pipe("CallSkill", {"skill": "SQL"}) == "tools.results"
+
+
+@pytest.mark.parametrize("name", NEAR_MISSES)
+def test_a_near_miss_skill_name_reads_ring_three_and_gates_as_before(name: str) -> None:
+    run, _ = skill_chat(
+        [call("CallSkill", skill=name), call("WriteLines", path="b", lines=[]), "No."]
+    )
+    run.send_user("go")
+    events = until_waiting(run)
+    tool_call = next(e for e in events if e["type"] == "tool_call")
+    assert tool_call["arguments"] == {"skill": name}
+    assert tool_call["sink"] == "tools.read"
+    assert tool_call["results"] == "tools.results"
+    assert run.waiting_on() == "tools.results"
+    with pytest.raises(ValueError, match="trusted=False"):
+        run.deliver_tool_result(SKILL_CARD, trusted=True)
+    run.deliver_tool_result(f"Unknown skill: {name}")
+    events = until_waiting(run)
+    assert (events[0]["pipe"], events[0]["ring"]) == ("tools.results", 3)
+    refused = next(e for e in events if e["type"] == "approval_required")
+    assert refused["name"] == "WriteLines"
+    assert refused["integrity"] == 2 and refused["session_floor"] == 3
 
 
 def test_the_host_must_agree_with_the_table_on_where_a_result_goes() -> None:

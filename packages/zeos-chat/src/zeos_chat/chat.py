@@ -81,7 +81,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -169,7 +169,7 @@ def open_chat(
     pipes: ChatPipes | None = None,
     max_ticks: int = 10**9,
     gate_mode: str = STRICT,
-    trusted_results: Mapping[str, Mapping[str, str]] | None = None,
+    trusted_results: Mapping[str, Mapping[str, Collection[str]]] | None = None,
     mask_tool_choice: bool = False,
 ) -> ChatRun:
     """A conversation, booted and waiting for its first message.
@@ -181,8 +181,9 @@ def open_chat(
     Pyodide's under Pyodide and the identity bridge under CPython. ``gate_mode`` is
     ``STRICT`` or ``ATTENTION`` (see ``GATE_MODES``); ``ATTENTION`` declares the
     untrusted inbound pipes -- ``tools.results`` and ``chat.history`` -- with
-    ``session_floor: false``. ``trusted_results[tool]`` is a ``{param: pattern}`` rule,
-    matched as ``read_if`` is: a call it matches reads its result from
+    ``session_floor: false``. ``trusted_results[tool]`` is a ``{param: [value, ...]}`` rule:
+    a call whose arguments are exactly those parameters, each a string equal to one of
+    its values (exact and case-sensitive, not a pattern), reads its result from
     ``tools.results.trusted``, for text the host wrote itself rather than fetched.
     ``mask_tool_choice`` hides every delivery on an EXTERNAL device pipe -- tool results
     and replayed turns -- while the model writes a tool's name (``chat_machine``).

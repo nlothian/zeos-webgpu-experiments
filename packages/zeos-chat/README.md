@@ -64,10 +64,14 @@ becomes framing in front of the next message. A write the kernel refuses is answ
 a `FAULT` notice; the machine's next step reads `tools.results` again rather than
 decoding, so the job waits there until the host settles the refused call.
 
-**Trusted results.** `open_chat(trusted_results={tool: {param: pattern}})` names calls
-whose results the host wrote itself rather than fetched -- a reference card bundled with
-the app, say. A call whose arguments match the rule as a `read_if` rule matches reads its
-result from `tools.results.trusted`, chosen from the call when the model writes it, so
+**Trusted results.** `open_chat(trusted_results={tool: {param: [value, ...]}})` names
+calls whose results the host wrote itself rather than fetched -- a reference card bundled
+with the app, say. A call whose arguments are exactly the rule's parameters, each a string
+equal to one of its values, reads its result from `tools.results.trusted`. The match is
+exact and case-sensitive, never a pattern: for a host that bundles `sql`, a call for
+`SQL`, ` sql` or `sql\n` names no bundled card and reads `tools.results` (ring 3). A
+`read_if` rule stays a case-insensitive pattern, since it only picks a sink the kernel
+still checks, whereas this rule raises the ring of what the job reads. The pipe is chosen from the call when the model writes it, so
 the kernel knows the ring before anything runs; the `tool_call` and `approval_required`
 events carry it as `results`. The result is framed as any other tool response. It is
 TRUSTED, so attending it never demotes the job, and the pipe is declared
@@ -147,7 +151,7 @@ run = open_chat(
     system_prompt=prompt,           # replaces the case's body
     thinking=False, theta_read=0.2, seed=0, sampling=None,
     param_types={"RunSQL": {"sql": "string"}},
-    trusted_results={"CallSkill": {"skill": "sql|react"}},
+    trusted_results={"CallSkill": {"skill": ["sql", "react"]}},
     mask_tool_choice=False,         # hide EXTERNAL deliveries while a tool's name is written
 )
 run.send_user(text)                 # deliver on chat.user before the next tick
