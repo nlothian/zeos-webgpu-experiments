@@ -46,8 +46,9 @@ order. Every one has ``type``; the other fields are:
                   payload larger than the sink, say). The host delivers a refusal.
 ``reply``         ``text``, ``reasoning``, ``raw``: the turn's reply on ``chat.out``.
                   ``raw`` is everything decoded in the turn; with thinking on,
-                  ``reasoning`` is what came before ``</think>`` and ``text`` what came
-                  after, and otherwise ``reasoning`` is None.
+                  ``reasoning`` is what came before the last ``</think>`` and ``text``
+                  what came after. With thinking off ``reasoning`` is None and ``text``
+                  is all of it: the model cannot emit ``<think>`` or ``</think>`` then.
 ``arrived``       ``pipe``, ``segment``, ``ring``, ``integrity``: a delivery the job
                   read, as the kernel stamped it.
 ``demoted``       ``from_integrity``, ``to_integrity``, ``because``: the job's
@@ -512,9 +513,11 @@ class ChatRun:
                 call = self._last_call()
                 return [{"type": "tool_call", **self._call_fields(call)}]
             if event.pipe == pipes.out:
+                # With thinking off the model cannot emit the marker, and a reply that
+                # spells it in plain characters is still all reply.
                 reasoning, closed, answer = text.rpartition(THINK_CLOSE)
-                if not closed:
-                    reasoning, answer = None, text
+                if not closed or not self.machine.thinking:
+                    reasoning, closed, answer = None, "", text
                 return [
                     {
                         "type": "reply",

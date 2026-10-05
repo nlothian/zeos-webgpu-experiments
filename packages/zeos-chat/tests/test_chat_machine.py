@@ -1455,3 +1455,23 @@ def test_a_replay_refuses_a_start_integrity_it_cannot_carry(value: Any) -> None:
     run, _ = chat(["Ok."])
     with pytest.raises(ValueError, match="start_integrity"):
         run.import_history(HISTORY, start_integrity=value)
+
+
+# -- thinking off ------------------------------------------------------------------------
+
+
+def test_with_thinking_off_the_think_markers_are_banned_and_the_reply_is_not_split() -> None:
+    worker = ScriptedChatWorker([])
+    ids = worker.ids
+    off = ChatToolMachine(worker, tool_classes={}).allowed_tokens()
+    assert not off[ids["<think>"]] and not off[ids["</think>"]]
+    on = ChatToolMachine(ScriptedChatWorker([]), tool_classes={}, thinking=True).allowed_tokens()
+    assert on[ids["<think>"]] and on[ids["</think>"]]
+
+    # The same characters spelled one at a time are text, and all of it is the reply.
+    spelled = ScriptedChatWorker([], attend=attend_first)
+    spelled._tape = [spelled.ids[c] for c in "a</think>b"] + [IM_END_ID]  # pyright: ignore[reportPrivateUsage]
+    run = open_chat(spelled, tool_classes=CLASSES, system_prompt=PROMPT)
+    run.send_user("hi")
+    reply = next(e for e in until_waiting(run) if e["type"] == "reply")
+    assert (reply["text"], reply["reasoning"]) == ("a</think>b", None)

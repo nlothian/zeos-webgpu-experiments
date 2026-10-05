@@ -100,7 +100,9 @@ result reaches the model as a newline.
 **What the model may emit.** Every id but: the pad id; the end-of-sequence id unless it
 is ``<|im_end|>``; a control id, unless its piece is ``<|im_end|>``, ``<tool_call>``,
 ``</tool_call>``, ``<think>`` or ``</think>`` -- which the machine reads as text and never
-reports to the kernel as ``CONTROL``, since none is a kernel frame; an empty piece; and
+reports to the kernel as ``CONTROL``, since none is a kernel frame; with thinking off, any
+piece that is exactly ``<think>`` or ``</think>``, since the turn's think block is already
+closed; an empty piece; and
 any piece that would complete a banned tag, ``</?(KERNEL|RESUME|FAULT|STATUS|STUB)`` or
 ``</?tool_response``, across the pieces of the turn so far (``FrameGuard``), the first three
 in any case and through invisible or look-alike characters, as the kernel matches them
@@ -612,6 +614,7 @@ class ChatToolMachine(JsMachine):
         self._trusted: dict[str, dict[str, frozenset[str]]] = {
             name: _exact_rule(name, rule) for name, rule in (trusted_results or {}).items()
         }
+        self.thinking = thinking
         self._prefix = thinking_prefix(thinking) if assistant_prefix is None else assistant_prefix
         self._sampling = sampling
         self._seed = seed
@@ -643,6 +646,9 @@ class ChatToolMachine(JsMachine):
                 or token_id == self._pad_id
                 or (token_id == self._eos_id and piece != IM_END)
                 or (token_id in self._control and piece not in EMITTABLE_CONTROL)
+                # With thinking off the template closed the think block already; another
+                # would start reasoning the host shows as the reply.
+                or (not thinking and piece in (THINK_OPEN, THINK_CLOSE))
             ):
                 base[token_id] = 0
         self._base = bytes(base)
