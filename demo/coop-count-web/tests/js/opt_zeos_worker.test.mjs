@@ -150,6 +150,140 @@ describe("OptZeosWorker on onnxruntime-node", { skip }, () => {
     w.destroyContext("fresh");
   });
 
+  test("a skipped hidden run equals running it through the graph", async () => {
+    const ids = prompt(w, `Here are notes from the station.\n${"The night train leaves at ten past eleven from platform four, and the first train at six. ".repeat(4)}\nWhat time does the night train leave?`);
+    assert.ok(ids.length > 3 * EVERY);
+    // A run cut at the snapshot positions, so both ways chunk alike; and one that is not.
+    for (const [from, to] of [[EVERY, 3 * EVERY], [EVERY + 5, 3 * EVERY - 4]]) {
+      const mask = new Uint8Array(ids.length).fill(1);
+      mask.fill(0, from, to);
+      const opts = { allowedBlocks: mask, allowedTokens: null };
+      const results = [];
+      for (const skipHidden of [true, false]) {
+        w.skipHidden = skipHidden;
+        const before = w.stats.skipped;
+        w.createContext("skip");
+        w.append("skip", ids);
+        results.push({ step: await w.decodeStep("skip", opts), logits: w.lastLogits, skipped: w.stats.skipped - before });
+        w.destroyContext("skip");
+      }
+      w.skipHidden = true;
+      const [skipped, ran] = results;
+      assert.equal(skipped.skipped, to - from, `[${from}, ${to}) skipped`);
+      assert.equal(ran.skipped, 0);
+      for (let p = from; p < to; p++) assert.equal(skipped.step.attention[p], 0, `position ${p}`);
+      if (from % EVERY === 0 && to % EVERY === 0) {
+        assert.equal(bits(skipped.logits), bits(ran.logits), "aligned: bit for bit");
+        assert.equal(bits(skipped.step.attention), bits(ran.step.attention));
+      } else {
+        // Cut elsewhere, so only float16 rounding apart.
+        const diff = maxDiff(skipped.logits, ran.logits);
+        assert.ok(diff < 0.5, `max |logit diff| ${diff}`);
+      }
+    }
+  });
+
+  test("a mask narrowed for a few steps runs on a second cache and leaves the first alone", async () => {
+    // A prompt whose middle stands for a tool result, hidden while a tool's name is chosen.
+    const head = Array.from(prompt(w, "Summarise the result below in one sentence.\n\nRESULT:"));
+    const result = Array.from(w.tokenize(" The night train leaves at ten past eleven from platform four, and the first train at six."));
+    const done = Array.from(w.tokenize(" Done."));
+    const ids = [...head, ...result, ...w.tokenize("\nThat was the result.")];
+    const hidden = (n) => {
+      const mask = new Uint8Array(n).fill(1);
+      mask.fill(0, head.length, head.length + result.length);
+      return mask;
+    };
+    const narrow = (n) => ({ allowedBlocks: hidden(n), allowedTokens: null });
+
+    // Twins, one per mask, stepped at the same points, for bit-for-bit comparisons.
+    for (const id of ["two", "wide", "narrow"]) {
+      w.createContext(id);
+      w.append(id, ids);
+    }
+    const wide1 = await w.decodeStep("two", ALL);
+    assert.equal(bits(wide1.attention), bits((await w.decodeStep("wide", ALL)).attention));
+    for (const id of ["two", "wide", "narrow"]) w.append(id, [wide1.tokenId]);
+
+    // Narrowed: a second cache from the latest snapshot before the hidden run.
+    let before = { ...w.stats };
+    const masked = await w.decodeStep("two", narrow(ids.length + 1));
+    assert.equal(w.stats.tracks - before.tracks, 1);
+    assert.ok(w.stats.rerunPositions - before.rerunPositions < EVERY);
+    assert.ok(w.stats.skipped > before.skipped);
+    const fresh = await w.decodeStep("narrow", narrow(ids.length + 1));
+    assert.equal(masked.tokenId, fresh.tokenId);
+    assert.equal(bits(masked.attention), bits(fresh.attention), "equals a fresh prefill under the mask");
+    for (let p = head.length; p < head.length + result.length; p++) assert.equal(masked.attention[p], 0);
+
+    // Two more narrowed steps, then the wide mask again: back to the first cache, which
+    // runs only the four tokens it has not seen, with no rewind.
+    const named = [masked.tokenId];
+    for (const id of ["two", "narrow"]) w.append(id, [masked.tokenId]);
+    for (let i = 0; i < 2; i++) {
+      const a = await w.decodeStep("two", narrow(w.length("two")));
+      const b = await w.decodeStep("narrow", narrow(w.length("narrow")));
+      assert.equal(bits(a.attention), bits(b.attention));
+      named.push(a.tokenId);
+      for (const id of ["two", "narrow"]) w.append(id, [a.tokenId]);
+    }
+    w.append("wide", named);
+    before = { ...w.stats };
+    const back = await w.decodeStep("two", ALL);
+    assert.equal(w.stats.switches - before.switches, 1);
+    assert.equal(w.stats.reruns, before.reruns, "no rewind");
+    assert.equal(w.stats.positions - before.positions, named.length + 1);
+    const want = await w.decodeStep("wide", ALL);
+    assert.equal(bits(back.attention), bits(want.attention), "equals the wide twin");
+
+    // More content, a second hidden run, and the narrow mask again: the second cache
+    // catches up from where it stopped, skipping the new hidden run.
+    const more = [back.tokenId, ...w.tokenize(" Next result:"), ...result, ...done];
+    for (const id of ["two", "wide", "narrow"]) w.append(id, more);
+    const second = (n) => {
+      const mask = hidden(n);
+      const at = n - result.length - done.length;
+      mask.fill(0, at, at + result.length);
+      return { allowedBlocks: mask, allowedTokens: null };
+    };
+    before = { ...w.stats };
+    const again = await w.decodeStep("two", second(w.length("two")));
+    assert.equal(w.stats.switches - before.switches, 1);
+    assert.equal(w.stats.reruns, before.reruns, "caught up, not replayed");
+    assert.ok(w.stats.skipped > before.skipped);
+    const twin = await w.decodeStep("narrow", second(w.length("narrow")));
+    assert.equal(bits(again.attention), bits(twin.attention), "equals the narrow twin");
+
+    // A third mask starts a cache from the closer of the two and drops the older one.
+    before = { ...w.stats };
+    const third = narrow(w.length("two"));
+    third.allowedBlocks[1] = 0;
+    await w.decodeStep("two", third);
+    assert.equal(w.stats.tracks - before.tracks, 1);
+    assert.notEqual(w.contexts.get("two").other, null);
+    for (const id of ["two", "wide", "narrow"]) w.destroyContext(id);
+  });
+
+  test("with one cache a narrowed mask rewinds it", async () => {
+    w.maxTracks = 1;
+    try {
+      w.createContext("one");
+      w.append("one", prompt(w, "The password is swordfish. Remember it, then tell me a colour."));
+      await step(w, "one");
+      const mask = new Uint8Array(w.length("one")).fill(1);
+      mask.fill(0, 9, 14);
+      const before = { ...w.stats };
+      await w.decodeStep("one", { allowedBlocks: mask, allowedTokens: null });
+      await w.decodeStep("one", ALL);
+      assert.equal(w.stats.tracks, before.tracks);
+      assert.equal(w.stats.reruns - before.reruns, 2);
+      assert.equal(w.contexts.get("one").other, null);
+      w.destroyContext("one");
+    } finally {
+      w.maxTracks = 2;
+    }
+  });
+
   test("a repeated step, truncate and fork each recompute what a fresh prefix would", async () => {
     const ids = prompt(w, "Name three colours, one per line, and nothing else please.");
     w.createContext("fresh");

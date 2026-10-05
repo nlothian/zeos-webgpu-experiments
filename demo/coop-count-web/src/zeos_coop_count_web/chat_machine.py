@@ -103,6 +103,20 @@ frames ride on ``CONTROL`` tokens and already cannot be forged; what the guard a
 that the model's own text never spells one, so nothing it wrote can later be mistaken
 for one, and it cannot fake the shape of a tool result. Masks are cached per guard state.
 
+**The tool's name, chosen masked** (``mask_tool_choice``). From the step after the model
+emits ``<tool_call>`` until the piece that closes ``<function=NAME>``, the deliveries on
+``hidden_pipes`` -- the EXTERNAL ones, tool results and replayed turns, as ``open_chat``
+names them -- are hidden from the model: their own ids, not the framing around them, so
+the model still sees that a tool answered and that its turn began. The arguments and the
+rest of the turn see everything again. The tool is then chosen without reading what the
+tools returned, though what the model wrote after reading it stays in view. On those
+steps ``visible_blocks`` leaves out every kernel block that holds a hidden word, and the
+step's measured mass on such a block -- which can only be on the framing or the model's
+own text there, since the worker hid the rest -- is dropped rather than credited to the
+hidden segment, so a hidden segment neither demotes the job nor raises ``mask.denied``
+(on a worker that measures attention; one that cannot leaves the kernel its usual guess).
+The call records it (``ToolCall.name_masked``, ``name_hidden``).
+
 **Sampling.** Greedy unless ``sampling`` is given; then every step sends
 ``opts.sample = {temperature, topK, u}``, ``u`` drawn from a ``random.Random`` per job
 seeded from the run's seed and the job id, so a run is as reproducible as its worker's
@@ -346,6 +360,7 @@ class FrameGuard:
 # -- tool calls, as the app's Qwen parser reads and writes them -------------------------
 
 _FUNCTION = re.compile(r"\s*<function=([^>\n]+)>(.*?)</function>\s*", re.DOTALL)
+_FUNCTION_OPEN = "<function="
 _PARAMETER = re.compile(r"<parameter=([^>\n]+)>(.*?)</parameter>", re.DOTALL)
 
 
@@ -420,6 +435,10 @@ class ToolCall:
     #: Where its result is read from: ``tools.results``, or ``tools.results.trusted``
     #: for a call the trusted-results table names.
     results: PipeName = PipeName("tools.results")
+    #: Whether the name was chosen with deliveries hidden (``mask_tool_choice``).
+    name_masked: bool = False
+    #: The kernel offsets ``[start, end)`` of the deliveries hidden while it was chosen.
+    name_hidden: tuple[tuple[int, int], ...] = ()
 
     @property
     def payload(self) -> str:
@@ -458,6 +477,14 @@ class _Chat:
     replay: list[PipeName] = field(default_factory=list[PipeName])
     #: Whether a replay has yet to hand over to ``chat.user`` once its pipes are read.
     replay_tail: bool = False
+    #: Kernel offsets ``[start, end)`` of deliveries on the hidden pipes, in order.
+    hidden: list[tuple[int, int]] = field(default_factory=list[tuple[int, int]])
+    #: Kernel blocks the latest step hid, which ``visible_blocks`` leaves out.
+    narrowed: frozenset[int] = frozenset()
+    #: Where in ``text`` the ``<tool_call>`` whose name was chosen masked opens, and what
+    #: was hidden then.
+    masked_call: int | None = None
+    masked_hidden: tuple[tuple[int, int], ...] = ()
 
     def copy(self) -> _Chat:
         clone = _Chat(
@@ -471,6 +498,10 @@ class _Chat:
             calls=list(self.calls),
             replay=list(self.replay),
             replay_tail=self.replay_tail,
+            hidden=list(self.hidden),
+            narrowed=self.narrowed,
+            masked_call=self.masked_call,
+            masked_hidden=self.masked_hidden,
         )
         if self.rng is not None:
             clone.rng = random.Random()
@@ -496,6 +527,8 @@ class ChatToolMachine(JsMachine):
         trusted_results: Mapping[str, ArgumentRule] | None = None,
         banned_tags: Iterable[str] = BANNED_TAGS,
         block_size: int = DEFAULT_BLOCK_SIZE,
+        mask_tool_choice: bool = False,
+        hidden_pipes: Iterable[PipeName] | None = None,
     ) -> None:
         super().__init__(worker, bridge=bridge, block_size=block_size, chat_template="chatml")
         self.pipes = pipes or ChatPipes()
@@ -523,6 +556,10 @@ class ChatToolMachine(JsMachine):
         self._param_types = {k: dict(v) for k, v in (param_types or {}).items()}
         self._chats: dict[JobId, _Chat] = {}
         self._tokenized: dict[str, tuple[int, ...]] = {}
+        self._mask_tool_choice = mask_tool_choice
+        self._hidden_pipes = frozenset(
+            (self.pipes.results, self.pipes.history) if hidden_pipes is None else hidden_pipes
+        )
 
         pieces = self._pieces
         # The markers JsMachine found among the control ids, and the rest of the
@@ -691,6 +728,12 @@ class ChatToolMachine(JsMachine):
             chat.in_tool_response = False
             chat.arrived = chat.awaiting is not None
 
+        if (
+            self._mask_tool_choice
+            and tokens[0].kind is not TokenKind.CONTROL
+            and chat.awaiting in self._hidden_pipes
+        ):
+            chat.hidden.append((start, end))
         self._frame_into(ctx, head, start, before=True)
         if tail:
             self._frame_into(ctx, tail, end - 1, before=False)
@@ -703,9 +746,19 @@ class ChatToolMachine(JsMachine):
         ctx.tags = ("self",)
         return start, end
 
+    def visible_blocks(self, job: JobId) -> frozenset[int]:
+        """``JsMachine.visible_blocks``, less the blocks the latest step hid."""
+        return super().visible_blocks(job) - self._chat_of(job).narrowed
+
+    def trunc(self, job: JobId, at: int) -> int:
+        chat = self._chat_of(job)
+        chat.hidden = [(s, min(e, at)) for s, e in chat.hidden if s < at]
+        return super().trunc(job, at)
+
     def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
         """``JsMachine.splice``, keeping the framing on the edges of the range: a stub in
         place of a tool result still sits in its turn."""
+        self._splice_hidden(self._chat_of(job), start, end, len(tokens))
         ctx = self._ctx_of(job)
         if not tokens or start == end:
             return super().splice(job, start, end, tokens)
@@ -732,6 +785,55 @@ class ChatToolMachine(JsMachine):
             ctx.framing[last] = (0, len(tail_ids))
         return result
 
+    def _splice_hidden(self, chat: _Chat, start: int, end: int, count: int) -> None:
+        """Move the hidden ranges as a splice of ``count`` tokens over ``[start, end)``
+        moves the words: what it replaces is the kernel's text, and is not hidden."""
+        shift = count - (end - start)
+        moved: list[tuple[int, int]] = []
+        for s, e in chat.hidden:
+            if s < start:
+                moved.append((s, min(e, start)))
+            if e > end:
+                moved.append((max(s, end) + shift, e + shift))
+        chat.hidden = [(s, e) for s, e in moved if e > s]
+
+    def _in_name_span(self, chat: _Chat) -> bool:
+        """Whether the turn so far ends inside an open call before its name is closed:
+        after ``<tool_call>``, on the way to ``<function=NAME>``."""
+        opened = chat.text.find(TOOL_CALL_OPEN, chat.scan)
+        if opened < 0:
+            return False
+        head = chat.text[opened + len(TOOL_CALL_OPEN) :].lstrip()
+        if len(head) <= len(_FUNCTION_OPEN):
+            return _FUNCTION_OPEN.startswith(head)
+        if not head.startswith(_FUNCTION_OPEN):
+            return False
+        name = head[len(_FUNCTION_OPEN) :]
+        return ">" not in name and "\n" not in name
+
+    def _narrowed_blocks(
+        self, ctx: _Context, chat: _Chat, blocks: bytes | None
+    ) -> tuple[bytes, frozenset[int]]:
+        """``blocks`` with the ids of every hidden word hidden too, failing closed on a
+        worker block that holds one, and the kernel blocks those words are in."""
+        size = self._worker_block
+        count = (len(ctx.ids) + size - 1) // size
+        flags = bytearray(b"\x01") * count if blocks is None else bytearray(blocks)
+        offsets = [0]
+        for span in ctx.spans:
+            offsets.append(offsets[-1] + span)
+        kernel_blocks: set[int] = set()
+        for start, end in chat.hidden:
+            for index in range(start, end):
+                head, tail = ctx.framing[index]
+                first, last = offsets[index] + head, offsets[index + 1] - tail
+                if last > first:
+                    flags[first // size : (last - 1) // size + 1] = bytes(
+                        (last - 1) // size + 1 - first // size
+                    )
+                kernel_blocks.add(index // self._block_size)
+        return bytes(flags), frozenset(kernel_blocks)
+
     def _quiet(self, request: MachineRequest) -> DecodeResult:
         """A step that runs no forward pass, so attends nothing."""
         return DecodeResult(tokens=(), request=request, attention={})
@@ -749,10 +851,12 @@ class ChatToolMachine(JsMachine):
         chat.text = ""
         chat.scan = 0
         chat.guard = ""
+        chat.masked_call, chat.masked_hidden = None, ()
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
         ctx = self._ctx_of(job)
         chat = self._chat_of(job)
+        chat.narrowed = frozenset()
         if not ctx.ids:
             raise RuntimeError(
                 "cannot decode an empty context; the kernel injects the descriptor "
@@ -781,6 +885,10 @@ class ChatToolMachine(JsMachine):
 
         allowed = self.allowed_tokens(chat.guard)
         blocks = self._allowed_blocks(ctx)
+        if self._mask_tool_choice and chat.hidden and self._in_name_span(chat):
+            blocks, chat.narrowed = self._narrowed_blocks(ctx, chat, blocks)
+            chat.masked_call = chat.text.find(TOOL_CALL_OPEN, chat.scan)
+            chat.masked_hidden = tuple(chat.hidden)
         sample: dict[str, float] | None = None
         if self._sampling is not None:
             assert chat.rng is not None
@@ -795,6 +903,10 @@ class ChatToolMachine(JsMachine):
             raise WorkerViolation(f"job {job}: the worker chose id {tid}, which the mask refused")
         measured = self._bridge.floats(step.attention)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
         attention = None if measured is None else self._kernel_attention(ctx, measured, blocks)
+        if attention is not None and chat.narrowed:
+            # What the step paid a hidden word's block went to its framing or to the
+            # model's own text there; the kernel would credit it to the hidden segment.
+            attention = {b: v for b, v in attention.items() if b not in chat.narrowed}
         hint = AttentionHint(tags=ctx.tags) if measured is None else None
 
         if tid == self._im_end:
@@ -857,6 +969,9 @@ class ChatToolMachine(JsMachine):
             return None
         name, arguments = parsed
         sink = self.pipes.read if self.tool_class(name, arguments) == READ else self.pipes.effect
+        masked = chat.masked_call == opened
+        hidden = chat.masked_hidden if masked else ()
+        chat.masked_call, chat.masked_hidden = None, ()
         return ToolCall(
             index=len(chat.calls),
             name=name,
@@ -864,6 +979,8 @@ class ChatToolMachine(JsMachine):
             sink=sink,
             raw=text[opened : chat.scan],
             results=self.results_pipe(name, arguments),
+            name_masked=masked,
+            name_hidden=hidden,
         )
 
 

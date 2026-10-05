@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Masked tool names on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>Masked tool names on WebGPU</h1>
+    <p>
+      Times <code>web/opt_zeos_worker.js</code> choosing tool names with the tool results hidden
+      (<code>mask_tool_choice</code>), in a chat-agent context of about 7,000 tokens. Query
+      parameters: <code>model</code> (default <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>),
+      <code>ort</code> (the <code>ort.webgpu.min.mjs</code> to import), <code>system</code> (tokens in
+      the system turn, default 6700). Serve the demo directory (<code>serve.py --dir
+      demo/coop-count-web</code>) after <code>npm install</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="mask.js"></script>
+  </body>
+</html>

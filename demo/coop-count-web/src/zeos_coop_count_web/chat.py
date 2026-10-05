@@ -26,14 +26,17 @@ Events are plain dicts, one per thing the host can show or must act on, in journ
 order. Every one has ``type``; the other fields are:
 
 ``token``         ``text``: one piece the model decoded, for streaming.
-``tool_call``     ``call``, ``name``, ``arguments``, ``sink``, ``results``: a call that
+``tool_call``     ``call``, ``name``, ``arguments``, ``sink``, ``results``,
+                  ``name_masked``, ``name_hidden``: a call that
                   landed on ``tools.read`` or ``tools.effect``. The host runs it, then
                   ``deliver_tool_result``. It also drains the sink (``drain``).
                   ``results`` is the pipe the job reads the answer from:
                   ``tools.results``, or ``tools.results.trusted`` for a call the
-                  host's ``trusted_results`` table names.
+                  host's ``trusted_results`` table names. ``name_masked`` says the
+                  tool's name was chosen with the EXTERNAL deliveries hidden
+                  (``mask_tool_choice``), and ``name_hidden`` lists their segment ids.
 ``approval_required``
-                  ``call``, ``name``, ``arguments``, ``sink``, ``results``, ``fault``, ``detail``,
+                  the ``tool_call`` fields, ``fault``, ``detail``,
                   ``integrity``, ``effective_integrity``, ``session_floor``,
                   ``demotions``: a call the kernel refused for privilege. Nothing landed.
                   On approval the host runs it under the user's authority and delivers
@@ -93,7 +96,7 @@ from zeos.core.events import (
     JobBlocked,
     PipeWritten,
 )
-from zeos.core.ids import FaultKind, JobState, PipeName, SegmentId
+from zeos.core.ids import FaultKind, JobState, PipeName, Ring, SegmentId
 from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.core.pcb import Job
 from zeos.descriptor.lint import Severity
@@ -167,6 +170,7 @@ def open_chat(
     max_ticks: int = 10**9,
     gate_mode: str = STRICT,
     trusted_results: Mapping[str, Mapping[str, str]] | None = None,
+    mask_tool_choice: bool = False,
 ) -> ChatRun:
     """A conversation, booted and waiting for its first message.
 
@@ -180,6 +184,8 @@ def open_chat(
     ``session_floor: false``. ``trusted_results[tool]`` is a ``{param: pattern}`` rule,
     matched as ``read_if`` is: a call it matches reads its result from
     ``tools.results.trusted``, for text the host wrote itself rather than fetched.
+    ``mask_tool_choice`` hides every delivery on an EXTERNAL device pipe -- tool results
+    and replayed turns -- while the model writes a tool's name (``chat_machine``).
     Refuses a case that does not lint.
     """
     if gate_mode not in GATE_MODES:
@@ -224,6 +230,8 @@ def open_chat(
         param_types=param_types,
         trusted_results=trusted_results,
         block_size=block_size,
+        mask_tool_choice=mask_tool_choice,
+        hidden_pipes=[p.name for p in bundle.pipes if p.device and p.ring >= Ring.EXTERNAL],
     )
     return ChatRun(bundle, machine, seed=seed, theta_read=theta_read, max_ticks=max_ticks)
 
@@ -418,7 +426,7 @@ class ChatRun:
             text = "".join(event.text)
             if event.pipe in pipes.tool_sinks:
                 call = self._last_call()
-                return [{"type": "tool_call", **_call_fields(call)}]
+                return [{"type": "tool_call", **self._call_fields(call)}]
             if event.pipe == pipes.out:
                 reasoning, closed, answer = text.rpartition(THINK_CLOSE)
                 if not closed:
@@ -468,7 +476,7 @@ class ChatRun:
                 "type": "approval_required"
                 if event.fault is FaultKind.PRIVILEGE
                 else "tool_refused",
-                **_call_fields(self._last_call()),
+                **self._call_fields(self._last_call()),
                 "fault": str(event.fault),
                 "detail": event.detail,
                 "integrity": int(job.current_integrity),
@@ -507,6 +515,18 @@ class ChatRun:
             "injected_at": record.provenance.injected_at,
         }
 
+    def _call_fields(self, call: ToolCall) -> dict[str, Any]:
+        starts = {record.start: int(record.id) for record in self.job().segments.all()}
+        return {
+            "call": call.index,
+            "name": call.name,
+            "arguments": dict(call.arguments),
+            "sink": str(call.sink),
+            "results": str(call.results),
+            "name_masked": call.name_masked,
+            "name_hidden": [starts[s] for s, _ in call.name_hidden if s in starts],
+        }
+
     def demotions(self) -> list[dict[str, Any]]:
         """Every fall of the job's watermark so far, with the segments that caused it."""
         job = self.job().job_id
@@ -530,7 +550,7 @@ class ChatRun:
             "segments": [self.segment_info(s.id) for s in job.segments.all()],
             "demotions": self.demotions(),
             "pending_approval": self.pending_approval,
-            "calls": [_call_fields(c) for c in self.machine.calls(job.job_id)],
+            "calls": [self._call_fields(c) for c in self.machine.calls(job.job_id)],
         }
 
     # -- the journal ----------------------------------------------------------------
@@ -544,16 +564,6 @@ class ChatRun:
 
     def state_json(self) -> str:
         return json.dumps(self.state(), separators=(",", ":"))
-
-
-def _call_fields(call: ToolCall) -> dict[str, Any]:
-    return {
-        "call": call.index,
-        "name": call.name,
-        "arguments": dict(call.arguments),
-        "sink": str(call.sink),
-        "results": str(call.results),
-    }
 
 
 def _name(pipe: PipeName | None) -> str | None:

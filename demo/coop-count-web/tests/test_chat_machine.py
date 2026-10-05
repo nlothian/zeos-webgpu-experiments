@@ -26,7 +26,7 @@ from chat_workers import (
     attend_first,
     attend_uniformly,
 )
-from zeos.core.events import Decoded
+from zeos.core.events import AttentionDenied, Decoded
 from zeos.core.ids import JobId, TokenKind
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import load_case
@@ -262,6 +262,8 @@ def test_a_tool_call_round_trip_keeps_the_results_line_breaks() -> None:
         "arguments": {"path": "train.csv"},
         "sink": "tools.read",
         "results": "tools.results",
+        "name_masked": False,
+        "name_hidden": [],
     }
     assert run.waiting_on() == "tools.results"
     assert [json.loads(p) for p in run.drain("tools.read")] == [
@@ -891,3 +893,228 @@ def test_a_case_can_declare_the_opt_out_itself(tmp_path: Path) -> None:
     pipes.write_text(text.replace(marker, marker + "  session_floor: false\n"))
     events = read_then_write(attend=attend_first, case_dir=case)
     assert types(events) == ["arrived", "tool_call", "waiting"]
+
+
+# -- the tool's name, chosen masked ----------------------------------------------------
+
+
+class RecordingWorker(ScriptedChatWorker):
+    """Keeps every step's context text and the positions its mask hid."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.steps: list[tuple[str, str]] = []
+
+    def decodeStep(self, jobId: str, opts: Any) -> Any:
+        ids = self.contexts[jobId].ids
+        blocks = opts["allowedBlocks"]
+        hidden = (
+            ""
+            if blocks is None
+            else "".join(self.vocab[i] for i, b in zip(ids, blocks, strict=True) if not b)
+        )
+        self.steps.append((self.text(jobId), hidden))
+        return super().decodeStep(jobId, opts)
+
+
+Z_ID = ScriptedChatWorker([]).ids["Z"]
+
+
+def attend_marker(ids: Sequence[int], allowed: Sequence[bool]) -> list[float]:
+    """Everything on the allowed ``Z`` positions, or on the first allowed one if none."""
+    marked = [i for i, a in enumerate(allowed) if a and ids[i] == Z_ID]
+    if not marked:
+        return attend_first(ids, allowed)
+    return [1.0 / len(marked) if i in marked else 0.0 for i in range(len(allowed))]
+
+
+def masked_chat(
+    replies: Sequence[str], *, attend: Any = attend_uniformly, **kwargs: Any
+) -> tuple[ChatRun, RecordingWorker]:
+    worker = RecordingWorker(replies, attend=attend)
+    kwargs.setdefault("system_prompt", PROMPT)
+    kwargs.setdefault("mask_tool_choice", True)
+    return open_chat(worker, tool_classes=CLASSES, **kwargs), worker
+
+
+def turn_text(context: str) -> str:
+    """What the model has decoded in the turn the context ends in."""
+    return context.rpartition("<|im_start|>assistant\n<think>\n\n</think>\n\n")[2]
+
+
+def in_name_span(turn: str) -> bool:
+    _, opened, rest = turn.rpartition("<tool_call>")
+    return (
+        bool(opened) and "</tool_call>" not in rest and ">" not in rest.partition("<function=")[2]
+    )
+
+
+def test_the_name_is_chosen_with_the_tool_results_hidden_and_only_the_name() -> None:
+    run, worker = masked_chat(
+        [
+            call("ReadLines", path="a.csv"),
+            "Now b.\n" + call("WriteLines", path="b", lines=["x"]),
+            "Done.",
+        ]
+    )
+    run.send_user("copy a to b")
+    first = next(e for e in until_waiting(run) if e["type"] == "tool_call")
+    assert (first["name_masked"], first["name_hidden"]) == (False, [])
+    assert all(hidden == "" for _, hidden in worker.steps), "nothing to hide before a result"
+    worker.steps.clear()
+    run.deliver_tool_result(TABLE)
+    events = until_waiting(run)
+    refused = next(e for e in events if e["type"] == "approval_required")
+    (result,) = [s for s in run.state()["segments"] if s["pipe"] == "tools.results"]
+    assert refused["name_masked"] is True and refused["name_hidden"] == [result["segment"]]
+    masked = [turn_text(context) for context, hidden in worker.steps if hidden]
+    # From the step after <tool_call> to the step that closes the name, exactly.
+    assert masked == [turn_text(c) for c, _ in worker.steps if in_name_span(turn_text(c))]
+    assert (
+        masked[0] == "Now b.\n<tool_call>"
+        and masked[-1] == "Now b.\n<tool_call>\n<function=WriteLines"
+    )
+    # Only the result's own text; the framing around it stays in view.
+    assert {hidden for _, hidden in worker.steps if hidden} == {TABLE}
+
+
+def test_a_hidden_result_gets_no_attention_and_no_denial_while_the_name_is_chosen() -> None:
+    run, _ = masked_chat([call("ReadLines", path="a"), call("ListFiles"), "Done."])
+    machine = run.machine
+    seen: list[tuple[str, Any, frozenset[int], bool]] = []
+    decode = machine.decode
+
+    def recording(job: JobId, *, allow_control: bool) -> Any:
+        result = decode(job, allow_control=allow_control)
+        state = machine._chat_of(job)  # pyright: ignore[reportPrivateUsage]
+        seen.append(
+            (state.text, result.attention, machine.visible_blocks(job), bool(state.narrowed))
+        )
+        return result
+
+    machine.decode = recording  # type: ignore[method-assign]
+    run.send_user("list")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    seen.clear()
+    until_waiting(run)
+    job = run.job()
+    (record,) = [s for s in job.segments.all() if str(s.provenance.pipe) == "tools.results"]
+    blocks = job.segments.blocks_for(record)
+    spans = [(a, v) for _, a, v, narrowed in seen if narrowed]
+    assert len(spans) == len("\n<function=ListFiles>")
+    for attention, visible in spans:
+        assert attention is not None and not (set(attention) & blocks)
+        assert not (visible & blocks)
+    after = [a for text, a, _, narrowed in seen if not narrowed and "ListFiles>" in text]
+    assert after and all(a is not None and set(a) & blocks for a in after)
+    assert not [e for e in run.run.events if isinstance(e, AttentionDenied)]
+
+
+def demotion_text(mask_tool_choice: bool) -> tuple[str, list[str]]:
+    """Where in the turn the job was demoted for attending the result, and what followed."""
+    name = "WriteLinesToTheScratchpadDirectory"
+    run, _ = masked_chat(
+        [call("ReadLines", path="a"), call(name, path="b"), "Done."],
+        attend=attend_marker,
+        gate_mode="attention",
+        theta_read=2.0,
+        mask_tool_choice=mask_tool_choice,
+    )
+    run.send_user("copy")
+    until_waiting(run)
+    run.deliver_tool_result("ZZZZ ZZZZ\nZZZZ ZZZZ")
+    text, at = "", None
+    kinds: list[str] = []
+    for _ in range(400):
+        for event in run.step(1):
+            kinds.append(event["type"])
+            if event["type"] == "token":
+                text += event["text"]
+            elif event["type"] == "demoted" and at is None:
+                at = text
+        if run.waiting_on() is not None:
+            break
+    assert at is not None
+    return at, kinds
+
+
+def test_masked_the_result_demotes_only_after_the_name_is_chosen() -> None:
+    unmasked, kinds = demotion_text(False)
+    assert "<tool_call>" in unmasked and ">" not in unmasked.partition("<function=")[2]
+    masked, masked_kinds = demotion_text(True)
+    assert "<function=WriteLinesToTheScratchpadDirectory>" in masked
+    # Attending the arguments still demotes, so the effect still needs approval.
+    assert "approval_required" in kinds and "approval_required" in masked_kinds
+
+
+def test_replayed_untrusted_turns_are_hidden_too_and_trusted_ones_are_not() -> None:
+    run, worker = masked_chat([call("ListFiles"), "Done."])
+    run.import_history(HISTORY)
+    run.send_user("and now?")
+    worker.steps.clear()
+    until_waiting(run)
+    hidden = {h for _, h in worker.steps if h}
+    assert hidden == {str(HISTORY[1]["text"]) + TABLE}
+
+
+def test_a_trusted_result_is_not_hidden() -> None:
+    worker = RecordingWorker(
+        [call("CallSkill", skill="sql"), call("ListFiles"), "Done."], attend=attend_uniformly
+    )
+    run = open_chat(
+        worker,
+        tool_classes={**CLASSES, "CallSkill": "read"},
+        system_prompt=PROMPT,
+        trusted_results=TRUSTED,
+        mask_tool_choice=True,
+    )
+    run.send_user("use sql")
+    until_waiting(run)
+    run.deliver_tool_result(SKILL_CARD, trusted=True)
+    events = until_waiting(run)
+    assert next(e for e in events if e["type"] == "tool_call")["name_masked"] is False
+    assert all(h == "" for _, h in worker.steps)
+
+
+def test_the_flag_off_hides_nothing_and_with_nothing_to_hide_changes_nothing() -> None:
+    run, worker = masked_chat(
+        [call("ReadLines", path="a"), call("ListFiles"), "Done."], mask_tool_choice=False
+    )
+    run.send_user("list")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    events = until_waiting(run)
+    assert all(h == "" for _, h in worker.steps)
+    assert next(e for e in events if e["type"] == "tool_call")["name_masked"] is False
+
+    def journal(mask: bool) -> bytes:
+        run, _ = masked_chat([call("ListFiles"), "Done."], mask_tool_choice=mask)
+        run.send_user("list")
+        until_waiting(run)
+        return run.journal_bytes()
+
+    assert journal(True) == journal(False)
+
+
+def test_a_splice_or_trunc_moves_the_hidden_ranges_with_the_words() -> None:
+    worker = ScriptedChatWorker([])
+    machine = ChatToolMachine(worker, tool_classes={}, mask_tool_choice=True)
+    job = JobId(1)
+    machine.create_context(job, "d")
+    machine.inject(job, tokens_from_text("system words", preserve_whitespace=True))
+    state = machine._chat_of(job)  # pyright: ignore[reportPrivateUsage]
+    state.awaiting = machine.pipes.results
+    first = machine.inject(job, tokens_from_text("a b c", preserve_whitespace=True))
+    state.awaiting = machine.pipes.results
+    second = machine.inject(job, tokens_from_text("d e", preserve_whitespace=True))
+    assert state.hidden == [first, second]
+    machine.splice(job, first[0], first[1], (Token("<STUB 1>", TokenKind.CONTROL),))
+    assert state.hidden == [(second[0] - 2, second[1] - 2)]
+    machine.trunc(job, second[0] - 1)
+    assert state.hidden == [(second[0] - 2, second[0] - 1)]
+
+
+@pytest.mark.determinism
+def test_a_masked_conversation_writes_the_same_journal_every_time() -> None:
+    assert scripted_journal(mask_tool_choice=True) == scripted_journal(mask_tool_choice=True)

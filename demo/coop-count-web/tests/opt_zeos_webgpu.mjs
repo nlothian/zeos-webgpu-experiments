@@ -6,9 +6,11 @@
 
 // Run export/bench/worker.html (OptZeosWorker on WebGPU) in headed Chrome and report its
 // checks and timings. Exits 1 if a check fails, 2 if the page errors, and 0 with a
-// skip message when the export is absent.
+// skip message when the export is absent. `--page mask.html` runs the masked-tool-name
+// timings instead.
 //
-//   node tests/opt_zeos_webgpu.mjs [--port 8767] [--ort URL] [--steps 32]
+//   node tests/opt_zeos_webgpu.mjs [--port 8767] [--ort URL] [--steps 32] [--page worker.html]
+//     [--query "configs=2"]
 //
 // Needs Playwright and Google Chrome. Playwright is not a dependency of this demo:
 // PLAYWRIGHT_MODULE names a directory to import it from (any project's
@@ -30,6 +32,9 @@ const { values } = parseArgs({
     ort: { type: "string" },
     steps: { type: "string", default: "32" },
     model: { type: "string", default: "/models/Qwen3.5-4B-ZEOS-OPT/" },
+    page: { type: "string", default: "worker.html" },
+    // More query parameters for the page, as `a=1&b=2`.
+    query: { type: "string", default: "" },
   },
 });
 
@@ -65,7 +70,8 @@ try {
   page.on("console", (message) => console.log(`[page] ${message.text()}`));
   const query = new URLSearchParams({ steps: values.steps, model: values.model });
   if (values.ort) query.set("ort", values.ort);
-  await page.goto(`http://localhost:${values.port}/export/bench/worker.html?${query}`);
+  for (const [k, v] of new URLSearchParams(values.query)) query.set(k, v);
+  await page.goto(`http://localhost:${values.port}/export/bench/${values.page}?${query}`);
   await page.waitForFunction(() => window.benchResult !== undefined, null, { timeout: 30 * 60_000, polling: 1000 });
   const result = await page.evaluate(() => window.benchResult);
   const failed = result.checks.filter((c) => !c.ok);

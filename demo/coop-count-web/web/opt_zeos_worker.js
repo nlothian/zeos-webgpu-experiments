@@ -33,18 +33,41 @@
  * (`copyBufferToBuffer`, no round trip through the CPU).
  *
  * **Snapshots.** The DeltaNet layers' recurrent state and convolution window are not per
- * position, so they cannot be cut. A context keeps the state after every
- * `snapshotEvery` (256) positions, and the state from before its latest run, as
- * references to the graph's own output tensors: no copy, no download, about 25 MB of GPU
- * memory each (24 layers of a 1 MiB recurrent state and a 48 KiB window). At most
- * `maxSnapshots` (16) are kept; past that the one whose removal leaves the smallest gap
- * goes, so old snapshots thin out and recent ones stay dense. A cut (`truncate`, or a
- * step whose mask disagrees over a past position with the mask the state was built under)
- * rewinds to the latest snapshot at or before the position and replays the positions
- * after it, at most `snapshotEvery - 1` of them while no snapshot has been thinned.
- * Keeping the snapshots on the GPU costs memory the CPU would not, but a rewind then costs
- * nothing but the replay, where a downloaded snapshot would cost a 25 MB upload and every
- * snapshot taken a 25 MB download.
+ * position, so they cannot be cut. A cache keeps the state after every `snapshotEvery`
+ * (256) positions, and the state from before its latest run, as references to the
+ * graph's own output tensors: no copy, no download, about 25 MB of GPU memory each (24
+ * layers of a 1 MiB recurrent state and a 48 KiB window). At most `maxSnapshots` (16) are
+ * kept; past that the one whose removal leaves the smallest gap goes, so old snapshots
+ * thin out and recent ones stay dense. A cut (`truncate`, or a step whose mask disagrees
+ * over a past position with the mask the state was built under) rewinds to the latest
+ * snapshot at or before the position and replays the positions after it, at most
+ * `snapshotEvery - 1` of them while no snapshot has been thinned. Keeping the snapshots
+ * on the GPU costs memory the CPU would not, but a rewind then costs nothing but the
+ * replay, where a downloaded snapshot would cost a 25 MB upload and every snapshot taken a
+ * 25 MB download.
+ *
+ * **Two caches per context** (`maxTracks`, 2 by default). A context keeps the cache of
+ * its latest step's mask and the cache of the mask before it. A step whose mask agrees
+ * with neither over their cached positions starts a new cache from whichever of the two
+ * shares more of its history (rewound to the latest snapshot before they part), and the
+ * older of the two is dropped. A step whose mask agrees with the kept one switches to it
+ * and runs only what that cache has not seen. So a mask that hides some past positions
+ * for a few steps and then shows them again -- a tool's name chosen without the tool
+ * results in view -- replays once when it is first narrowed and then only catches up,
+ * and the cache of the wide mask is never rewound. Each cache costs its own softmax keys
+ * and values (32 KB a position) and snapshots. With `maxTracks` 1 a disagreeing mask
+ * rewinds the one cache instead.
+ *
+ * **Hidden runs** (`skipHidden`, on by default). A hidden position leaves the DeltaNet
+ * state as it was (beta and the log decay are zero) and enters the convolution as zeros,
+ * and no later query can attend its keys. So a run of at least `convShape[2]` (3) hidden
+ * positions, not including the last one, is not run through the graph: the recurrent
+ * state is carried as it is, the convolution window becomes zeros, and the softmax cache
+ * grows by zeros there in one copy, which the key mask hides. Chunks are also cut where
+ * such a run starts. A fresh prefill and a replay under the same mask cut and skip at the
+ * same positions, so they still agree bit for bit; and a skipped run aligned with the
+ * chunks is bit for bit the run it stands in for, since a hidden position adds exact
+ * zeros and multiplies by exact ones.
  */
 
 import { encodePlain, sampleToken } from "./transformers_worker.js";
@@ -52,8 +75,10 @@ import { encodePlain, sampleToken } from "./transformers_worker.js";
 /** Positions between two snapshots of a context's recurrent state, and so the most a cut
  * replays. Also the length every prefill chunk is cut at. */
 export const SNAPSHOT_EVERY = 256;
-/** The most snapshots one context keeps. */
+/** The most snapshots one cache keeps. */
 export const MAX_SNAPSHOTS = 16;
+/** The most caches one context keeps, one per mask history. */
+export const MAX_TRACKS = 2;
 
 /** Whether a `meta.json` describes an OPT+ZEOS export rather than an `export_model.py`
  * one. */
@@ -87,10 +112,13 @@ function f16ToF32(data, limit) {
 
 /** A set of tensors with a reference count, disposed when the last holder releases it. */
 class Shared {
-  constructor(tensors, { permanent = false } = {}) {
+  /** With `parents`, the tensors are borrowed from those sets: the last release here
+   * releases them rather than disposing anything. */
+  constructor(tensors, { permanent = false, parents = null } = {}) {
     this.tensors = tensors;
     this.refs = 1;
     this.permanent = permanent;
+    this.parents = parents;
   }
 
   retain() {
@@ -103,17 +131,22 @@ class Shared {
     this.refs -= 1;
     if (this.refs < 0) throw new Error("tensor set released twice");
     if (this.refs === 0) {
-      for (const t of Object.values(this.tensors)) t.dispose();
+      if (this.parents === null) for (const t of Object.values(this.tensors)) t.dispose();
+      else for (const parent of this.parents) parent.release();
       this.tensors = null;
+      this.parents = null;
     }
   }
 }
 
-class Context {
-  constructor(worker, job) {
-    /** The context id the interface gave this cache, for `onActivity`. */
-    this.job = job;
-    this.tokens = [];
+let trackIds = 0;
+
+/** One cache of a context: the softmax layers' keys and values and the DeltaNet state for
+ * `kvLength` positions, built under one history of masks (`visibility`). */
+class Track {
+  constructor(worker) {
+    /** Numbers caches for `onActivity`. */
+    this.id = ++trackIds;
     /** Positions with a cache behind them. */
     this.kvLength = 0;
     /** The softmax layers' keys and values for `kvLength` positions, by input name. */
@@ -136,10 +169,16 @@ class Context {
     }
   }
 
-  copy(job) {
-    const other = Object.assign(Object.create(Context.prototype), this);
-    other.job = job;
-    other.tokens = this.tokens.slice();
+  /** How many leading cached positions were built as `allowed` would show them. */
+  agreement(allowed) {
+    let p = 0;
+    while (p < this.kvLength && this.visibility[p] === allowed[p]) p++;
+    return p;
+  }
+
+  copy() {
+    const other = Object.assign(Object.create(Track.prototype), this);
+    other.id = ++trackIds;
     other.visibility = this.visibility.slice();
     other.kv = this.kv.retain();
     other.state = this.state.retain();
@@ -159,6 +198,38 @@ class Context {
   }
 }
 
+class Context {
+  constructor(worker, job) {
+    /** The context id the interface gave this cache, for `onActivity`. */
+    this.job = job;
+    this.tokens = [];
+    /** The cache of the latest step's mask. */
+    this.track = new Track(worker);
+    /** The cache of the mask before it, or null. */
+    this.other = null;
+  }
+
+  get snapshots() {
+    return this.track.snapshots;
+  }
+
+  /** A fork's context: the tokens, and the current cache with its tensors shared. */
+  copy(job) {
+    const other = Object.create(Context.prototype);
+    other.job = job;
+    other.tokens = this.tokens.slice();
+    other.track = this.track.copy();
+    other.other = null;
+    return other;
+  }
+
+  release() {
+    this.track.release();
+    this.other?.release();
+    this.other = null;
+  }
+}
+
 export class OptZeosWorker {
   /**
    * @param {object} deps
@@ -172,6 +243,8 @@ export class OptZeosWorker {
    * @param {(activity: object) => void} [deps.onActivity] as `TransformersWorker`'s.
    * @param {number} [deps.snapshotEvery]
    * @param {number} [deps.maxSnapshots]
+   * @param {number} [deps.maxTracks] caches per context, 1 or 2.
+   * @param {boolean} [deps.skipHidden] carry the state past runs of hidden positions.
    */
   constructor({
     ort,
@@ -184,9 +257,12 @@ export class OptZeosWorker {
     onActivity = null,
     snapshotEvery = SNAPSHOT_EVERY,
     maxSnapshots = MAX_SNAPSHOTS,
+    maxTracks = MAX_TRACKS,
+    skipHidden = true,
   }) {
     if (meta.blockSize !== 1) throw new Error(`export has blockSize ${meta.blockSize}; expected 1`);
     if (!(maxSnapshots >= 1)) throw new RangeError("maxSnapshots must be at least 1");
+    if (maxTracks !== 1 && maxTracks !== 2) throw new RangeError("maxTracks is 1 or 2");
     this.ort = ort;
     this.tokenizer = tokenizer;
     // `tokenizerSize` is the name frames.js's `pieces` reads.
@@ -198,7 +274,11 @@ export class OptZeosWorker {
     this.onActivity = onActivity;
     this.snapshotEvery = snapshotEvery;
     this.maxSnapshots = maxSnapshots;
+    this.maxTracks = maxTracks;
+    this.skipHidden = skipHidden;
     this.chunk = meta.maxChunk;
+    /** The convolution's carried inputs: a hidden run this long leaves none of them. */
+    this.convWindow = meta.convShape[2];
     const [, heads, , headDim] = meta.kvShape;
     this.kvHeads = heads;
     this.headDim = headDim;
@@ -230,8 +310,10 @@ export class OptZeosWorker {
     this.pieces = new Map();
     /** The logits of the latest run that read them, below `vocabSize`, for diagnostics. */
     this.lastLogits = null;
-    /** Runs of the graph, and positions run again because of a cut or a changed mask. */
-    this.stats = { runs: 0, positions: 0, reruns: 0, rerunPositions: 0 };
+    /** Runs of the graph; positions run again because of a cut or a changed mask; caches
+     * started for a new mask and switches back to a kept one; hidden positions carried
+     * past without a run. */
+    this.stats = { runs: 0, positions: 0, reruns: 0, rerunPositions: 0, tracks: 0, switches: 0, skipped: 0 };
   }
 
   /** Every output of the decoder but the logits and attention, which are read back. */
@@ -265,6 +347,8 @@ export class OptZeosWorker {
     onActivity = null,
     snapshotEvery,
     maxSnapshots,
+    maxTracks,
+    skipHidden,
   }) {
     if (ort.env?.wasm && backend !== "cpu") ort.env.wasm.numThreads = numThreads;
     const decoder = new TextDecoder();
@@ -315,6 +399,8 @@ export class OptZeosWorker {
       onActivity,
       snapshotEvery,
       maxSnapshots,
+      maxTracks,
+      skipHidden,
     });
   }
 
@@ -378,7 +464,8 @@ export class OptZeosWorker {
     }
     ctx.tokens.length = n;
     // The last token stays pending, so the step after the cut has a position to run.
-    this.rewind(ctx, Math.max(n - 1, 0));
+    this.rewind(ctx.track, Math.max(n - 1, 0));
+    if (ctx.other !== null) this.rewind(ctx.other, Math.max(n - 1, 0));
   }
 
   fork(parentId, childId) {
@@ -406,8 +493,6 @@ export class OptZeosWorker {
     if (allowedTokens !== null && allowedTokens.length < this.meta.vocabSize) {
       throw new RangeError(`job ${jobId}: allowedTokens covers ${allowedTokens.length} ids of ${this.meta.vocabSize}`);
     }
-    // A step repeated with nothing appended runs its position again.
-    if (ctx.kvLength > n - 1) this.rewind(ctx, n - 1);
     const { logits, attention } = await this.fill(ctx, allowed);
     const limit = this.meta.vocabSize;
     const tokenId =
@@ -425,21 +510,20 @@ export class OptZeosWorker {
   }
 
   /** The logits and attention of the last position under `allowed`, from scratch: one
-   * run per chunk with no snapshot or cut involved, every chunk under the same mask.
-   * `keep` > 1 also returns `rows`, the logits of the last `keep` positions of the last
-   * chunk, oldest first. For tests; leaves every context as it was. */
+   * run per chunk with no snapshot, cut or skipped run involved, every chunk under the
+   * same mask. `keep` > 1 also returns `rows`, the logits of the last `keep` positions of
+   * the last chunk, oldest first. For tests; leaves every context as it was. */
   async reference(ids, allowed = null, chunk = this.chunk, keep = 1) {
-    const job = Symbol("reference");
-    const ctx = new Context(this, job);
+    const ctx = new Context(this, Symbol("reference"));
     ctx.tokens = Array.from(ids);
     const mask = allowed ?? new Uint8Array(ids.length).fill(1);
     try {
       let out = null;
-      while (ctx.kvLength < ids.length) {
-        const start = ctx.kvLength;
+      while (ctx.track.kvLength < ids.length) {
+        const start = ctx.track.kvLength;
         const count = Math.min(chunk, ids.length - start);
         const last = start + count === ids.length;
-        out = await this.run(ctx, start, count, mask, last, last ? keep : 1);
+        out = await this.run(ctx, ctx.track, start, count, mask, last, last ? keep : 1);
       }
       return out;
     } finally {
@@ -455,42 +539,74 @@ export class OptZeosWorker {
     return ctx;
   }
 
-  /** Cut the cache back to at most `target` positions: to the latest of the snapshots
-   * and the state from before the latest run at or before it. The positions between
-   * are run again by the next `fill`. */
-  rewind(ctx, target) {
-    if (ctx.kvLength <= target) return;
+  /** Cut a cache back to at most `target` positions: to the latest of the snapshots and
+   * the state from before the latest run at or before it. The positions between are run
+   * again by the next `fill`. */
+  rewind(track, target) {
+    if (track.kvLength <= target) return;
     let pos = 0;
     let state = this.zeroState;
-    while (ctx.snapshots.length > 0 && ctx.snapshots[ctx.snapshots.length - 1].pos > target) {
-      ctx.snapshots.pop().state.release();
+    while (track.snapshots.length > 0 && track.snapshots[track.snapshots.length - 1].pos > target) {
+      track.snapshots.pop().state.release();
     }
-    const last = ctx.snapshots[ctx.snapshots.length - 1];
+    const last = track.snapshots[track.snapshots.length - 1];
     if (last !== undefined) ({ pos, state } = last);
-    if (ctx.previous !== null && ctx.previous.pos <= target && ctx.previous.pos > pos) {
-      ({ pos, state } = ctx.previous);
+    if (track.previous !== null && track.previous.pos <= target && track.previous.pos > pos) {
+      ({ pos, state } = track.previous);
     }
     if (pos < target) {
       this.stats.reruns += 1;
       this.stats.rerunPositions += target - pos;
     }
     state.retain();
-    if (ctx.previous !== null && ctx.previous.pos > pos) {
-      ctx.previous.state.release();
-      ctx.previous = null;
+    if (track.previous !== null && track.previous.pos > pos) {
+      track.previous.state.release();
+      track.previous = null;
     }
-    ctx.state.release();
-    ctx.state = state;
-    const kv = this.sliceKv(ctx.kv, ctx.kvLength, pos);
-    ctx.kv.release();
-    ctx.kv = kv;
-    ctx.kvLength = pos;
+    track.state.release();
+    track.state = state;
+    const kv = this.sliceKv(track.kv, track.kvLength, pos);
+    track.kv.release();
+    track.kv = kv;
+    track.kvLength = pos;
+  }
+
+  /** The cache a step under `allowed` runs on, made current. */
+  select(ctx, allowed) {
+    const here = ctx.track.agreement(allowed);
+    if (here === ctx.track.kvLength) return ctx.track;
+    const there = ctx.other === null ? -1 : ctx.other.agreement(allowed);
+    if (ctx.other !== null && there === ctx.other.kvLength) {
+      [ctx.track, ctx.other] = [ctx.other, ctx.track];
+      this.stats.switches += 1;
+      return ctx.track;
+    }
+    if (this.maxTracks === 1) {
+      this.rewind(ctx.track, here);
+      return ctx.track;
+    }
+    // A mask neither cache was built under: start one from whichever shares more of its
+    // history, keep the current one, and drop the other.
+    const fromOther = there > here;
+    const fresh = (fromOther ? ctx.other : ctx.track).copy();
+    this.rewind(fresh, fromOther ? there : here);
+    ctx.other?.release();
+    ctx.other = ctx.track;
+    ctx.track = fresh;
+    this.stats.tracks += 1;
+    return fresh;
   }
 
   /** The first `n` of `length` positions of a softmax cache, as a new set. */
   sliceKv(kv, length, n) {
     if (n === length) return kv.retain();
     if (n === 0) return this.emptyKv;
+    return this.resizeKv(kv, length, n, n);
+  }
+
+  /** A softmax cache of `n` positions, as a new set, whose first `keep` are the first
+   * `keep` of `kv` (of `length`) and the rest zeros. */
+  resizeKv(kv, length, keep, n) {
     const { ort } = this;
     const dims = [1, this.kvHeads, n, this.headDim];
     const tensors = {};
@@ -498,14 +614,17 @@ export class OptZeosWorker {
       const row = this.headDim * 2; // bytes of one position of one head
       const encoder = this.device.createCommandEncoder();
       for (const [name] of this.kvNames) {
-        const src = kv.tensors[name].gpuBuffer;
         const dst = this.device.createBuffer({
+          // WebGPU zeroes a new buffer.
           size: this.kvHeads * n * row,
           // As ONNX Runtime's own storage buffers.
           usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
-        for (let h = 0; h < this.kvHeads; h++) {
-          encoder.copyBufferToBuffer(src, h * length * row, dst, h * n * row, n * row);
+        if (keep > 0) {
+          const src = kv.tensors[name].gpuBuffer;
+          for (let h = 0; h < this.kvHeads; h++) {
+            encoder.copyBufferToBuffer(src, h * length * row, dst, h * n * row, keep * row);
+          }
         }
         tensors[name] = ort.Tensor.fromGpuBuffer(dst, {
           dataType: "float16",
@@ -520,7 +639,7 @@ export class OptZeosWorker {
         const src = kv.tensors[name].data;
         const dst = new src.constructor(this.kvHeads * n * row);
         for (let h = 0; h < this.kvHeads; h++) {
-          dst.set(src.subarray(h * length * row, h * length * row + n * row), h * n * row);
+          dst.set(src.subarray(h * length * row, h * length * row + keep * row), h * n * row);
         }
         tensors[name] = new ort.Tensor("float16", dst, dims);
       }
@@ -528,32 +647,92 @@ export class OptZeosWorker {
     return new Shared(tensors);
   }
 
-  /** Make the cache cover every position as `allowed` sees it, running what is
-   * missing, and return the last position's logits and attention. */
+  /** Make a cache cover every position as `allowed` sees it, running what is missing,
+   * and return the last position's logits and attention. */
   async fill(ctx, allowed) {
     const n = ctx.tokens.length;
-    let first = 0;
-    while (first < ctx.kvLength && ctx.visibility[first] === allowed[first]) first++;
-    if (first < ctx.kvLength) this.rewind(ctx, first);
+    const track = this.select(ctx, allowed);
+    // A step repeated with nothing appended runs its position again.
+    if (track.kvLength > n - 1) this.rewind(track, n - 1);
     let out = null;
-    while (ctx.kvLength < n) {
-      const start = ctx.kvLength;
-      const boundary = (Math.floor(start / this.snapshotEvery) + 1) * this.snapshotEvery;
-      const count = Math.min(this.chunk, n - start, boundary - start);
+    while (track.kvLength < n) {
+      const start = track.kvLength;
+      const boundary = this.nextBoundary(start);
+      if (this.skipHidden) {
+        const end = this.skippable(allowed, start, n);
+        if (end > start) {
+          this.skip(ctx, track, start, end);
+          continue;
+        }
+      }
+      let count = Math.min(this.chunk, n - start, boundary - start);
+      if (this.skipHidden) {
+        for (let q = start + 1; q < start + count; q++) {
+          if (!allowed[q] && allowed[q - 1] && this.skippable(allowed, q, n) > q) {
+            count = q - start;
+            break;
+          }
+        }
+      }
       const last = start + count === n;
       if (last) {
-        ctx.previous?.state.release();
-        ctx.previous = { pos: start, state: ctx.state.retain() };
+        track.previous?.state.release();
+        track.previous = { pos: start, state: track.state.retain() };
       }
-      out = await this.run(ctx, start, count, allowed, last);
+      out = await this.run(ctx, track, start, count, allowed, last);
     }
     return out;
   }
 
+  nextBoundary(pos) {
+    return (Math.floor(pos / this.snapshotEvery) + 1) * this.snapshotEvery;
+  }
+
+  /** Where a hidden run from `start` that can be carried past without a run ends, or
+   * `start` if it cannot. It never takes the last position, whose logits are the step's,
+   * and it needs `convWindow` hidden positions before the first snapshot position it
+   * crosses, so the state there is the one it carries. */
+  skippable(allowed, start, n) {
+    let end = start;
+    while (end < n - 1 && !allowed[end]) end++;
+    return Math.min(end, this.nextBoundary(start)) - start >= this.convWindow ? end : start;
+  }
+
+  /** Carry a cache past the hidden positions [start, end) without running them: what a
+   * run would leave, since a hidden position changes no state (see the module notes). */
+  skip(ctx, track, start, end) {
+    const kv = this.resizeKv(track.kv, track.kvLength, start, end);
+    track.kv.release();
+    track.kv = kv;
+    const tensors = {};
+    for (const [past] of this.stateNames) {
+      tensors[past] = past.startsWith("past_conv") ? this.zeroState.tensors[past] : track.state.tensors[past];
+    }
+    // The new set borrows the recurrent state, so it takes over the track's reference.
+    track.state = new Shared(tensors, { parents: [track.state] });
+    track.reserve(end);
+    track.visibility.fill(0, start, end);
+    track.kvLength = end;
+    // Every snapshot position crossed holds this same state.
+    for (let pos = this.nextBoundary(start); pos <= end; pos += this.snapshotEvery) {
+      this.snapshot(track, pos);
+    }
+    this.stats.skipped += end - start;
+    this.onActivity?.({
+      phase: "skip",
+      job: typeof ctx.job === "symbol" ? null : ctx.job,
+      track: track.id,
+      start,
+      count: end - start,
+      length: ctx.tokens.length,
+      ms: 0,
+    });
+  }
+
   /** One run of the graph over tokens [start, start + count) after a cache of `start`
    * positions, with `visible` giving each position's key mask; commits the outputs to
-   * `ctx` and returns the logits and attention when `read` is set. */
-  async run(ctx, start, count, visible, read, keep = 1) {
+   * `track` and returns the logits and attention when `read` is set. */
+  async run(ctx, track, start, count, visible, read, keep = 1) {
     const { ort } = this;
     const total = start + count;
     const ids = new BigInt64Array(count);
@@ -561,7 +740,15 @@ export class OptZeosWorker {
     const positions = new BigInt64Array(3 * count);
     for (let r = 0; r < 3; r++) for (let i = 0; i < count; i++) positions[r * count + i] = BigInt(start + i);
     const phase = read && count === 1 ? "decode" : "prefill";
-    const activity = { phase, job: typeof ctx.job === "symbol" ? null : ctx.job, start, count, length: ctx.tokens.length };
+    const activity = {
+      phase,
+      job: typeof ctx.job === "symbol" ? null : ctx.job,
+      track: track.id,
+      start,
+      count,
+      length: ctx.tokens.length,
+      hidden: total - visible.subarray(0, total).reduce((a, b) => a + b, 0),
+    };
     this.onActivity?.(activity);
     const began = performance.now();
     const { inputs_embeds } = await this.embed.run({ input_ids: new ort.Tensor("int64", ids, [1, count]) });
@@ -570,8 +757,8 @@ export class OptZeosWorker {
       key_mask: new ort.Tensor("bool", visible.slice(0, total), [1, total]),
       position_ids: new ort.Tensor("int64", positions, [3, 1, count]),
       num_logits_to_keep: new ort.Tensor("int64", new BigInt64Array([BigInt(keep)]), []),
-      ...ctx.kv.tensors,
-      ...ctx.state.tensors,
+      ...track.kv.tensors,
+      ...track.state.tensors,
     };
     let out;
     try {
@@ -583,14 +770,14 @@ export class OptZeosWorker {
     for (const [past, present] of this.kvNames) kv[past] = out[present];
     const state = {};
     for (const [past, present] of this.stateNames) state[past] = out[present];
-    ctx.kv.release();
-    ctx.kv = new Shared(kv);
-    ctx.state.release();
-    ctx.state = new Shared(state);
-    ctx.reserve(total);
-    ctx.visibility.set(visible.subarray(start, total), start);
-    ctx.kvLength = total;
-    if (total % this.snapshotEvery === 0) this.snapshot(ctx);
+    track.kv.release();
+    track.kv = new Shared(kv);
+    track.state.release();
+    track.state = new Shared(state);
+    track.reserve(total);
+    track.visibility.set(visible.subarray(start, total), start);
+    track.kvLength = total;
+    if (total % this.snapshotEvery === 0) this.snapshot(track);
     let result = null;
     try {
       if (read) {
@@ -613,21 +800,21 @@ export class OptZeosWorker {
     return result;
   }
 
-  snapshot(ctx) {
-    ctx.snapshots.push({ pos: ctx.kvLength, state: ctx.state.retain() });
-    if (ctx.snapshots.length <= this.maxSnapshots) return;
+  snapshot(track, pos = track.kvLength) {
+    track.snapshots.push({ pos, state: track.state.retain() });
+    if (track.snapshots.length <= this.maxSnapshots) return;
     // Drop the snapshot whose neighbours are closest, never the latest.
     let drop = 0;
     let gap = Infinity;
-    for (let i = 0; i < ctx.snapshots.length - 1; i++) {
-      const before = i === 0 ? 0 : ctx.snapshots[i - 1].pos;
-      const span = ctx.snapshots[i + 1].pos - before;
+    for (let i = 0; i < track.snapshots.length - 1; i++) {
+      const before = i === 0 ? 0 : track.snapshots[i - 1].pos;
+      const span = track.snapshots[i + 1].pos - before;
       if (span < gap) {
         gap = span;
         drop = i;
       }
     }
-    ctx.snapshots.splice(drop, 1)[0].state.release();
+    track.snapshots.splice(drop, 1)[0].state.release();
   }
 }
 
