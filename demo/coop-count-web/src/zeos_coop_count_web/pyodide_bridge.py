@@ -52,4 +52,13 @@ class PyodideBridge:
     def floats(self, value: object) -> list[float] | None:
         if value is None or isinstance(value, JsNull):
             return None
+        # A typed array (the measured attention is a Float32Array) is copied out in one
+        # go: element by element through the proxy cost milliseconds a decode step at a
+        # few thousand positions. ``tolist`` widens each float32 exactly, as ``float``
+        # does.
+        to_memoryview = getattr(value, "to_memoryview", None)
+        if to_memoryview is not None:
+            view = to_memoryview()
+            if view.format in ("f", "d"):
+                return cast("list[float]", view.tolist())
         return [float(v) for v in cast("Iterable[float]", value)]

@@ -101,6 +101,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import reduce
+from operator import add
 from typing import Protocol, cast
 
 from zeos.core.ids import JobId, TokenKind
@@ -433,14 +435,15 @@ class JsMachine(SyscallSeat):
             return None
         size = self._worker_block
         count = (len(ctx.ids) + size - 1) // size
-        hidden: set[int] = set()
+        flags = bytearray(b"\x01") * count
         at = 0
         for index, span in enumerate(ctx.spans):
             block = index // self._block_size
             if span and block < ctx.horizon and block not in ctx.mask:
-                hidden.update(range(at // size, (at + span - 1) // size + 1))
+                first, last = at // size, (at + span - 1) // size
+                flags[first : last + 1] = bytes(last + 1 - first)
             at += span
-        return bytes(0 if b in hidden else 1 for b in range(count))
+        return bytes(flags)
 
     def _kernel_attention(
         self, ctx: _Context, mass: Sequence[float], sent: bytes | None
@@ -454,17 +457,28 @@ class JsMachine(SyscallSeat):
                 f"attention has {len(mass)} entries for a context of {count} blocks"
             )
         total = sum(mass)
-        if any(v < 0.0 for v in mass) or abs(total - 1.0) > _ATTENTION_TOLERANCE:
+        if (bool(mass) and min(mass) < 0.0) or abs(total - 1.0) > _ATTENTION_TOLERANCE:
             raise WorkerViolation(
                 f"attention must be non-negative and sum to 1.0 over blocks; it sums to {total}"
             )
-        if sent is not None:
+        if sent is not None and 0 in sent:
             attended = [b for b, value in enumerate(mass) if value > 0.0 and not sent[b]]
             if attended:
                 raise MaskViolation(
                     f"the worker reported attention on blocks {attended}, which the step's "
                     "allowedBlocks hid"
                 )
+        if size == 1:
+            return self._kernel_attention_by_position(ctx, mass)
+        return self._kernel_attention_by_overlap(ctx, mass)
+
+    def _kernel_attention_by_overlap(
+        self, ctx: _Context, mass: Sequence[float]
+    ) -> dict[int, float]:
+        """Each worker block's mass shared among the kernel blocks under it by the model
+        tokens they share."""
+        size = self._worker_block
+        count = (len(ctx.ids) + size - 1) // size
         # overlap[worker block][kernel block] = model tokens they share
         overlap: list[dict[int, int]] = [{} for _ in range(count)]
         at = 0
@@ -484,6 +498,30 @@ class JsMachine(SyscallSeat):
                 out[kernel_block] = (
                     out.get(kernel_block, 0.0) + value * shares[kernel_block] / tokens
                 )
+        return out
+
+    def _kernel_attention_by_position(
+        self, ctx: _Context, mass: Sequence[float]
+    ) -> dict[int, float]:
+        """``_kernel_attention`` for a worker whose blocks are positions (``blockSize``
+        1, as the OPT+ZEOS worker's are). Each position then lies in one kernel block, and
+        a kernel block's positions are contiguous, so its mass is a left fold of a slice
+        with ``+`` from 0.0: the additions the general case makes, in the same order (it
+        adds each position's mass times one over one, and adding a zero changes nothing),
+        so the same floats, without its per-position Python loop. Not ``sum``, which
+        compensates since Python 3.12 and so rounds differently. A block whose positions
+        all measure zero gets no entry, as there."""
+        out: dict[int, float] = {}
+        spans = ctx.spans
+        per_block = self._block_size
+        at = 0
+        for start in range(0, len(spans), per_block):
+            width = sum(spans[start : start + per_block])
+            if width:
+                block_mass = reduce(add, mass[at : at + width], 0.0)
+                if block_mass > 0.0:
+                    out[start // per_block] = block_mass
+                at += width
         return out
 
     # -- the five ops --------------------------------------------------------

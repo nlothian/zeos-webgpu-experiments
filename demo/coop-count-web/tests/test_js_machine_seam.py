@@ -270,3 +270,32 @@ def test_a_trunc_below_the_horizon_lowers_it() -> None:
 def test_a_non_ascii_tape_is_refused() -> None:
     with pytest.raises(ValueError, match="ASCII"):
         FakeWorker({"d": ["say \u2192"]})
+
+
+class PositionWorker(DoublingWorker):
+    """Positions as blocks (``blockSize`` 1, like the OPT+ZEOS worker), with a fixed,
+    uneven measurement over every position."""
+
+    def decodeStep(self, jobId: str, opts: Mapping[str, Any]) -> FixedStep:  # type: ignore[override]
+        n = self.length(jobId)
+        weights = [((7 * k) % 11) / 10.0 + (k % 3 == 0) * 1e-9 for k in range(n)]
+        total = sum(weights)
+        return FixedStep(
+            tokenId=super().decodeStep(jobId, opts).tokenId,
+            attention=[w / total for w in weights],
+        )
+
+
+def test_attention_by_position_is_the_overlap_rule_float_for_float() -> None:
+    worker = PositionWorker(TAPES, block_size=1)
+    m = machine(worker, block_size=4)
+    m.inject(JOB, tokens_from_text("a b c d e f g h i j k"))
+    m.set_mask(JOB, frozenset({0, 1, 2}))
+    result = m.decode(JOB, allow_control=False)
+    ctx = m._ctx_of(JOB)  # pyright: ignore[reportPrivateUsage]
+    mass = worker.decodeStep(ctx.key, {"allowedBlocks": None, "allowedTokens": None}).attention
+    fast = m._kernel_attention_by_position(ctx, mass)  # pyright: ignore[reportPrivateUsage]
+    slow = m._kernel_attention_by_overlap(ctx, mass)  # pyright: ignore[reportPrivateUsage]
+    assert len(slow) >= 3
+    assert list(fast.items()) == list(slow.items())
+    assert result.attention is not None and set(result.attention) == set(slow)
