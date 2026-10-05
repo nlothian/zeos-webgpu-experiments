@@ -31,13 +31,17 @@ The worker implements exactly this interface::
       truncate(jobId: string, n: number): void;
       // Copy parent's tokens and KV into a fresh context for child.
       fork(parentId: string, childId: string): void;
-      // One greedy decode step. Returns the chosen id and measured attention mass per
-      // KV block for this step, summed over layers and heads and normalised so the
-      // values sum to 1.0 over blocks that received attention. A backend that cannot
-      // measure returns attention = null.
+      // One decode step, greedy unless opts.sample says otherwise. Returns the chosen
+      // id and measured attention mass per KV block for this step, summed over layers
+      // and heads and normalised so the values sum to 1.0 over blocks that received
+      // attention. A backend that cannot measure returns attention = null.
       decodeStep(jobId: string, opts: {
         allowedBlocks: Uint8Array | null;       // 1 = may attend, indexed by block; null = all
         allowedTokens: Uint8Array | null;       // 1 = may emit, indexed by token id; null = all
+        // Optional. Absent: the greedy choice. Present: sample among the topK allowed
+        // ids at this temperature, taking the id whose cumulative probability first
+        // exceeds u (see chat_machine.sample_index, which a worker must match).
+        sample?: { temperature: number; topK: number; u: number };
       }): { tokenId: number; attention: Float32Array | null };
     }
 
@@ -169,7 +173,12 @@ class Bridge(Protocol):
     """
 
     def ids(self, ids: Sequence[int]) -> object: ...
-    def options(self, allowed_blocks: bytes | None, allowed_tokens: bytes | None) -> object: ...
+    def options(
+        self,
+        allowed_blocks: bytes | None,
+        allowed_tokens: bytes | None,
+        sample: Mapping[str, float] | None = None,
+    ) -> object: ...
     def floats(self, value: object) -> list[float] | None: ...
 
 
@@ -179,8 +188,16 @@ class PythonBridge:
     def ids(self, ids: Sequence[int]) -> object:
         return list(ids)
 
-    def options(self, allowed_blocks: bytes | None, allowed_tokens: bytes | None) -> object:
-        return {"allowedBlocks": allowed_blocks, "allowedTokens": allowed_tokens}
+    def options(
+        self,
+        allowed_blocks: bytes | None,
+        allowed_tokens: bytes | None,
+        sample: Mapping[str, float] | None = None,
+    ) -> object:
+        opts: dict[str, object] = {"allowedBlocks": allowed_blocks, "allowedTokens": allowed_tokens}
+        if sample is not None:
+            opts["sample"] = dict(sample)
+        return opts
 
     def floats(self, value: object) -> list[float] | None:
         if value is None:

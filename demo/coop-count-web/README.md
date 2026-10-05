@@ -670,6 +670,94 @@ bit-identical to WebAssembly's on the same export. Its floating-point order is t
 GPU's, so a journal made on WebGPU is not claimed to match one made on another device,
 or on WebAssembly; the determinism claim is WebAssembly's.
 
+## The chat machine
+
+`zeos_coop_count_web.chat_machine.ChatToolMachine` runs a chat agent rather than a counter:
+the model writes prose and Qwen3.5 tool calls, and the tools run in the host page, outside
+the kernel. It is a `JsMachine` with the two ABI-shaped halves replaced -- what a step may
+emit, and what a finished piece asks the kernel for -- so it runs on any
+`ZeosModelWorker`: the model worker, the stub worker, or a Python one.
+
+**The case** is `src/zeos_coop_count_web/cases/chat-agent/`, shipped in the wheel
+(`zeos_coop_count_web.chat.CHAT_CASE`). One pinned job, `chat-agent`, holds the whole
+conversation, and its descriptor body is a placeholder the host replaces with its system
+prompt and tool declarations:
+
+| pipe | kind | ring | what it carries |
+|---|---|---|---|
+| `chat.user` | device, principal `user` | TRUSTED (2) | what the user types |
+| `tools.results` | device, principal `tool` | EXTERNAL (3) | what a tool returned |
+| `tools.read` | sink, capability `min_integrity: 3` | EXTERNAL | calls that only read |
+| `tools.effect` | sink, capability `min_integrity: 2` | TRUSTED | calls with side effects |
+| `chat.out` | sink, capability `min_integrity: 3` | EXTERNAL | the reply that ends a turn |
+
+It declares `on_fault: retry` and `integrity.dynamics: low-watermark` (without dynamics
+the confused-deputy lint refuses a job holding `tools.effect` and reading
+`tools.results`), and a 16,384-token window.
+
+**A turn.** The machine frames the context as Qwen3.5's chat template does: the body is
+the `system` turn, a message a `user` turn, a tool result a `user` turn holding
+`<tool_response>\n...\n</tool_response>`, and the model's turn opens with
+`<|im_start|>assistant\n` and the thinking prefix (`<think>\n`, or the empty think block
+with thinking off). The model decodes freely, except that it may not emit the pad, a
+control id other than `<|im_end|>`, `<tool_call>`, `</tool_call>`, `<think>` and
+`</think>`, or a piece that completes `</?(KERNEL|RESUME|FAULT|STATUS|STUB)` or
+`</?tool_response` across the turn so far (`FrameGuard`, one cached mask per guard state).
+On `</tool_call>` closing a call that parses as the app's Qwen parser parses it, the
+machine asks for a `WRITE_READ`: `{"name", "arguments"}` as JSON to `tools.read` or
+`tools.effect` by the host's tool-class table (a tool it does not name is an effect),
+then a read of `tools.results`. When the model chooses `<|im_end|>` the machine does not
+append it: it writes the turn's text to `chat.out` and reads `chat.user`, and the marker
+becomes framing in front of the next message. A write the kernel refuses is answered with
+a `FAULT` notice; the machine's next step reads `tools.results` again rather than
+decoding, so the job waits there until the host settles the refused call.
+
+**Whitespace.** The run sets `KernelConfig.preserve_whitespace`, under which the kernel
+tokenises a delivery and the body keeping each word's leading whitespace, so a CSV, a
+SQL result or a file reaches the model with its line breaks. With the flag off, the
+default, the kernel tokenises as it always has and every journal is unchanged. A frame
+tag after a line break is still an imitation, and still alarms.
+
+**Sampling.** Greedy by default. With `sampling=Sampling(temperature=0.7, top_k=20)` every
+step sends `opts.sample = {temperature, topK, u}`, with `u` from a `random.Random` seeded
+from the run's seed and the job, and the worker takes the id `sample_index` defines;
+`web/transformers_worker.js` implements it as `sampleToken`, and
+`tests/test_chat_machine.py` checks the two agree. The stub worker checks the options and
+plays its tape.
+
+**The host's API** is `zeos_coop_count_web.chat`:
+
+```python
+run = open_chat(
+    worker,                         # a ZeosModelWorker
+    tool_classes={"ReadLines": "read", "WriteLines": "effect"},
+    system_prompt=prompt,           # replaces the case's body
+    thinking=False, theta_read=0.2, seed=0, sampling=None,
+    param_types={"RunSQL": {"sql": "string"}},
+)
+run.send_user(text)                 # deliver on chat.user before the next tick
+events = run.step(16)               # up to 16 ticks; stops when only a delivery helps
+run.drain("tools.read")             # one string per write since the last drain
+run.deliver_tool_result(text)       # on tools.results, ring 3
+run.deliver_refusal()               # the same, with a refusal
+run.waiting_on()                    # "chat.user", "tools.results" or None
+run.state()                         # integrity, session floor, segments, demotions
+run.journal_bytes()
+```
+
+`step` returns plain dicts: `token`, `tool_call`, `approval_required`, `tool_refused`,
+`reply`, `arrived`, `demoted`, `spoof`, `fault` and `waiting`, with the fields the module
+docstring lists. A tool call on `tools.effect` is refused for privilege when the job's
+watermark has fallen to 3 -- it attended a tool result past `theta_read` -- or when its
+session floor is 3 because the last thing it read was a tool result (MP's confused-deputy
+rule), which holds until the next user message. `approval_required` carries the call,
+both integrities and the demotion history; on approval the host runs the call itself and
+delivers the result, and on denial it delivers a refusal.
+
+**Padding.** A kernel block is 16 words (`block_size`), and every injection begins on a
+block boundary, so the context holds up to 15 pad ids in front of each turn marker. The
+model sees them; `block_size` is a parameter of `open_chat`.
+
 ## Tests
 
 ```bash
@@ -687,6 +775,13 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   handler holds the run open, and a second interrupt while it is parked is withheld.
 - `test_js_machine_seam.py` and `test_token_mask.py` — the seam's obligations and
   refusals, and the language the mask admits.
+- `test_chat_machine.py` — the chat machine and `ChatRun` on scripted workers
+  (`tests/chat_workers.py`): a multi-turn chat whose `<|im_end|>` is intercepted, a tool
+  call round trip whose result keeps its line breaks, demotion after attending a ring-3
+  result and the privilege fault on `tools.effect` that follows while `tools.read` still
+  lands, the session floor's refusal without demotion, a frame tag in a tool result
+  raising the spoof alarm, the frame guard, the parser, the sampler against the
+  JavaScript one, and the same journal bytes for the same seed.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
   page fetches.
 - `test_exported_graph.py` — the exported graph under ONNX Runtime CPU, prefilled in the

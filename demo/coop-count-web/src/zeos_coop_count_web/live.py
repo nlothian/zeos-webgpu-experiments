@@ -61,6 +61,7 @@ class LiveRun:
         trace: bool = False,
         theta_read: float = DEFAULT_THETA_READ,
         transcript: Transcript | None = None,
+        preserve_whitespace: bool = False,
     ) -> None:
         self.bundle = bundle
         #: The lines ``zeos-count run`` would print, when the machine was built with this
@@ -73,7 +74,11 @@ class LiveRun:
             machine=machine,
             journal_sink=self.events,
             config=KernelConfig(
-                seed=seed, case=bundle.name, max_ticks=max_ticks, theta_read=theta_read
+                seed=seed,
+                case=bundle.name,
+                max_ticks=max_ticks,
+                theta_read=theta_read,
+                preserve_whitespace=preserve_whitespace,
             ),
         )
         self.transcript.attach(self.kernel)

@@ -19,7 +19,7 @@ here so ``JsMachine`` itself stays plain Python.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import cast
 
 from js import Int32Array, Object, Uint8Array
@@ -35,14 +35,19 @@ class PyodideBridge:
     def _flags(self, flags: bytes | None) -> object:
         return jsnull if flags is None else Uint8Array.new(to_js(flags))
 
-    def options(self, allowed_blocks: bytes | None, allowed_tokens: bytes | None) -> object:
-        return to_js(
-            {
-                "allowedBlocks": self._flags(allowed_blocks),
-                "allowedTokens": self._flags(allowed_tokens),
-            },
-            dict_converter=Object.fromEntries,
-        )
+    def options(
+        self,
+        allowed_blocks: bytes | None,
+        allowed_tokens: bytes | None,
+        sample: Mapping[str, float] | None = None,
+    ) -> object:
+        opts: dict[str, object] = {
+            "allowedBlocks": self._flags(allowed_blocks),
+            "allowedTokens": self._flags(allowed_tokens),
+        }
+        if sample is not None:
+            opts["sample"] = dict(sample)
+        return to_js(opts, dict_converter=Object.fromEntries)
 
     def floats(self, value: object) -> list[float] | None:
         if value is None or isinstance(value, JsNull):

@@ -1,0 +1,748 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Metacognition AI
+#
+# This source code is licensed under the AGPL-3.0-only licence found in the
+# LICENSE file in the root directory of this source tree.
+
+"""A machine for a chat agent: free text and Qwen tool calls in, pipe requests out.
+
+``JsMachine`` decodes the syscall ABI and nothing else. A chat agent speaks prose, and
+asks for things the way Qwen3.5 was trained to: a ChatML assistant turn that ends either
+with ``<|im_end|>`` or with a tool call::
+
+    <tool_call>
+    <function=NAME>
+    <parameter=KEY>
+    VALUE
+    </parameter>
+    </function>
+    </tool_call>
+
+``ChatToolMachine`` keeps ``JsMachine``'s worker, bookkeeping and masks, and replaces the
+two halves that know the ABI. It runs on any ``ZeosModelWorker``.
+
+**What it asks the kernel for.** The model's words are never parsed as commands. The
+machine turns three moments of a turn into requests itself:
+
+* ``</tool_call>`` closing a call that parses: a ``WRITE_READ`` to ``tools.read`` or
+  ``tools.effect`` -- the host's tool-class table decides which, and a tool it does not
+  name is an effect -- with the JSON ``{"name": ..., "arguments": {...}}`` as payload,
+  then a read of ``tools.results``. The arguments are decoded as the app's parser
+  decodes them (``parseQwenToolCallBody`` in the gemma-data-agent site): a parameter
+  the tool declares as a string is kept verbatim, anything else is JSON when it parses.
+  A block that does not parse stays text, as it does there.
+* ``<|im_end|>``: intercepted. It is never appended or reported as a token. The machine
+  asks for a ``WRITE_READ`` of the turn's text to ``chat.out`` and a read of
+  ``chat.user``, and the marker becomes framing in front of whatever arrives next.
+* A write that was refused, so its read never happened: the kernel answers a refusal
+  with a ``FAULT`` notice and lets the job run on (``on_fault: retry``). If nothing but
+  kernel frames has arrived since the machine asked to read, its next step asks for the
+  read again rather than decoding. So a refused tool call waits on ``tools.results`` for
+  the host to settle it -- the result of running it with the user's approval, or a
+  refusal -- and the model reads the notice and the settlement together.
+
+A step that runs no forward pass reports ``attention={}``: it attended nothing. The
+first step of a job that has had no message yet is such a step, a read of ``chat.user``.
+
+**Framing.** The transcript is Qwen3.5's chat template, folded into the spans of the
+kernel's words exactly as ``JsMachine`` folds its own, so no kernel offset moves:
+
+* the descriptor body is the ``system`` turn;
+* a message on ``chat.user`` is a ``user`` turn;
+* a result on ``tools.results`` is a ``user`` turn holding
+  ``<tool_response>\\n...\\n</tool_response>``, and a second one before the model speaks
+  joins it, as consecutive tool messages do in the template;
+* a kernel frame (a ``FAULT`` notice, say) joins the ``user`` turn, opening one if the
+  model's turn was open;
+* the model's turn opens with ``<|im_start|>assistant\\n`` and a thinking prefix:
+  ``<think>\\n`` with thinking on, the template's empty ``<think>\\n\\n</think>\\n\\n``
+  with it off.
+
+The turn markers, ``<think>``, ``</think>``, ``<tool_response>`` and ``</tool_response>``
+are written as the worker's own ids for those pieces when its vocabulary has them, as a
+prompt rendered by the template would be; ``tokenize`` parses no special tokens, so
+nothing that arrives as content can produce one. A word the kernel injects is written
+as it is when it carries its own leading whitespace (``KernelConfig.preserve_whitespace``)
+or is the first of its injection, and after a space otherwise, so a newline in a tool
+result reaches the model as a newline.
+
+**What the model may emit.** Every id but: the pad id; the end-of-sequence id unless it
+is ``<|im_end|>``; a control id, unless its piece is ``<|im_end|>``, ``<tool_call>``,
+``</tool_call>``, ``<think>`` or ``</think>`` -- which the machine reads as text and never
+reports to the kernel as ``CONTROL``, since none is a kernel frame; an empty piece; and
+any piece that would complete a banned tag, ``</?(KERNEL|RESUME|FAULT|STATUS|STUB)`` or
+``</?tool_response``, across the pieces of the turn so far (``FrameGuard``). The kernel's
+frames ride on ``CONTROL`` tokens and already cannot be forged; what the guard adds is
+that the model's own text never spells one, so nothing it wrote can later be mistaken
+for one, and it cannot fake the shape of a tool result. Masks are cached per guard state.
+
+**Sampling.** Greedy unless ``sampling`` is given; then every step sends
+``opts.sample = {temperature, topK, u}``, ``u`` drawn from a ``random.Random`` per job
+seeded from the run's seed and the job id, so a run is as reproducible as its worker's
+logits. ``sample_index`` is the rule a worker applies, written once here.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import random
+import re
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from zeos.core.framing import FRAMES
+from zeos.core.ids import JobId, PipeName, TokenKind
+from zeos.machine.base import (
+    AttentionHint,
+    DecodeResult,
+    MachineRequest,
+    OpKind,
+    SpliceResult,
+    Token,
+    tokens_from_text,
+)
+
+from zeos_coop_count_web.js_machine import (
+    DEFAULT_BLOCK_SIZE,
+    IM_END,
+    IM_START,
+    Bridge,
+    JsMachine,
+    WorkerViolation,
+    ZeosModelWorker,
+    _Context,  # pyright: ignore[reportPrivateUsage]
+)
+
+__all__ = [
+    "BANNED_TAGS",
+    "EFFECT",
+    "READ",
+    "ChatPipes",
+    "ChatToolMachine",
+    "FrameGuard",
+    "Sampling",
+    "ToolCall",
+    "format_tool_call",
+    "parse_tool_call_body",
+    "sample_index",
+    "thinking_prefix",
+]
+
+TOOL_CALL_OPEN = "<tool_call>"
+TOOL_CALL_CLOSE = "</tool_call>"
+TOOL_RESPONSE_OPEN = "<tool_response>"
+TOOL_RESPONSE_CLOSE = "</tool_response>"
+THINK_OPEN = "<think>"
+THINK_CLOSE = "</think>"
+EMPTY_THINK = f"{THINK_OPEN}\n\n{THINK_CLOSE}\n\n"
+
+#: Tag names whose opening or closing the model may never spell: the kernel's frames,
+#: and the frame of a tool result.
+BANNED_TAGS: tuple[str, ...] = (*FRAMES, "tool_response")
+
+#: Control pieces the model may emit. None is a kernel frame; the machine reads them as
+#: text, and intercepts ``<|im_end|>``.
+EMITTABLE_CONTROL = frozenset({IM_END, TOOL_CALL_OPEN, TOOL_CALL_CLOSE, THINK_OPEN, THINK_CLOSE})
+
+#: Pieces written as the worker's own id when it has one, rather than tokenized.
+FRAMING_MARKERS = (
+    IM_START,
+    IM_END,
+    THINK_OPEN,
+    THINK_CLOSE,
+    TOOL_RESPONSE_OPEN,
+    TOOL_RESPONSE_CLOSE,
+)
+
+#: The two tool classes, as the host's table names them.
+READ = "read"
+EFFECT = "effect"
+
+
+def thinking_prefix(thinking: bool) -> str:
+    """What Qwen3.5's template pre-fills after ``<|im_start|>assistant\\n``."""
+    return f"{THINK_OPEN}\n" if thinking else EMPTY_THINK
+
+
+@dataclass(frozen=True, slots=True)
+class ChatPipes:
+    """The pipes a chat case binds, by role."""
+
+    user: PipeName = PipeName("chat.user")
+    out: PipeName = PipeName("chat.out")
+    results: PipeName = PipeName("tools.results")
+    read: PipeName = PipeName("tools.read")
+    effect: PipeName = PipeName("tools.effect")
+
+    @property
+    def tool_sinks(self) -> tuple[PipeName, PipeName]:
+        return (self.read, self.effect)
+
+
+@dataclass(frozen=True, slots=True)
+class Sampling:
+    """Seeded sampling: among the ``top_k`` allowed ids, at this temperature."""
+
+    temperature: float = 0.7
+    top_k: int = 20
+
+    def __post_init__(self) -> None:
+        if not self.temperature > 0.0:
+            raise ValueError("temperature must be above 0; greedy is sampling=None")
+        if self.top_k < 1:
+            raise ValueError("top_k must be at least 1")
+
+
+def sample_index(
+    logits: Sequence[float],
+    allowed: bytes | None,
+    *,
+    temperature: float,
+    top_k: int,
+    u: float,
+) -> int:
+    """The id a worker chooses for ``opts.sample``, which every worker must match.
+
+    Rank the allowed ids by logit, highest first and the lower id on a tie, and keep the
+    first ``top_k``. Weight each by ``exp((logit - best) / temperature)``, and return the
+    first whose running total exceeds ``u`` times the sum, or the last if rounding leaves
+    none. ``web/transformers_worker.js`` implements the same in ``sampleToken``.
+    """
+    ranked = sorted(
+        (i for i in range(len(logits)) if allowed is None or (i < len(allowed) and allowed[i])),
+        key=lambda i: (-logits[i], i),
+    )[:top_k]
+    if not ranked:
+        raise ValueError("allowedTokens permits no token")
+    best = logits[ranked[0]]
+    weights = [math.exp((logits[i] - best) / temperature) for i in ranked]
+    threshold = u * sum(weights)
+    running = 0.0
+    for token_id, weight in zip(ranked, weights, strict=True):
+        running += weight
+        if running > threshold:
+            return token_id
+    return ranked[-1]
+
+
+class FrameGuard:
+    """Which pieces would complete a banned tag, given what the turn has said so far.
+
+    A guard state is the longest suffix of the text so far that is a proper prefix of a
+    banned pattern (``<NAME`` or ``</NAME``), so ``""`` almost always. A piece is banned
+    from a state when the state and the piece together contain a pattern: either inside
+    the piece, which is the same from every state, or starting in the state and finished
+    by the piece's head. Matching is exact and case-sensitive, and stricter than the
+    kernel's word-initial imitation rule (``zeos.core.framing``): ``x<KERNEL`` is banned
+    too.
+    """
+
+    def __init__(self, pieces: Sequence[str], tags: Iterable[str] = BANNED_TAGS) -> None:
+        names = sorted(set(tags))
+        if not names:
+            raise ValueError("a guard needs at least one tag")
+        self._patterns = tuple(sorted({f"<{n}" for n in names} | {f"</{n}" for n in names}))
+        self._prefixes = frozenset(p[:k] for p in self._patterns for k in range(1, len(p)))
+        self._longest = max(len(p) for p in self._patterns)
+        self._regex = re.compile("|".join(re.escape(p) for p in self._patterns))
+        self._pieces = tuple(pieces)
+        self._inside = frozenset(i for i, p in enumerate(self._pieces) if self._regex.search(p))
+        self._cache: dict[str, frozenset[int]] = {"": self._inside}
+
+    @property
+    def patterns(self) -> tuple[str, ...]:
+        return self._patterns
+
+    def banned(self, state: str) -> frozenset[int]:
+        cached = self._cache.get(state)
+        if cached is not None:
+            return cached
+        heads = tuple(
+            sorted(
+                {
+                    pattern[len(tail) :]
+                    for k in range(len(state))
+                    if (tail := state[k:]) in self._prefixes
+                    for pattern in self._patterns
+                    if pattern.startswith(tail)
+                }
+            )
+        )
+        finished: frozenset[int] = frozenset(
+            i for i, p in enumerate(self._pieces) if heads and p.startswith(heads)
+        )
+        result = self._inside | finished
+        self._cache[state] = result
+        return result
+
+    def advance(self, state: str, piece: str) -> str:
+        """The state after ``piece``, which must not have been banned from ``state``."""
+        text = state + piece
+        for length in range(min(len(text), self._longest - 1), 0, -1):
+            if text[-length:] in self._prefixes:
+                return text[-length:]
+        return ""
+
+    def spells(self, text: str) -> bool:
+        """Whether ``text`` contains a banned pattern anywhere."""
+        return self._regex.search(text) is not None
+
+
+# -- tool calls, as the app's Qwen parser reads and writes them -------------------------
+
+_FUNCTION = re.compile(r"\s*<function=([^>\n]+)>(.*?)</function>\s*", re.DOTALL)
+_PARAMETER = re.compile(r"<parameter=([^>\n]+)>(.*?)</parameter>", re.DOTALL)
+
+
+def _strip_one_newline(value: str) -> str:
+    if value.startswith("\n"):
+        value = value[1:]
+    if value.endswith("\n"):
+        value = value[:-1]
+    return value
+
+
+def _convert(raw: str, kind: str | None) -> Any:
+    if kind == "string":
+        return raw
+    try:
+        return json.loads(raw.strip())
+    except ValueError:
+        return raw
+
+
+def parse_tool_call_body(
+    inner: str, param_types: Mapping[str, Mapping[str, str]] | None = None
+) -> tuple[str, dict[str, Any]] | None:
+    """The name and arguments inside ``<tool_call>...</tool_call>``, or None if it does
+    not parse. ``param_types[tool][param]`` is the parameter's JSON-schema type."""
+    match = _FUNCTION.fullmatch(inner)
+    if match is None:
+        return None
+    name = match.group(1).strip()
+    if not name:
+        return None
+    body = match.group(2)
+    types = (param_types or {}).get(name, {})
+    arguments: dict[str, Any] = {}
+    last = 0
+    for param in _PARAMETER.finditer(body):
+        # Only whitespace may sit between parameters.
+        if body[last : param.start()].strip():
+            return None
+        key = param.group(1).strip()
+        kind = types.get(key)
+        arguments[key] = _convert(
+            _strip_one_newline(param.group(2)), kind.lower() if kind else None
+        )
+        last = param.end()
+    if body[last:].strip():
+        return None
+    return name, arguments
+
+
+def format_tool_call(name: str, arguments: Mapping[str, Any]) -> str:
+    """One call as Qwen3.5's template renders it. A string value is written as it is and
+    anything else as the template's ``tojson``; neither is escaped here."""
+    out = f"{TOOL_CALL_OPEN}\n<function={name}>\n"
+    for key, value in arguments.items():
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        out += f"<parameter={key}>\n{text}\n</parameter>\n"
+    return out + f"</function>\n{TOOL_CALL_CLOSE}"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """A tool call the machine asked the kernel to write."""
+
+    #: Counts this job's calls from 0.
+    index: int
+    name: str
+    arguments: Mapping[str, Any]
+    sink: PipeName
+    #: The ``<tool_call>...</tool_call>`` text the model produced.
+    raw: str
+
+    @property
+    def payload(self) -> str:
+        return json.dumps({"name": self.name, "arguments": self.arguments}, ensure_ascii=False)
+
+
+# -- the machine ----------------------------------------------------------------------
+
+_SYSTEM = "system"
+_USER = "user"
+_ASSISTANT = "assistant"
+
+
+@dataclass
+class _Chat:
+    """Per-job chat state, beside ``JsMachine``'s per-job context."""
+
+    #: The role of the turn the context ends in, or None before anything was injected.
+    role: str | None = None
+    #: The pipe the machine last asked to read, until something other than a kernel
+    #: frame arrives.
+    awaiting: PipeName | None = None
+    #: Whether content arrived on ``awaiting``.
+    arrived: bool = False
+    #: Whether the context ends in a tool response, so the next joins its turn.
+    in_tool_response: bool = False
+    #: What the model has decoded in the open assistant turn.
+    text: str = ""
+    #: Where in ``text`` the search for the next tool call starts.
+    scan: int = 0
+    #: The frame guard's state across the open turn.
+    guard: str = ""
+    calls: list[ToolCall] = field(default_factory=list[ToolCall])
+    rng: random.Random | None = None
+
+    def copy(self) -> _Chat:
+        clone = _Chat(
+            role=self.role,
+            awaiting=self.awaiting,
+            arrived=self.arrived,
+            in_tool_response=self.in_tool_response,
+            text=self.text,
+            scan=self.scan,
+            guard=self.guard,
+            calls=list(self.calls),
+        )
+        if self.rng is not None:
+            clone.rng = random.Random()
+            clone.rng.setstate(self.rng.getstate())
+        return clone
+
+
+class ChatToolMachine(JsMachine):
+    """A ``JsMachine`` whose job speaks Qwen3.5 chat and tool calls rather than the ABI."""
+
+    def __init__(
+        self,
+        worker: ZeosModelWorker,
+        *,
+        tool_classes: Mapping[str, str],
+        bridge: Bridge | None = None,
+        pipes: ChatPipes | None = None,
+        thinking: bool = False,
+        assistant_prefix: str | None = None,
+        sampling: Sampling | None = None,
+        seed: int = 0,
+        param_types: Mapping[str, Mapping[str, str]] | None = None,
+        banned_tags: Iterable[str] = BANNED_TAGS,
+        block_size: int = DEFAULT_BLOCK_SIZE,
+    ) -> None:
+        super().__init__(worker, bridge=bridge, block_size=block_size, chat_template="chatml")
+        unknown = sorted({c for c in tool_classes.values() if c not in (READ, EFFECT)})
+        if unknown:
+            raise ValueError(f"tool classes must be {READ!r} or {EFFECT!r}, not {unknown}")
+        self.pipes = pipes or ChatPipes()
+        self._tool_classes = dict(tool_classes)
+        self._prefix = thinking_prefix(thinking) if assistant_prefix is None else assistant_prefix
+        self._sampling = sampling
+        self._seed = seed
+        self._param_types = {k: dict(v) for k, v in (param_types or {}).items()}
+        self._chats: dict[JobId, _Chat] = {}
+        self._tokenized: dict[str, tuple[int, ...]] = {}
+
+        pieces = self._pieces
+        # The markers JsMachine found among the control ids, and the rest of the
+        # template's markers wherever the vocabulary has them, control ids first.
+        for marker in FRAMING_MARKERS:
+            if marker in self._markers:
+                continue
+            ids = [i for i in sorted(self._control) if pieces[i] == marker] or [
+                i for i, p in enumerate(pieces) if p == marker
+            ]
+            if ids:
+                self._markers[marker] = ids[0]
+        self._im_end = self._markers[IM_END]
+
+        base = bytearray(b"\x01" * len(pieces))
+        for token_id, piece in enumerate(pieces):
+            if (
+                not piece
+                or token_id == self._pad_id
+                or (token_id == self._eos_id and piece != IM_END)
+                or (token_id in self._control and piece not in EMITTABLE_CONTROL)
+            ):
+                base[token_id] = 0
+        self._base = bytes(base)
+        self._guard = FrameGuard(pieces, banned_tags)
+        self._masks: dict[str, bytes] = {}
+
+    # -- lifecycle --------------------------------------------------------------
+
+    def create_context(self, job: JobId, descriptor: str = "") -> None:
+        super().create_context(job, descriptor)
+        chat = _Chat()
+        if self._sampling is not None:
+            chat.rng = random.Random(f"{self._seed}:{int(job)}")
+        self._chats[job] = chat
+
+    def destroy_context(self, job: JobId) -> None:
+        super().destroy_context(job)
+        self._chats.pop(job, None)
+
+    def fork(self, parent: JobId, child: JobId) -> int:
+        shared = super().fork(parent, child)
+        clone = self._chat_of(parent).copy()
+        if self._sampling is not None:
+            clone.rng = random.Random(f"{self._seed}:{int(child)}")
+        self._chats[child] = clone
+        return shared
+
+    def _chat_of(self, job: JobId) -> _Chat:
+        chat = self._chats.get(job)
+        if chat is None:
+            raise KeyError(f"no context for job {job}; create_context first")
+        return chat
+
+    # -- outside the Protocol ---------------------------------------------------
+
+    def calls(self, job: JobId) -> tuple[ToolCall, ...]:
+        """Every tool call this job has asked to write, in order."""
+        return tuple(self._chat_of(job).calls)
+
+    def tool_class(self, name: str) -> str:
+        return self._tool_classes.get(name, EFFECT)
+
+    def allowed_tokens(self, state: str = "") -> bytes:
+        """The token mask from a guard state, one byte per vocabulary id."""
+        mask = self._masks.get(state)
+        if mask is None:
+            flags = bytearray(self._base)
+            for token_id in self._guard.banned(state):
+                flags[token_id] = 0
+            mask = bytes(flags)
+            self._masks[state] = mask
+        return mask
+
+    def context_text(self, job: JobId) -> str:
+        """Every id of the job's context as text, framing included: the prompt as the
+        model reads it."""
+        return "".join(self._pieces[i] for i in self._ctx_of(job).ids)
+
+    # -- encoding ---------------------------------------------------------------
+
+    def _tokenize(self, text: str) -> list[int]:
+        if not text:
+            return []
+        cached = self._tokenized.get(text)
+        if cached is None:
+            cached = tuple(int(i) for i in self._worker.tokenize(text))
+            self._tokenized[text] = cached
+        return list(cached)
+
+    def _encode(self, tokens: Sequence[Token], ctx: _Context) -> tuple[list[int], list[int]]:
+        ids: list[int] = []
+        spans: list[int] = []
+        for k, tok in enumerate(tokens):
+            text = tok.text if (k == 0 or tok.text[:1].isspace()) else " " + tok.text
+            word = self._tokenize(text) or [self._pad_id]
+            ids.extend(word)
+            spans.append(len(word))
+        return ids, spans
+
+    # -- the ops ------------------------------------------------------------------
+
+    def inject(self, job: JobId, tokens: Sequence[Token]) -> tuple[int, int]:
+        ctx = self._ctx_of(job)
+        chat = self._chat_of(job)
+        start = len(ctx.tokens)
+        if not tokens:
+            return start, start
+        new_ids, new_spans = self._encode(tokens, ctx)
+        ctx.extend(tokens, new_ids, new_spans)
+        end = len(ctx.tokens)
+        close = f"{IM_END}\n{IM_START}{_USER}"
+
+        head, tail = "", ""
+        if chat.role is None:
+            head = f"{IM_START}{_SYSTEM}\n"
+            chat.role = _SYSTEM
+        elif tokens[0].kind is TokenKind.CONTROL:
+            # A kernel frame: the system's while the prompt is being put together, and
+            # otherwise the user turn's, opening one if the model was speaking.
+            head = f"{close}\n" if chat.role == _ASSISTANT else "\n"
+            if chat.role == _ASSISTANT:
+                chat.role = _USER
+            chat.in_tool_response = False
+        elif chat.awaiting == self.pipes.results:
+            head = ("" if chat.role == _USER else close) + f"\n{TOOL_RESPONSE_OPEN}\n"
+            tail = f"\n{TOOL_RESPONSE_CLOSE}"
+            chat.role = _USER
+            chat.in_tool_response = True
+            chat.arrived = True
+        else:
+            head = "\n" if chat.role == _USER else f"{close}\n"
+            chat.role = _USER
+            chat.in_tool_response = False
+            chat.arrived = chat.awaiting is not None
+
+        self._frame_into(ctx, head, start, before=True)
+        if tail:
+            self._frame_into(ctx, tail, end - 1, before=False)
+        if start == 0:
+            # The descriptor body: prefill it now, which for a pinned job is at boot,
+            # so the first message costs only itself.
+            self._flush(ctx)
+        if tokens[0].kind is not TokenKind.CONTROL and start > 0:
+            self.note_arrival(job, "".join(t.text for t in tokens))
+        ctx.tags = ("self",)
+        return start, end
+
+    def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
+        """``JsMachine.splice``, keeping the framing on the edges of the range: a stub in
+        place of a tool result still sits in its turn."""
+        ctx = self._ctx_of(job)
+        if not tokens or start == end:
+            return super().splice(job, start, end, tokens)
+        head_ids: list[int] = []
+        tail_ids: list[int] = []
+        if 0 <= start < len(ctx.spans):
+            at = ctx.kv_offset(start)
+            head_ids = ctx.ids[at : at + ctx.framing[start][0]]
+        if 0 < end <= len(ctx.spans):
+            stop = ctx.kv_offset(end)
+            tail_ids = ctx.ids[stop - ctx.framing[end - 1][1] : stop]
+        result = super().splice(job, start, end, tokens)
+        last = start + len(tokens) - 1
+        at = ctx.kv_offset(start)
+        ctx.ids[at:at] = head_ids
+        ctx.spans[start] += len(head_ids)
+        stop = ctx.kv_offset(last + 1)
+        ctx.ids[stop:stop] = tail_ids
+        ctx.spans[last] += len(tail_ids)
+        if start == last:
+            ctx.framing[start] = (len(head_ids), len(tail_ids))
+        else:
+            ctx.framing[start] = (len(head_ids), 0)
+            ctx.framing[last] = (0, len(tail_ids))
+        return result
+
+    def _quiet(self, request: MachineRequest) -> DecodeResult:
+        """A step that runs no forward pass, so attends nothing."""
+        return DecodeResult(tokens=(), request=request, attention={})
+
+    def _open_turn(self, ctx: _Context, chat: _Chat) -> None:
+        close = "" if chat.role is None else f"{IM_END}\n"
+        self._frame_into(
+            ctx,
+            f"{close}{IM_START}{_ASSISTANT}\n{self._prefix}",
+            len(ctx.tokens) - 1,
+            before=False,
+        )
+        chat.role = _ASSISTANT
+        chat.in_tool_response = False
+        chat.text = ""
+        chat.scan = 0
+        chat.guard = ""
+
+    def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
+        ctx = self._ctx_of(job)
+        chat = self._chat_of(job)
+        if not ctx.ids:
+            raise RuntimeError(
+                "cannot decode an empty context; the kernel injects the descriptor "
+                "body before the first decode"
+            )
+        if chat.awaiting is not None and not chat.arrived:
+            # Asked to read and nothing came: the kernel refused the write before it.
+            return self._quiet(MachineRequest(op=OpKind.READ, pipe=chat.awaiting))
+        if chat.role == _SYSTEM:
+            # Nobody has spoken yet.
+            chat.awaiting, chat.arrived = self.pipes.user, False
+            return self._quiet(MachineRequest(op=OpKind.READ, pipe=self.pipes.user))
+        chat.awaiting, chat.arrived = None, False
+        if chat.role != _ASSISTANT:
+            self._open_turn(ctx, chat)
+        self._flush(ctx)
+
+        allowed = self.allowed_tokens(chat.guard)
+        blocks = self._allowed_blocks(ctx)
+        sample: dict[str, float] | None = None
+        if self._sampling is not None:
+            assert chat.rng is not None
+            sample = {
+                "temperature": self._sampling.temperature,
+                "topK": self._sampling.top_k,
+                "u": chat.rng.random(),
+            }
+        step = self._worker.decodeStep(ctx.key, self._bridge.options(blocks, allowed, sample))
+        tid = int(step.tokenId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        if not (0 <= tid < len(allowed)) or not allowed[tid]:
+            raise WorkerViolation(f"job {job}: the worker chose id {tid}, which the mask refused")
+        measured = self._bridge.floats(step.attention)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        attention = None if measured is None else self._kernel_attention(ctx, measured, blocks)
+        hint = AttentionHint(tags=ctx.tags) if measured is None else None
+
+        if tid == self._im_end:
+            # The turn is over. The marker is not appended: it is the framing in front
+            # of whatever arrives next.
+            chat.awaiting, chat.arrived = self.pipes.user, False
+            return DecodeResult(
+                tokens=(),
+                request=MachineRequest(
+                    op=OpKind.WRITE_READ,
+                    pipe=self.pipes.out,
+                    payload=tokens_from_text(chat.text, preserve_whitespace=True),
+                    read_pipe=self.pipes.user,
+                ),
+                attention=attention,
+                attention_hint=hint,
+            )
+
+        piece = self._pieces[tid]
+        token = Token(piece, TokenKind.NORMAL)
+        ctx.spoken = True
+        before = len(ctx.tokens)
+        ctx.extend([token], [tid], [1])
+        after = len(ctx.tokens)
+        chat.text += piece
+        chat.guard = self._guard.advance(chat.guard, piece)
+
+        request = MachineRequest()
+        call = self._closed_call(chat)
+        if call is not None:
+            chat.calls.append(call)
+            chat.awaiting, chat.arrived = self.pipes.results, False
+            request = MachineRequest(
+                op=OpKind.WRITE_READ,
+                pipe=call.sink,
+                payload=tokens_from_text(call.payload, preserve_whitespace=True),
+                read_pipe=self.pipes.results,
+            )
+        return DecodeResult(
+            tokens=(token,),
+            request=request,
+            attention=attention,
+            attention_hint=hint,
+            at_block_boundary=after % self._block_size == 0 and after != before,
+        )
+
+    def _closed_call(self, chat: _Chat) -> ToolCall | None:
+        """The tool call the latest piece closed, if it closed one that parses."""
+        text = chat.text
+        opened = text.find(TOOL_CALL_OPEN, chat.scan)
+        if opened < 0:
+            return None
+        inner_at = opened + len(TOOL_CALL_OPEN)
+        closed = text.find(TOOL_CALL_CLOSE, inner_at)
+        if closed < 0:
+            return None
+        chat.scan = closed + len(TOOL_CALL_CLOSE)
+        parsed = parse_tool_call_body(text[inner_at:closed], self._param_types)
+        if parsed is None:
+            return None
+        name, arguments = parsed
+        sink = self.pipes.read if self.tool_class(name) == READ else self.pipes.effect
+        return ToolCall(
+            index=len(chat.calls),
+            name=name,
+            arguments=arguments,
+            sink=sink,
+            raw=text[opened : chat.scan],
+        )

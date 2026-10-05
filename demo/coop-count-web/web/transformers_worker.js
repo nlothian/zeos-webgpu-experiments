@@ -59,6 +59,38 @@ export function encodePlain(tokenizer, text) {
   return ids;
 }
 
+/** The seeded sampler `opts.sample` asks for, as `chat_machine.sample_index` defines it:
+ * rank the allowed ids below `limit` by logit, highest first and the lower id on a tie,
+ * keep the first `topK`, weight each by `exp((logit - best) / temperature)`, and take the
+ * first whose running total exceeds `u` times the sum (the last if rounding leaves none).
+ * `u` is drawn by the caller from a seeded generator, so this function holds no state. */
+export function sampleToken(logits, allowedTokens, limit, { temperature, topK, u }) {
+  if (!(temperature > 0) || !(topK >= 1) || !(u >= 0 && u < 1)) {
+    throw new RangeError(`sample needs temperature > 0, topK >= 1 and 0 <= u < 1`);
+  }
+  // The topK best so far, best first; small, so insertion is cheaper than a heap.
+  const ranked = [];
+  for (let id = 0; id < limit; id++) {
+    if (allowedTokens !== null && !allowedTokens[id]) continue;
+    const value = logits[id];
+    if (ranked.length === topK && !(value > logits[ranked[topK - 1]])) continue;
+    let at = ranked.length;
+    while (at > 0 && value > logits[ranked[at - 1]]) at--;
+    ranked.splice(at, 0, id);
+    if (ranked.length > topK) ranked.pop();
+  }
+  if (ranked.length === 0) throw new Error("allowedTokens permits no token");
+  const best = logits[ranked[0]];
+  const weights = ranked.map((id) => Math.exp((logits[id] - best) / temperature));
+  const threshold = u * weights.reduce((a, b) => a + b, 0);
+  let running = 0;
+  for (let k = 0; k < ranked.length; k++) {
+    running += weights[k];
+    if (running > threshold) return ranked[k];
+  }
+  return ranked[ranked.length - 1];
+}
+
 class Context {
   constructor(worker) {
     this.stride = worker.stride;
@@ -242,7 +274,7 @@ export class TransformersWorker {
     this.contexts.set(childId, ctx);
   }
 
-  async decodeStep(jobId, { allowedBlocks = null, allowedTokens = null } = {}) {
+  async decodeStep(jobId, { allowedBlocks = null, allowedTokens = null, sample = null } = {}) {
     const ctx = this.ctx(jobId);
     const n = ctx.tokens.length;
     if (n === 0) throw new Error(`job ${jobId}: cannot decode an empty context`);
@@ -268,7 +300,11 @@ export class TransformersWorker {
     ctx.previous = before;
     ctx.mask = allowedBlocks === null ? null : allowed;
 
-    const tokenId = this.argmax(result.logits.data, allowedTokens);
+    const limit = Math.min(this.meta.tokenizerSize, result.logits.data.length);
+    const tokenId =
+      sample === null
+        ? this.argmax(result.logits.data, allowedTokens)
+        : sampleToken(result.logits.data, allowedTokens, limit, sample);
     return { tokenId, attention: Float32Array.from(result.attention.data) };
   }
 

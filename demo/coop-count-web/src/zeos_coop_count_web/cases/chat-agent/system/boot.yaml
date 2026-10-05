@@ -1,0 +1,3 @@
+# One job for the whole conversation. It is pinned, so it boots with its body
+# prefilled and waits for the first message on chat.user rather than running.
+- chat-agent
