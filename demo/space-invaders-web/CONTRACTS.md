@@ -207,5 +207,7 @@ open, and the one change it made to `contracts.py`:
   filling worker compute the system prompt.
 - **The JS stub** defines `globalThis.createPilotStubWorker(options)` (so
   `self.createPilotStubWorker` in a worker), options `{moves, replies, stepMs, positionMs,
-  reads, blockSize, terminator, chunk}`. It is a model-side worker: `decodeStep` is async
+  reads, blockSize, terminator, chunk}`. It also carries `meta.tokenizerSize` (its vocabulary size) and `backend` (`"stub"`), which
+  `serveChannel` reads for the channel's `pieces` and `backend` requests. It is a
+  model-side worker: `decodeStep` is async
   and honours `shouldStop` and `maxChunk`; begin/poll/cancel come from the channel.

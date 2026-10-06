@@ -76,6 +76,7 @@ import { readFileSync } from "node:fs";
 const [stubPath, options, ops] = JSON.parse(readFileSync(0, "utf8"));
 await import(stubPath);
 const w = globalThis.createPilotStubWorker(options);
+if (w.meta.tokenizerSize !== w.vocab.length || w.backend !== "stub") throw new Error("channel fields");
 const out = [{ info: w.info(), vocab: w.vocab }];
 const mask = (pieces) => {
   if (pieces === null) return null;

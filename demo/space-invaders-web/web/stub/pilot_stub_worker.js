@@ -100,6 +100,10 @@
       this.vocab = SPECIAL.concat([...all].sort(byCodeUnit));
       this.ids = new Map(this.vocab.map((piece, i) => [piece, i]));
       this.contexts = new Map();
+      // What serveChannel (frames.js) reads off a worker: `pieces` walks
+      // meta.tokenizerSize ids, and `backend` names the execution provider.
+      this.meta = { tokenizerSize: this.vocab.length, vocabSize: this.vocab.length };
+      this.backend = "stub";
     }
 
     // -- the script ---------------------------------------------------------
