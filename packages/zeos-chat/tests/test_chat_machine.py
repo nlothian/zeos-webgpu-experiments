@@ -916,6 +916,19 @@ def test_read_if_stays_a_case_insensitive_pattern() -> None:
     assert machine.results_pipe("CallSkill", {"skill": "SQL"}) == "tools.results"
 
 
+@pytest.mark.parametrize("letter", ["\u017f", "\u212a", "\u0130", "\u0131"])
+def test_read_if_folds_case_in_ascii_only(letter: str) -> None:
+    """Rules are ASCII case-insensitive, as the site's JavaScript copy (no ``u`` flag) is:
+    long s, the Kelvin sign and the dotted and dotless i never match ``[A-Za-z]``."""
+    machine = ChatToolMachine(
+        ScriptedChatWorker([]),
+        tool_classes={"RunSQL": {"read_if": {"sql": r"SELECT [A-Za-z0-9_]+ FROM t"}}},
+    )
+    assert machine.tool_class("RunSQL", {"sql": "select xLOAD from t"}) == "read"
+    assert machine.tool_class("RunSQL", {"sql": f"SELECT {letter}load FROM t"}) == "effect"
+    assert machine.tool_class("RunSQL", {"sql": f"SELECT {letter} FROM t"}) == "effect"
+
+
 @pytest.mark.parametrize("name", NEAR_MISSES)
 def test_a_near_miss_skill_name_reads_ring_three_and_gates_as_before(name: str) -> None:
     run, _ = skill_chat(

@@ -64,8 +64,9 @@ machine asks for a `WRITE_READ`: `{"name", "arguments"}` as JSON to `tools.read`
 `tools.effect` by the host's tool-class table (a tool it does not name is an effect),
 then a read of `tools.results` (or `tools.results.trusted`, below). A table entry is `"read"`, `"effect"`, or a rule
 `{"read_if": {param: pattern}}`: a read when the call's arguments are exactly those
-parameters, each a string the pattern matches in full (case-insensitive, `.` matching a
-newline), and an effect otherwise -- so a tool whose class depends on what it is asked,
+parameters, each a string the pattern matches in full (ASCII case-insensitive, `.` matching a
+newline; compiled with `re.ASCII`, so that, as in JavaScript's `RegExp` without the `u`
+flag, `[A-Za-z]` never matches `ſ`, `K` (Kelvin), `İ` or `ı`), and an effect otherwise -- so a tool whose class depends on what it is asked,
 such as SQL that only reads, is still classified inside the machine, and the kernel's
 check on `tools.effect` stays the only gate. When the model chooses `<|im_end|>` the machine does not
 append it: it writes the turn's text to `chat.out` and reads `chat.user`, and the marker

@@ -44,8 +44,9 @@ machine turns three moments of a turn into requests itself:
 
 **Tool classes** are ``"read"``, ``"effect"``, or a rule, ``{"read_if": {PARAM: PATTERN}}``:
 the call is a read when its arguments are exactly the rule's parameters, each a string
-that ``PATTERN`` matches in full (``re.fullmatch``, case-insensitive, ``.`` matching a
-newline), and an effect otherwise. A tool whose class depends on what it is asked -- SQL
+that ``PATTERN`` matches in full (``re.fullmatch``, ASCII case-insensitive -- ``re.ASCII``,
+so it folds case as JavaScript's ``RegExp`` without the ``u`` flag does -- and ``.``
+matching a newline), and an effect otherwise. A tool whose class depends on what it is asked -- SQL
 that only reads, say -- is classified here, from the call the model wrote, so the
 kernel's capability check on ``tools.effect`` is the only thing that decides whether it
 runs without the user. Patterns should stay inside the syntax Python's ``re`` and
@@ -1207,8 +1208,19 @@ class ChatToolMachine(JsMachine):
 
 
 def _compile_rule(rule: Mapping[str, str]) -> dict[str, re.Pattern[str]]:
+    r"""A ``read_if`` rule's patterns, ASCII case-insensitive with ``.`` matching a newline.
+
+    ``re.ASCII`` keeps case folding to ASCII letters, as JavaScript's ``RegExp`` with the
+    ``i`` flag and no ``u`` flag does: without it, Python's ``[A-Za-z]`` also matches
+    U+017F (long s), U+212A (Kelvin sign), U+0130 and U+0131 (dotted and dotless i), so
+    a host's JavaScript copy of the rule would class such a call differently from the
+    kernel. It also keeps ``\w``, ``\b`` and ``\d`` ASCII, as JavaScript's are; ``\s``
+    differs between the two either way, so a pattern a host shares should spell
+    whitespace out.
+    """
     return {
-        param: re.compile(pattern, re.IGNORECASE | re.DOTALL) for param, pattern in rule.items()
+        param: re.compile(pattern, re.IGNORECASE | re.DOTALL | re.ASCII)
+        for param, pattern in rule.items()
     }
 
 
