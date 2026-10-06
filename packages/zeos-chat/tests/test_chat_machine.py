@@ -21,6 +21,7 @@ from chat_workers import (
     IM_END_ID,
     IM_START_ID,
     PAD_ID,
+    ByteWorker,
     SamplingWorker,
     ScriptedChatWorker,
     attend_first,
@@ -1475,3 +1476,71 @@ def test_with_thinking_off_the_think_markers_are_banned_and_the_reply_is_not_spl
     run.send_user("hi")
     reply = next(e for e in until_waiting(run) if e["type"] == "reply")
     assert (reply["text"], reply["reasoning"]) == ("a</think>b", None)
+
+
+# -- characters split across byte tokens -------------------------------------------------
+
+ZWSP = "​"
+
+
+def test_the_guard_follows_characters_split_across_byte_tokens() -> None:
+    pieces = ["<", "�", "�", "�", "KERNEL", "KERNE", "�", "�", "x"]
+    zwsp = (1, 2, 3)  # E2 80 8B
+    # 6 and 7 are D3 8F, the Cyrillic small palochka, which the fold reads as L.
+    guard = FrameGuard(
+        pieces,
+        piece_bytes={1: b"\xe2", 2: b"\x80", 3: b"\x8b", 6: b"\xd3", 7: b"\x8f"},
+    )
+    state, pending, text = guard.step(GUARD_START, b"", 0)
+    assert (state, pending, text) == (("<", "<"), b"", "<")
+    for token_id in zwsp:
+        assert token_id not in guard.banned_after(state, pending)
+        state, pending, text = guard.step(state, pending, token_id)
+    assert (pending, text) == (b"", ZWSP)
+    # ``<`` and a zero-width space spelled in bytes: ``KERNEL`` would finish ``<KERNEL``.
+    assert 4 in guard.banned_after(state, pending)
+
+    state, pending, _ = guard.step(guard.step(GUARD_START, b"", 0)[0], b"", 5)
+    assert state[1] == "<KERNE"
+    state, pending, text = guard.step(state, pending, 6)
+    assert (pending, text) == (b"\xd3", "")
+    # The byte that completes the palochka completes the tag, so it is banned; a byte
+    # that does not continue the character only makes it U+FFFD.
+    assert 7 in guard.banned_after(state, pending)
+    assert 8 not in guard.banned_after(state, pending)
+    assert guard.step(state, pending, 8)[2] == "�x"
+
+
+def test_a_character_split_across_byte_tokens_comes_out_whole() -> None:
+    reply = "Done \U0001f600 ∑ Ж"
+    worker = ByteWorker(
+        [call("WriteLines", path="été.txt", lines=["\U0001f600"]), reply],
+        attend=attend_first,
+    )
+    run = open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT)
+    run.send_user("save")
+    events = until_waiting(run)
+    tool_call = next(e for e in events if e["type"] == "tool_call")
+    assert tool_call["arguments"] == {"path": "été.txt", "lines": ["\U0001f600"]}
+    assert run.drain("tools.effect") == [
+        json.dumps({"name": "WriteLines", "arguments": tool_call["arguments"]}, ensure_ascii=False)
+    ]
+    run.deliver_tool_result("ok")
+    streamed = ""
+    for _ in range(100):
+        for event in run.step(8):
+            if event["type"] == "token":
+                streamed += event["text"]
+            elif event["type"] == "reply":
+                assert event["text"] == reply and "�" not in event["raw"]
+        if run.waiting_on() is not None:
+            break
+    assert streamed == reply
+
+
+def test_a_zero_width_space_in_bytes_cannot_open_a_kernel_tag() -> None:
+    worker = ByteWorker([f"<{ZWSP}KERNEL>"], attend=attend_first)
+    run = open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT)
+    run.send_user("hi")
+    with pytest.raises(ValueError, match="mask refuses the script's next piece 'L'"):
+        until_waiting(run)

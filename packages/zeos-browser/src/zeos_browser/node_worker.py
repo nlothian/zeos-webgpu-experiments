@@ -108,6 +108,7 @@ class NodeWorker:
         self.backend = str(ready["backend"])
         self._info: ModelInfo | None = None
         self._pieces: tuple[str, ...] = tuple(cast(list[str], self._call("pieces")))
+        self._partial: dict[int, bytes] | None = None
 
     # -- the interface -----------------------------------------------------------
 
@@ -132,6 +133,13 @@ class NodeWorker:
         if not 0 <= tokenId < len(self._pieces):
             raise IndexError(f"token id {tokenId} is outside the vocabulary")
         return self._pieces[tokenId]
+
+    def pieceBytes(self, tokenId: int) -> bytes:
+        # Every partial piece at once, on the first call (``partialPieces`` in frames.js).
+        if self._partial is None:
+            pairs = cast(list[list[Any]], self._call("partialPieces"))
+            self._partial = {int(i): bytes(cast(array[int], b)) for i, b in pairs}
+        return self._partial[tokenId]
 
     def createContext(self, jobId: str) -> None:
         self._call("createContext", jobId)

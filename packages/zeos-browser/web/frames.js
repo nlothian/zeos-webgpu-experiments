@@ -93,9 +93,11 @@ export function decodeFrame(bytes) {
   return header;
 }
 
-/** Answer one decoded request against a worker. Two calls sit outside the interface:
- * `pieces`, every piece at once, because asking one round trip at a time costs seconds,
- * and `backend`, which execution provider the worker runs on.
+/** Answer one decoded request against a worker. Three calls sit outside the interface:
+ * `pieces`, every piece at once, because asking one round trip at a time costs seconds;
+ * `partialPieces`, `[id, bytes]` for every id whose piece is not whole characters (it
+ * holds U+FFFD), so `pieceBytes` is answered without a round trip per id; and `backend`,
+ * which execution provider the worker runs on.
  *
  * A *begun* decode step (`request.begun`, sent by `SyncModelWorker.beginDecodeStep` or
  * `NodeWorker.beginDecodeStep`) can be cancelled while it runs. A function cannot cross a
@@ -111,6 +113,11 @@ export async function serveRequest(worker, request, { shouldStop = null } = {}) 
     } else if (request.method === "pieces") {
       value = [];
       for (let id = 0; id < worker.meta.tokenizerSize; id++) value.push(worker.piece(id));
+    } else if (request.method === "partialPieces") {
+      value = [];
+      for (let id = 0; id < worker.meta.tokenizerSize; id++) {
+        if (worker.piece(id).includes("\ufffd")) value.push([id, worker.pieceBytes(id)]);
+      }
     } else if (request.method === "backend") {
       value = worker.backend;
     } else {

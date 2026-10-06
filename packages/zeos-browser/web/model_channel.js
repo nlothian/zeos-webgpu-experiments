@@ -149,6 +149,14 @@ export class SyncModelWorker {
     return this.pieces[tokenId];
   }
 
+  /** Fetched for every partial piece at once on the first call; see `frames.js`. */
+  pieceBytes(tokenId) {
+    if (this.partial === undefined) this.partial = new Map(this.call("partialPieces"));
+    const bytes = this.partial.get(tokenId);
+    if (bytes === undefined) throw new RangeError(`token id ${tokenId} is whole characters`);
+    return bytes;
+  }
+
   createContext(jobId) {
     this.call("createContext", jobId);
   }

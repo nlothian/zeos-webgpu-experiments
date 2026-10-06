@@ -17,6 +17,7 @@ ends in a tool call, where the machine stops asking. Blocks are one position eac
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -200,3 +201,35 @@ class SamplingWorker(ScriptedChatWorker):
                 u=sample["u"],
             )
         return ChatStep(tokenId=token_id, attention=None)
+
+
+class ByteWorker(ScriptedChatWorker):
+    """A ``ScriptedChatWorker`` that also has a token for each byte from 0x80 up, whose
+    piece is U+FFFD, as a byte-level vocabulary's are. A reply character outside the
+    vocabulary is spelled as its UTF-8 bytes, one token each."""
+
+    def __init__(self, replies: Sequence[str], **kwargs: Any) -> None:
+        self._byte_base = len(SPECIAL + CHARS) + len(kwargs.get("extra", ()))
+        super().__init__([], **kwargs)
+        self.vocab = self.vocab + ("�",) * 128
+        for reply in replies:
+            self._tape += self.spell(reply)
+            if not reply.endswith("</tool_call>"):
+                self._tape.append(IM_END_ID)
+
+    def byte_id(self, byte: int) -> int:
+        return self._byte_base + byte - 0x80
+
+    def spell(self, text: str) -> list[int]:
+        out: list[int] = []
+        for run in re.findall(r"[\x00-\x7f]+|[^\x00-\x7f]", text):
+            if run.isascii():
+                out += super().spell(run)
+            else:
+                out += [self.byte_id(b) for b in run.encode("utf-8")]
+        return out
+
+    def pieceBytes(self, tokenId: int) -> bytes:
+        if not self._byte_base <= tokenId < self._byte_base + 128:
+            raise IndexError(f"{tokenId} is not a byte token")
+        return bytes([tokenId - self._byte_base + 0x80])

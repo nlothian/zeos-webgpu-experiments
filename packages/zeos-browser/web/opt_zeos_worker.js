@@ -12,9 +12,9 @@
  * them against the cache.
  *
  * Like `TransformersWorker` it owns token ids and caches and nothing else, imports
- * nothing but `encodePlain` and `sampleToken` (ONNX Runtime and the tokenizer class are
- * handed in), and returns promises from `append` and `decodeStep`; `SyncModelWorker` in
- * `model_channel.js` makes it synchronous for the Python side.
+ * nothing but `encodePlain`, `pieceBytes` and `sampleToken` (ONNX Runtime and the
+ * tokenizer class are handed in), and returns promises from `append` and `decodeStep`;
+ * `SyncModelWorker` in `model_channel.js` makes it synchronous for the Python side.
  *
  * **Pending tokens.** `append` only records ids. The next `decodeStep` runs every id with
  * no cache behind it through the graph, in chunks of at most `maxChunk` (2048) cut at the
@@ -82,7 +82,7 @@
  * runs, `fillMs` spent in them, not counting a final one-position decode).
  */
 
-import { encodePlain, sampleToken } from "./transformers_worker.js";
+import { encodePlain, pieceBytes, sampleToken } from "./transformers_worker.js";
 
 /** Positions between two snapshots of a context's recurrent state, and so the most a cut
  * replays. Also the length every prefill chunk is cut at. */
@@ -454,6 +454,10 @@ export class OptZeosWorker {
       this.pieces.set(tokenId, text);
     }
     return text;
+  }
+
+  pieceBytes(tokenId) {
+    return pieceBytes(this.tokenizer, tokenId);
   }
 
   createContext(jobId) {

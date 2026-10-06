@@ -22,6 +22,10 @@ The worker implements exactly this interface::
                 vocabSize: number };
       tokenize(text: string): Int32Array;        // no BOS, no special-token parsing
       piece(tokenId: number): string;            // the text of one token
+      // Optional. The bytes of a token whose piece is not whole characters (a byte of an
+      // emoji, which decodes to U+FFFD alone); asked only for such ids. A worker without
+      // it has its pieces taken as they are.
+      pieceBytes?(tokenId: number): Uint8Array;
       createContext(jobId: string): void;
       destroyContext(jobId: string): void;
       length(jobId: string): number;             // model tokens currently resident

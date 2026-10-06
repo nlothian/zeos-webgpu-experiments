@@ -63,6 +63,39 @@ export function encodePlain(tokenizer, text) {
   return ids;
 }
 
+/** Each byte of GPT-2's byte-level alphabet, by the character a byte-level BPE vocabulary
+ * writes it as: printable Latin-1 as itself, every other byte shifted past 255. */
+const BYTE_OF_CHAR = (() => {
+  const bytes = [];
+  for (let b = 0x21; b <= 0x7e; b++) bytes.push(b);
+  for (let b = 0xa1; b <= 0xac; b++) bytes.push(b);
+  for (let b = 0xae; b <= 0xff; b++) bytes.push(b);
+  const chars = bytes.slice();
+  let shifted = 0;
+  for (let b = 0; b < 256; b++) {
+    if (!bytes.includes(b)) {
+      bytes.push(b);
+      chars.push(256 + shifted++);
+    }
+  }
+  return new Map(bytes.map((b, i) => [String.fromCharCode(chars[i]), b]));
+})();
+
+/** The bytes a byte-level BPE token stands for. A token that is part of a character (a
+ * byte of an emoji, say) decodes to U+FFFD on its own; these are its real bytes, which
+ * the Python side joins across a turn so a character split over tokens comes out whole. */
+export function pieceBytes(tokenizer, tokenId) {
+  const token = tokenizer.id_to_token(tokenId);
+  if (token === undefined) throw new RangeError(`token id ${tokenId} is outside the vocabulary`);
+  const out = new Uint8Array(token.length);
+  for (let i = 0; i < token.length; i++) {
+    const byte = BYTE_OF_CHAR.get(token[i]);
+    if (byte === undefined) throw new Error(`token ${tokenId} is not a byte-level token`);
+    out[i] = byte;
+  }
+  return out;
+}
+
 /** The seeded sampler `opts.sample` asks for, as `chat_machine.sample_index` defines it:
  * rank the allowed ids below `limit` by logit, highest first and the lower id on a tie,
  * keep the first `topK`, weight each by `exp((logit - best) / temperature)`, and take the
@@ -258,6 +291,10 @@ export class TransformersWorker {
       this.pieces.set(tokenId, text);
     }
     return text;
+  }
+
+  pieceBytes(tokenId) {
+    return pieceBytes(this.tokenizer, tokenId);
   }
 
   createContext(jobId) {

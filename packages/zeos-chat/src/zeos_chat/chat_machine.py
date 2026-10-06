@@ -133,6 +133,7 @@ logits. ``sample_index`` is the rule a worker applies, written once here.
 
 from __future__ import annotations
 
+import codecs
 import json
 import math
 import random
@@ -367,6 +368,15 @@ GuardState = tuple[str, str]
 GUARD_START: GuardState = ("", "")
 
 
+def utf8_step(pending: bytes, data: bytes) -> tuple[str, bytes]:
+    """The characters ``pending`` then ``data`` complete, and the bytes of a character
+    still incomplete at the end. A byte that cannot start or continue a character is
+    U+FFFD, as UTF-8 decoding with replacement makes it."""
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    text = decoder.decode(pending + data, final=False)
+    return text, decoder.getstate()[0]
+
+
 class FrameGuard:
     """Which pieces would complete a banned tag, given what the turn has said so far.
 
@@ -384,18 +394,45 @@ class FrameGuard:
     pattern of one track or the other, since ``<KERNEL`` in the text is ``<KERNEL`` in its
     fold. It is stricter in one way: the model's next piece is not yet known, so
     ``<KERNELS`` and ``<kernels`` are banned too, where the kernel would not alarm on them.
+
+    **Characters split across tokens.** A byte-level vocabulary spells a character it has
+    no token for -- an emoji, a zero-width space, a Cyrillic letter -- as several tokens,
+    each a piece of its UTF-8, whose own text is U+FFFD. ``piece_bytes`` gives those
+    tokens' bytes, and the guard follows the characters the bytes make rather than the
+    replacement characters: ``step`` joins a token's bytes to the incomplete character
+    before it and advances over what that completes, and ``banned_after`` bans a token
+    whose bytes would complete a character that completes a tag. So ``<``, the three
+    bytes of a zero-width space, then ``KERNEL`` is banned at ``KERNEL``, as ``<`` then the
+    zero-width space as one piece is.
     """
 
-    def __init__(self, pieces: Sequence[str], tags: Iterable[str] = BANNED_TAGS) -> None:
+    def __init__(
+        self,
+        pieces: Sequence[str],
+        tags: Iterable[str] = BANNED_TAGS,
+        *,
+        piece_bytes: Mapping[int, bytes] | None = None,
+    ) -> None:
         names = sorted(set(tags))
         if not names:
             raise ValueError("a guard needs at least one tag")
         folded = [n for n in names if n in FOLDED_FRAMES]
         exact = [n for n in names if n not in FOLDED_FRAMES]
         self._pieces = tuple(pieces)
-        self._exact = _Track(_tag_patterns(exact), self._pieces)
-        self._folded = _Track(_tag_patterns(folded), tuple(map(fold, self._pieces)))
+        self._bytes = dict(piece_bytes or {})
+        # A partial token's own view is the characters it completes from a clean start,
+        # never its U+FFFD; what it leaves incomplete is followed in the pending bytes.
+        views = list(self._pieces)
+        for token_id, data in self._bytes.items():
+            views[token_id] = utf8_step(b"", data)[0]
+        self._exact = _Track(_tag_patterns(exact), views)
+        self._folded = _Track(_tag_patterns(folded), tuple(map(fold, views)))
+        self._views = tuple(views)
+        #: Partial tokens that begin with a continuation byte: the only ones whose text
+        #: depends on the incomplete character before them.
+        self._continuing = frozenset(i for i, b in self._bytes.items() if b and 0x80 <= b[0] < 0xC0)
         self._cache: dict[GuardState, frozenset[int]] = {}
+        self._after: dict[tuple[GuardState, bytes], frozenset[int]] = {}
 
     @property
     def patterns(self) -> tuple[str, ...]:
@@ -410,9 +447,46 @@ class FrameGuard:
             self._cache[state] = cached
         return cached
 
+    def banned_after(self, state: GuardState, pending: bytes) -> frozenset[int]:
+        """``banned``, after the first bytes ``pending`` of a character not yet complete.
+
+        A token that does not continue it makes it U+FFFD, which no tag holds, so it is
+        banned only for spelling a tag itself; a token that continues it is banned when
+        the characters it completes, after ``state``, complete a tag."""
+        if not pending:
+            return self.banned(state)
+        key = (state, pending)
+        cached = self._after.get(key)
+        if cached is None:
+            completing = {
+                i
+                for i in sorted(self._continuing)
+                if self._spells_from(state, utf8_step(pending, self._bytes[i])[0])
+            }
+            cached = (self.banned(GUARD_START) - self._continuing) | completing
+            self._after[key] = cached
+        return cached
+
+    def _spells_from(self, state: GuardState, text: str) -> bool:
+        return self._exact.spells(state[0] + text) or self._folded.spells(state[1] + fold(text))
+
     def advance(self, state: GuardState, piece: str) -> GuardState:
-        """The state after ``piece``, which must not have been banned from ``state``."""
+        """The state after the characters ``piece``, which must not have been banned
+        from ``state``."""
         return (self._exact.advance(state[0], piece), self._folded.advance(state[1], fold(piece)))
+
+    def step(
+        self, state: GuardState, pending: bytes, token_id: int
+    ) -> tuple[GuardState, bytes, str]:
+        """The state and pending bytes after a token, and the characters it completed:
+        its piece, or for a partial token what its bytes complete after ``pending``."""
+        data = self._bytes.get(token_id)
+        if data is None and not pending:
+            text, rest = self._pieces[token_id], b""
+        else:
+            whole = self._pieces[token_id].encode("utf-8") if data is None else data
+            text, rest = utf8_step(pending, whole)
+        return self.advance(state, text), rest, text
 
     def spells(self, text: str) -> bool:
         """Whether ``text`` contains a banned pattern anywhere."""
@@ -537,6 +611,8 @@ class _Chat:
     scan: int = 0
     #: The frame guard's state across the open turn.
     guard: GuardState = GUARD_START
+    #: The first bytes of a character the turn has not finished (``FrameGuard.step``).
+    pending: bytes = b""
     calls: list[ToolCall] = field(default_factory=list[ToolCall])
     rng: random.Random | None = None
     #: Pipes still to read, in order, before the job decodes (``replay``).
@@ -561,6 +637,7 @@ class _Chat:
             text=self.text,
             scan=self.scan,
             guard=self.guard,
+            pending=self.pending,
             calls=list(self.calls),
             replay=list(self.replay),
             replay_tail=self.replay_tail,
@@ -652,8 +729,18 @@ class ChatToolMachine(JsMachine):
             ):
                 base[token_id] = 0
         self._base = bytes(base)
-        self._guard = FrameGuard(pieces, banned_tags)
-        self._masks: dict[GuardState, bytes] = {}
+        fetch = getattr(worker, "pieceBytes", None)
+        piece_bytes = (
+            {}
+            if fetch is None
+            else {
+                i: bytes(int(b) for b in fetch(i))
+                for i, piece in enumerate(pieces)
+                if "\ufffd" in piece
+            }
+        )
+        self._guard = FrameGuard(pieces, banned_tags, piece_bytes=piece_bytes)
+        self._masks: dict[tuple[GuardState, bytes], bytes] = {}
 
     # -- lifecycle --------------------------------------------------------------
 
@@ -723,15 +810,17 @@ class ChatToolMachine(JsMachine):
         chat.replay = list(pipes[1:])
         chat.replay_tail = True
 
-    def allowed_tokens(self, state: GuardState = GUARD_START) -> bytes:
-        """The token mask from a guard state, one byte per vocabulary id."""
-        mask = self._masks.get(state)
+    def allowed_tokens(self, state: GuardState = GUARD_START, pending: bytes = b"") -> bytes:
+        """The token mask from a guard state and the bytes of an unfinished character,
+        one byte per vocabulary id."""
+        key = (state, pending)
+        mask = self._masks.get(key)
         if mask is None:
             flags = bytearray(self._base)
-            for token_id in self._guard.banned(state):
+            for token_id in self._guard.banned_after(state, pending):
                 flags[token_id] = 0
             mask = bytes(flags)
-            self._masks[state] = mask
+            self._masks[key] = mask
         return mask
 
     def context_text(self, job: JobId) -> str:
@@ -924,6 +1013,7 @@ class ChatToolMachine(JsMachine):
         chat.text = ""
         chat.scan = 0
         chat.guard = GUARD_START
+        chat.pending = b""
         chat.masked_call, chat.masked_hidden = None, ()
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
@@ -956,7 +1046,7 @@ class ChatToolMachine(JsMachine):
             self._open_turn(ctx, chat)
         self._flush(ctx)
 
-        allowed = self.allowed_tokens(chat.guard)
+        allowed = self.allowed_tokens(chat.guard, chat.pending)
         blocks = self._allowed_blocks(ctx)
         if self._mask_tool_choice and chat.hidden and self._in_name_span(chat):
             blocks, chat.narrowed = self._narrowed_blocks(ctx, chat, blocks)
@@ -984,7 +1074,9 @@ class ChatToolMachine(JsMachine):
 
         if tid == self._im_end:
             # The turn is over. The marker is not appended: it is the framing in front
-            # of whatever arrives next.
+            # of whatever arrives next. A character left unfinished is U+FFFD.
+            chat.text += chat.pending.decode("utf-8", errors="replace")
+            chat.pending = b""
             chat.awaiting, chat.arrived = self.pipes.user, False
             return DecodeResult(
                 tokens=(),
@@ -998,14 +1090,16 @@ class ChatToolMachine(JsMachine):
                 attention_hint=hint,
             )
 
-        piece = self._pieces[tid]
-        token = Token(piece, TokenKind.NORMAL)
+        # A token's text is the characters it completes, so the turn's text, the tool
+        # call parsed from it and the guard all read whole characters, and a character
+        # split across tokens is the last of them's.
+        chat.guard, chat.pending, text = self._guard.step(chat.guard, chat.pending, tid)
+        token = Token(text, TokenKind.NORMAL)
         ctx.spoken = True
         before = len(ctx.tokens)
         ctx.extend([token], [tid], [1])
         after = len(ctx.tokens)
-        chat.text += piece
-        chat.guard = self._guard.advance(chat.guard, piece)
+        chat.text += text
 
         request = MachineRequest()
         call = self._closed_call(chat)
