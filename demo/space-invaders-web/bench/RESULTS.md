@@ -84,7 +84,7 @@ everything from the repository root with `UV_NO_CONFIG=1`.
 | Mask copy per step: `array('B')` / Pyodide `Uint8Array.new(to_js())` | 0.005 ms / 0.22 ms | same | ″ |
 | Zeos adherence, syscall grammar, auto-read: valid moves | **0/15** (`left left left 1` ×15) | not run | `adherence_zeos_default_auto-read.json` |
 | Zeos adherence, move sub-grammar, auto-read: valid moves | 15/15 (10 left, 5 right) | not run | `adherence_zeos_default_auto-read_moves.json` |
-| Prompt arm, ≤6 tokens: parse rate | see §4 | not run | `adherence_prompt_default.json` |
+| Prompt arm, ≤6 tokens: parse rate | 14/15 (all `left`, fenced in a code block, 5 tokens) | not run | `adherence_prompt_default.json` |
 
 ### One run's cost by context behind it (WebGPU, `prefill_scaling_webgpu.json`, ms, median)
 
@@ -267,10 +267,20 @@ UV_NO_CONFIG=1 uv run python demo/space-invaders-web/bench/adherence.py --arm pr
 - That means re-running from about 2.6–2.9k to the 5.4k end. On WebGPU, §3 puts that
   at about 8–13 s.
 
-**Prompt arm** (`--arm prompt`, ≤6 unconstrained tokens, history 5): see the
-`adherence_prompt_default.json` summary below.
+**Prompt arm** (`--arm prompt`, ≤6 unconstrained tokens, history 5), from
+`adherence_prompt_default.json`:
 
-PROMPT_ARM_PLACEHOLDER
+- **Parse rate 14/15 (0.93).** Every parsed reply was `left`.
+- Only the first reply was the bare word `left`. From the second board on, the model
+  answered with a code fence around `left`, which is 5 of the 6 allowed tokens.
+- The unparsed reply was a fence opening onto `incoming fire in your`, cut at 6 tokens.
+- So the 6-token cap is only just enough for this habit. A 4-token cap would fail
+  14/15.
+- The system prefix was 1,962 tokens. The user turn grew from 281 to 616 tokens as the
+  history filled.
+- Like the zeos arm, the prompt arm collapses to one action whatever the board says.
+  This is the 4B's behaviour with greedy decoding on these prompts, not something the
+  grammar did.
 
 **Not run, for time:**
 - `--mode plain` (does the model read stdin unprompted?).
