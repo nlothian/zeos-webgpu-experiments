@@ -114,7 +114,13 @@ def tokens_from_text(
 
 
 def render(tokens: Sequence[Token]) -> str:
-    return " ".join(t.text for t in tokens)
+    """Tokens back as text, as a machine writes them: a token that carries the whitespace
+    before it (``tokens_from_text(..., preserve_whitespace=True)``) as it is, and any
+    other after a single space. Tokens split the default way therefore join with single
+    spaces, and preserved ones concatenate back to their text, line breaks and all."""
+    return "".join(
+        t.text if k == 0 or t.text[:1].isspace() else " " + t.text for k, t in enumerate(tokens)
+    )
 
 
 class OpKind(enum.StrEnum):

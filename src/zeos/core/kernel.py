@@ -2839,7 +2839,7 @@ class Kernel:
         """
         rendered = render(payload)
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(rendered)
+        asked = self._words(rendered)
         if len(asked) > requests.spec.capacity_tokens:
             self._refuse_gate(
                 job,
@@ -2903,7 +2903,7 @@ class Kernel:
         """
         gate_job = self.spawn(gate.descriptor, owner=KERNEL_PRINCIPAL)
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(rendered)
+        asked = self._words(rendered)
         accepted = requests.write(asked)
         self._emit(
             PipeWritten(

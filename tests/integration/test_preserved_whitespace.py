@@ -13,15 +13,17 @@ from collections.abc import Sequence
 
 import pytest
 
-from zeos.core.events import Event, FaultRaised, Injected
-from zeos.core.ids import DescriptorName, FaultKind, PipeName, Principal, Ring
+from zeos.core.events import Event, FaultRaised, GateConsulted, Injected, PipeWritten
+from zeos.core.gates import ALLOW, GateSpec, GateTable
+from zeos.core.ids import DescriptorName, FaultKind, PipeName, Principal, Ring, TokenKind
 from zeos.core.kernel import Kernel, KernelConfig
 from zeos.core.pipes import PipeSpec, PipeTable
 from zeos.core.resources import ResourceTable
 from zeos.core.vectors import VectorTable
 from zeos.descriptor.schema import Descriptor
 from zeos.journal.codec import to_line
-from zeos.machine.base import tokens_from_text
+from zeos.machine.base import Token, render, tokens_from_text
+from zeos.machine.scripted import Script, ScriptedMachine
 from zeos.machine.seat import CommandSeat, Turn
 from zeos.world.store import WorldStore
 
@@ -114,3 +116,107 @@ def test_a_preserving_run_is_byte_identical_across_runs() -> None:
         return "".join(to_line(i, e) + "\n" for i, e in enumerate(_run(preserve=True)))
 
     assert journal() == journal()
+
+
+# -- what a write's check, the world and a gate's guard read ----------------------------
+
+BARRIER = PipeName("actuators.barrier")
+REQUESTS = PipeName("gates.walkway.requests")
+VERDICTS = PipeName("gates.walkway.verdicts")
+ACTION = "lift the beam\n  over the walkway"
+
+
+def _gated(monkeypatch: pytest.MonkeyPatch, *, preserve: bool) -> list[Event]:
+    # The scripted machine writes its payload as the chat machine does under the flag:
+    # each token with the whitespace before it.
+    import zeos.machine.scripted as scripted
+
+    def words(text: str, kind: TokenKind = TokenKind.NORMAL) -> tuple[Token, ...]:
+        return tokens_from_text(text, kind, preserve_whitespace=preserve)
+
+    monkeypatch.setattr(scripted, "tokens_from_text", words)
+    events: list[Event] = []
+    kernel = Kernel(
+        descriptors={
+            DescriptorName("actor"): Descriptor.from_frontmatter(
+                {
+                    "name": "actor",
+                    "priority": 50,
+                    "capabilities": [{"pipe": str(BARRIER), "min_integrity": 2}],
+                }
+            ),
+            DescriptorName("guard"): Descriptor.from_frontmatter(
+                {
+                    "name": "guard",
+                    "priority": 15,
+                    "pipes": {"stdin": str(REQUESTS)},
+                    "capabilities": [{"pipe": str(VERDICTS), "min_integrity": 2}],
+                }
+            ),
+        },
+        machine=ScriptedMachine(
+            {
+                "actor": Script.from_spec(
+                    [{"write": {"pipe": str(BARRIER), "text": ACTION}}, {"exit": True}]
+                ),
+                "guard": Script.from_spec(
+                    [
+                        {"read": str(REQUESTS)},
+                        {"write": {"pipe": str(VERDICTS), "text": ALLOW}},
+                        {"exit": True},
+                    ]
+                ),
+            },
+            block_size=8,
+        ),
+        pipes=PipeTable(
+            [
+                PipeSpec(BARRIER, ring=Ring.TRUSTED, principal=Principal.DEVICE),
+                PipeSpec(REQUESTS, ring=Ring.KERNEL, principal=Principal.KERNEL),
+                PipeSpec(VERDICTS, ring=Ring.TRUSTED, principal=Principal.PEER_JOB),
+            ]
+        ),
+        vectors=VectorTable(),
+        world=WorldStore(),
+        resources=ResourceTable(),
+        gates=GateTable(
+            [
+                GateSpec(
+                    pipe=BARRIER,
+                    descriptor=DescriptorName("guard"),
+                    requests=REQUESTS,
+                    verdicts=VERDICTS,
+                )
+            ]
+        ),
+        journal_sink=events,
+        config=KernelConfig(case="whitespace-gate", preserve_whitespace=preserve),
+    )
+    kernel.start()
+    kernel.spawn(DescriptorName("actor"))
+    kernel.run_until_quiescent()
+    return events
+
+
+def test_a_preserved_payload_is_rendered_without_doubled_whitespace() -> None:
+    preserved = tokens_from_text(ACTION, preserve_whitespace=True)
+    assert render(preserved) == ACTION
+    assert render(tokens_from_text(ACTION)) == "lift the beam over the walkway"
+
+
+def test_a_gate_shows_its_guard_the_action_as_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    events = _gated(monkeypatch, preserve=True)
+    (consulted,) = [e for e in events if isinstance(e, GateConsulted)]
+    assert consulted.payload == ACTION
+    asked = [e for e in events if isinstance(e, PipeWritten) and e.pipe == REQUESTS]
+    assert ["".join(e.text) for e in asked] == [ACTION]
+    (landed,) = [e for e in events if isinstance(e, PipeWritten) and e.pipe == BARRIER]
+    assert "".join(landed.text) == ACTION
+
+
+def test_without_the_flag_a_gate_sees_single_spaces_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = _gated(monkeypatch, preserve=False)
+    (consulted,) = [e for e in events if isinstance(e, GateConsulted)]
+    assert consulted.payload == "lift the beam over the walkway"
