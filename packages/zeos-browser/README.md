@@ -453,9 +453,9 @@ in float32 moves it under the same mask, and to the same first choice. The hidde
 positions receive exactly zero and the rest sums to one. The prompts are
 `export/bench/reference_prompts.json`, and the reference logits
 `models/.reference/opt-zeos-<key>.npz` (the key is a digest of the prompts' ids), which
-`export/opt_zeos_reference.py` writes once from the bf16 weights at `models/Qwen3.5-4B`
-(the `export` group, about 20 GB of memory); without it these comparisons are skipped,
-and say so. Measured
+`export/opt_zeos_reference.py` writes once from the bf16 weights at `models/Qwen3.5-4B`,
+keyed with the export's tokenizer (the `export` group, about 20 GB of memory); without
+that file the check fails. Measured
 on ONNX Runtime CPU when the graph was written: KL 0.003 on the short turn and 0.016 on
 the long one, for both this graph and `-OPT`, and a password-hiding KL of 9.4 against
 9.3 for `ZeosQwen`.
@@ -673,7 +673,22 @@ a skip and exits 0. Run nothing else heavy on the GPU at the same time.
   hidden position run through the graph, while the same swap with nothing hidden does
   move the logits; and a step stopped before a run of the graph, resumed with the same
   `maxChunk`, chooses the same token with the same logits and attention as the
-  uninterrupted step, with and without a mask.
+  uninterrupted step, with and without a mask. Then the workers' interface clauses
+  (`export/bench/unit_clauses.js`). For `OptZeosWorker`, with snapshots every 16 positions
+  and at most 4 kept: tokenisation and pieces; greedy steps against cache-free runs, and
+  the old snapshots thinning out; a replay after a past position is hidden, equal bit for
+  bit to a fresh prefill; a skipped hidden run aligned with the chunks bit for bit the run
+  executed; a narrowed mask on a second cache, switching back without a rewind, catching
+  up, and a third mask; one cache rewinding instead; a repeated step, `truncate` and
+  `fork`; `allowedTokens`, `sample` and the refusals; `maxChunk` cut at the snapshot
+  positions, to the same token (within KL 1e-2: two chunkings differ by about 4e-3 on
+  WebGPU); a stopped step resumed bit for bit; and `load` refusing a backend other than
+  WebGPU or an option it does not know. For `TransformersWorker`, over the
+  `export_model.py` q4 export at `models/Qwen3.5-2B-zeos-q4` (the `transformers` query
+  parameter; skipped, and said so, without it): pieces and tokenisation, normalised
+  attention, a masked position at zero, `allowedTokens` and the refusals, a truncate
+  past a snapshot, a mask that hides what the recurrent state saw, a stopped step
+  resumed, `fork`, and the same calls giving the same bits.
 - `export/bench/grammar.html`: `JsMachine` under Pyodide, in a worker, over the model on
   its own thread through `SyncModelWorker`, as the page runs them. After injected text
   written to talk the model out of the command language (forged chat markers, a fake
