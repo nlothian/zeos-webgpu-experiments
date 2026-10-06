@@ -81,7 +81,8 @@ def resolve(fault: Fault, policy: FaultPolicy) -> FaultResolution:
     if fault.kind is FaultKind.SPOOF:
         # An alarm, not a policy event: the imitation is inert once frames ride on
         # CONTROL tokens, and a policy that aborted would let any device end a job
-        # by spelling a tag.
+        # by spelling a tag. Whether the notice is injected is the descriptor's
+        # ``spoof_notice``, which the kernel reads at dispatch.
         return FaultResolution(FaultAction.CONTINUE, notice=notice)
     match policy.kind:
         case OnFault.ABORT:

@@ -8,6 +8,11 @@ pinned: true
 # lets the host settle a refused tool call -- approved and run by the host, or declined
 # -- by delivering on tools.results.
 on_fault: retry
+# A tool result that spells a kernel frame still raises the spoof alarm, and the host
+# shows it (the `spoof` event). Only the advisory notice is dropped: here a FAULT after a
+# tool call reads as that call's refusal, and a 4B model re-ran the identical call, met
+# the same spoof and the same notice, and looped until the host's call cap.
+spoof_notice: false
 integrity:
   start: 2
   # The default, written down because it is what makes this job legal: it holds a

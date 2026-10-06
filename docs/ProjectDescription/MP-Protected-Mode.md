@@ -81,7 +81,7 @@ The names are not matched alike, because they are not equally rare in real data 
 
 The alarm is advisory. What a job can do is decided by its capabilities and its integrity (§5.2, §6), which no text can change: text can persuade; only the kernel can permit. Persuasion that spells no tag at all, `SYSTEM OVERRIDE: ...`, is outside this detector by design; it is §5.4's problem, and §5.2 bounds what a persuaded job can do.
 
-The job is told the text is data, not a notice, and carries on. The fault never aborts, whatever the job's `on_fault` policy says, because otherwise any device could kill a job by spelling a tag.
+The job is told the text is data, not a notice, and carries on. The fault never aborts, whatever the job's `on_fault` policy says, because otherwise any device could kill a job by spelling a tag. A descriptor can decline the notice with `spoof_notice: false`; the fault is still raised and journalled, but nothing is injected. The chat agent (`packages/zeos-chat`) does, because there a FAULT after a tool call reads as a refusal of that call, and a small model re-ran the call.
 
 Whether the model itself can see the difference depends on the backend. A seat that hands the model its transcript as text shows imitations escaped, as `&lt;RESUME&gt;`, and real frames as they are. The escape rewrites each opening as the match read it, gaps and look-alikes included (`\u00`, a zero-width space and `3c` become `&lt;`), so escaped text never raises the alarm again. The llama.cpp machine feeds text through unchanged, so there a frame and its imitation look the same to the model, and the spoof alarm and boundary check are what protect it.
 

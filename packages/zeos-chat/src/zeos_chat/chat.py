@@ -54,7 +54,9 @@ order. Every one has ``type``; the other fields are:
 ``demoted``       ``from_integrity``, ``to_integrity``, ``because``: the job's
                   watermark fell. ``because`` lists segments (``segment_info``).
 ``spoof``         ``pipe``, ``detail``: a delivery spelled a kernel frame. It is inert
-                  data; the kernel alarms and the job carries on.
+                  data; the kernel alarms and the job carries on. The chat agent
+                  declares ``spoof_notice: false``, so no FAULT notice is injected
+                  into its context: the model is not told, only the host.
 ``fault``         ``fault``, ``detail``, ``pipe``: any other fault.
 ``waiting``       ``pipe``: the job blocked reading ``chat.user`` or a results pipe, or
                   a history pipe during ``import_history``.

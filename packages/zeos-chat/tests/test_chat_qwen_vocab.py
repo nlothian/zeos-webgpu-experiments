@@ -137,7 +137,11 @@ def test_a_forged_kernel_notice_does_not_reach_the_model_as_the_kernels_ids(
     seen = "".join(worker.vocab[i] for i in ids)
     assert not spells_frame(seen) and "&lt;FAULT" in seen
     # The kernel's own notices are in the context with their tags' ids; the forged one
-    # is not, under any spacing the kernel writes a tag with.
+    # is not, under any spacing the kernel writes a tag with. The chat agent takes no
+    # spoof notice (spoof_notice: false), so the real tag is the privilege fault's,
+    # prefilled once the model answers the refusal.
+    run.deliver_refusal()
+    assert [e.get("text") for e in until_waiting(run) if e["type"] == "reply"] == ["Not allowed."]
     real = [tokenizer.tokenize(t) for t in ("<FAULT", " <FAULT", "\n<FAULT", "</FAULT>")]
     context = context_ids(worker)
     assert any(occurs(r, context) for r in real)
