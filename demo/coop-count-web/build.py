@@ -17,11 +17,13 @@ which is how the page finds them: a static host lists no directories. The direct
 emptied first, so what is served is exactly what this run built.
 
 When ``npm install`` has been run in ``packages/zeos-browser`` it also copies ONNX Runtime
-Web and the tokenizer into ``vendor/``, and when the model has been exported (into
-``packages/zeos-browser/models/``) it links the export into ``models/``
-and names it in the manifest, which is what offers the model machine on the page. The
-export is linked rather than copied because it is gigabytes; a host that
-does not follow links needs ``--copy-model``.
+Web and the tokenizer into ``vendor/`` and names the model in the manifest, which is what
+offers the model machine on the page. The page downloads the model from the Hugging Face
+Hub at a pinned commit, once, and keeps it in the browser's storage
+(``zeos_browser.model_source``). ``--model [DIR]`` also links a local export (by default
+``packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT``) into ``models/`` and loads that by
+default; it is linked because it is gigabytes, and a host that does not follow links
+needs ``--copy-model``.
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from zeos_browser import model_source
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -54,6 +58,9 @@ GENERIC = (
     "model_channel.js",
     "model_host.js",
     "model_thread.js",
+    "model_cache.js",
+    "opfs_store.js",
+    "sha256.js",
     "frames.js",
 )
 NODE_MODULES = BROWSER / "node_modules"
@@ -70,10 +77,17 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = BROWSER / "models" / "Qwen3.5-4B-ZEOS-OPT"
 
 
-def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -> dict[str, object]:
+def build(
+    dist: Path = DIST,
+    *,
+    model: Path | None = None,
+    copy_model: bool = False,
+    hf_endpoint: str = model_source.HF_ENDPOINT,
+    hf_repo: str = model_source.HF_REPO,
+    hf_revision: str = model_source.HF_REVISION,
+) -> dict[str, object]:
     if dist.exists():
         shutil.rmtree(dist)
     wheels = dist / "wheels"
@@ -103,14 +117,14 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
             (dist / "vendor" / name).mkdir(parents=True)
             for file in files:
                 shutil.copy2(source / file, dist / "vendor" / name / file)
-        if (model / "meta.json").is_file():
-            (dist / "models").mkdir()
-            target = dist / "models" / model.name
-            if copy_model:
-                shutil.copytree(model, target)
-            else:
-                target.symlink_to(model.resolve(), target_is_directory=True)
-            manifest["model"] = model.name
+        manifest |= model_source.model_fields(
+            dist,
+            local=model,
+            copy=copy_model,
+            endpoint=hf_endpoint,
+            repo=hf_repo,
+            revision=hf_revision,
+        )
     (dist / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -119,14 +133,21 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--model", type=Path, default=MODEL, help="the export to offer")
-    parser.add_argument("--copy-model", action="store_true", help="copy the export, not link")
+    model_source.add_arguments(parser)
     args = parser.parse_args(argv)
-    manifest = build(model=args.model, copy_model=args.copy_model)
-    print(f"built {DIST}: {len(manifest['wheels'])} wheels, {len(manifest['cases'])} cases")  # pyright: ignore[reportArgumentType]
-    print(
-        f"model: {manifest.get('model', 'none (see packages/zeos-browser: npm install, then export/opt_zeos_surgery.py)')}"
+    manifest = build(
+        model=args.model,
+        copy_model=args.copy_model,
+        hf_endpoint=args.hf_endpoint,
+        hf_repo=args.hf_repo,
+        hf_revision=args.hf_revision,
     )
+    print(f"built {DIST}: {len(manifest['wheels'])} wheels, {len(manifest['cases'])} cases")  # pyright: ignore[reportArgumentType]
+    sources = manifest.get("model_sources")
+    if isinstance(sources, dict):
+        print(f"model: {manifest['model']} from {manifest['model_source']}; offered: {sources}")
+    else:
+        print("model: none (run npm install in packages/zeos-browser)")
     print(f"serve it with: uv run python {os.path.relpath(HERE / 'serve.py')}")
     return 0
 

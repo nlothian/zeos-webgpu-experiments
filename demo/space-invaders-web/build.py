@@ -22,9 +22,13 @@ comes from Pyodide's own package index: micropip resolves it when it installs th
 ``zeos`` wheel.
 
 ONNX Runtime Web and the tokenizer come from ``npm install`` in ``packages/zeos-browser``
-and go into ``vendor/``; with them present and the model exported, the export is linked into
-``models/`` and named in the manifest, which is what offers the model machine on the page. A host
-that does not follow symbolic links -- most static hosts -- needs ``--copy-model``.
+and go into ``vendor/``; with them present the model is named in the manifest, which is what
+offers the model machine on the page. The page downloads the model from the Hugging Face Hub
+at a pinned commit, once, and keeps it in the browser's storage
+(``zeos_browser.model_source``). ``--model [DIR]`` also links a local export (by default
+``packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT``) into ``models/`` and loads that by
+default; a host that does not follow symbolic links -- most static hosts -- needs
+``--copy-model`` with it.
 ``--link-node-modules`` links ``node_modules`` here to zeos-browser's, which is
 where ``tests/pyodide_run.mjs`` looks for Pyodide.
 """
@@ -38,6 +42,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from zeos_browser import model_source
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -54,6 +60,9 @@ PAGE = ("index.html", "app.js", "board.js", "si_worker.js", "stub_thread.js", "s
 GENERIC = (
     "model_host.js",
     "model_thread.js",
+    "model_cache.js",
+    "opfs_store.js",
+    "sha256.js",
     "model_channel.js",
     "frames.js",
     "opt_zeos_worker.js",
@@ -79,7 +88,6 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = BROWSER / "models" / "Qwen3.5-4B-ZEOS-OPT"
 
 
 def link_node_modules(target: Path = HERE / "node_modules") -> Path:
@@ -90,7 +98,15 @@ def link_node_modules(target: Path = HERE / "node_modules") -> Path:
     return target
 
 
-def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -> dict[str, object]:
+def build(
+    dist: Path = DIST,
+    *,
+    model: Path | None = None,
+    copy_model: bool = False,
+    hf_endpoint: str = model_source.HF_ENDPOINT,
+    hf_repo: str = model_source.HF_REPO,
+    hf_revision: str = model_source.HF_REVISION,
+) -> dict[str, object]:
     if dist.exists():
         shutil.rmtree(dist)
     wheels = dist / "wheels"
@@ -121,14 +137,14 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
             (dist / "vendor" / name).mkdir(parents=True)
             for file in files:
                 shutil.copy2(source / file, dist / "vendor" / name / file)
-        if (model / "meta.json").is_file():
-            (dist / "models").mkdir()
-            target = dist / "models" / model.name
-            if copy_model:
-                shutil.copytree(model, target)
-            else:
-                target.symlink_to(model.resolve(), target_is_directory=True)
-            manifest["model"] = model.name
+        manifest |= model_source.model_fields(
+            dist,
+            local=model,
+            copy=copy_model,
+            endpoint=hf_endpoint,
+            repo=hf_repo,
+            revision=hf_revision,
+        )
     (dist / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -137,8 +153,7 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    parser.add_argument("--model", type=Path, default=MODEL, help="the export to offer")
-    parser.add_argument("--copy-model", action="store_true", help="copy the export, not link")
+    model_source.add_arguments(parser)
     parser.add_argument(
         "--link-node-modules",
         action="store_true",
@@ -147,12 +162,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.link_node_modules:
         print(f"node_modules: {link_node_modules()}")
-    manifest = build(model=args.model, copy_model=args.copy_model)
+    manifest = build(
+        model=args.model,
+        copy_model=args.copy_model,
+        hf_endpoint=args.hf_endpoint,
+        hf_repo=args.hf_repo,
+        hf_revision=args.hf_revision,
+    )
     wheels = manifest["wheels"]
     assert isinstance(wheels, list)
     print(f"built {DIST}: {len(wheels)} wheels")  # pyright: ignore[reportUnknownArgumentType]
-    model = manifest["model"] or "none (export the model and npm install in packages/zeos-browser)"
-    print(f"model: {model}")
+    if manifest["model"] is None:
+        print("model: none (run npm install in packages/zeos-browser)")
+    else:
+        print(f"model: {manifest['model']} from {manifest['model_source']}")
     print(f"serve it with: uv run python {os.path.relpath(HERE / 'serve.py')}")
     return 0
 

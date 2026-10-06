@@ -106,6 +106,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .meta { color: var(--muted); font-family: var(--mono); font-size: 13px; }
 .model-status { gap: 8px 10px; }
 .model-status[hidden], .model-status progress[hidden] { display: none; }
+.model-cache { gap: 8px 10px; }
+.model-cache[hidden], .model-cache button[hidden] { display: none; }
 .model-status progress { width: 160px; height: 8px; accent-color: var(--accent); }
 .model-status #model-status { color: var(--fg, inherit); }
 .model-status.busy #model-status::after {

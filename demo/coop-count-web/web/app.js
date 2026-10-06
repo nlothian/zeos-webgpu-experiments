@@ -23,7 +23,12 @@ const state = {
   journal: null, // the finished run's bytes
   count: 0,
   digests: new Map(), // digest -> rows showing it
+  source: null, // where the model loads from (model_host.js's modelSource)
+  refreshCache: () => {}, // redraws the model cache line
 };
+
+/** model_host.js, imported once the build turns out to offer a model. */
+let modelHost = null;
 
 const worker = new Worker("pyodide_worker.js", { type: "module" });
 const send = (type, body = {}) => worker.postMessage({ type, ...body });
@@ -207,8 +212,6 @@ $("follow").addEventListener("change", followVisible);
 
 // -- model status -----------------------------------------------------------
 
-const mb = (n) => `${Math.round(n / 1e6)} MB`;
-
 /** Show what the model thread is doing, with a bar when there is a fraction to show.
  * `busy` marks a step in flight, which is when the kernel is waiting on the model. */
 function setModelStatus(text, { fraction = null, busy = false } = {}) {
@@ -221,17 +224,8 @@ function setModelStatus(text, { fraction = null, busy = false } = {}) {
 }
 
 function onModelProgress(progress) {
-  if (progress.phase === "session") {
-    setModelStatus(`downloaded ${mb(progress.bytes)}; ONNX Runtime is building the session`, {
-      busy: true,
-    });
-    return;
-  }
-  const { file, loaded, total, files, file_index, bytes, bytes_total } = progress;
-  const whole = bytes_total > 0 ? `${mb(bytes)} of ${mb(bytes_total)}` : `${mb(loaded)} of ${mb(total)}`;
-  const which = files > 0 ? ` (file ${file_index + 1} of ${files}: ${file})` : ` (${file})`;
-  const fraction = bytes_total > 0 ? bytes / bytes_total : total > 0 ? loaded / total : null;
-  setModelStatus(`downloading ${whole}${which}`, { fraction });
+  const { text, fraction } = modelHost.describeModelProgress(progress);
+  setModelStatus(text, { fraction, busy: progress.phase === "session" });
 }
 
 const modelActivity = { steps: 0, decodeMs: 0, prefillMsPerToken: null };
@@ -347,7 +341,7 @@ const handlers = {
     setStatus(text.split("\n").filter(Boolean).pop() || text, true);
     log(text);
   },
-  ready: ({ cases, pyodide, python, model, isolated }) => {
+  ready: async ({ cases, pyodide, python, model, isolated }) => {
     const option = $("model-option");
     // The model runs on WebGPU only.
     const gpu = Boolean(navigator.gpu);
@@ -356,6 +350,21 @@ const handlers = {
       // The export's directory name, less the `-zeos-<quant>` (or `-ZEOS-OPT`) suffix.
       MACHINE_NAMES.transformers = model.replace(/-zeos-[^-]+$/i, "");
       option.textContent = `${MACHINE_NAMES.transformers} language model, in your browser`;
+    }
+    if (model) {
+      try {
+        modelHost = await import("./model_host.js");
+        state.source = modelHost.modelSource(await (await fetch("manifest.json")).json());
+        $("model-cache-row").hidden = false;
+        state.refreshCache = modelHost.modelCacheControls({
+          status: $("model-cache"),
+          button: $("clear-model-cache"),
+          source: state.source,
+        });
+      } catch (err) {
+        option.disabled = true;
+        option.textContent += ` (${err.message})`;
+      }
     }
     if (!model) option.textContent += " (not in this build)";
     else if (!isolated) option.textContent += " (needs a cross-origin isolated page)";
@@ -450,19 +459,19 @@ let modelThread = null;
  * Pyodide worker, which calls it synchronously from then on. */
 async function ensureModel() {
   if (modelThread !== null) return;
-  const { startBrowserModel } = await import("./model_host.js");
-  const manifest = await (await fetch("manifest.json")).json();
-  setStatus(`loading ${manifest.model} on the GPU`);
-  const model = await startBrowserModel({
-    modelUrl: `models/${manifest.model}/`,
+  const source = state.source;
+  setStatus(`loading ${source.name} on the GPU`);
+  const model = await modelHost.startBrowserModel({
+    model: source,
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     onProgress: onModelProgress,
     onActivity: onModelActivity,
   });
   modelThread = model;
+  state.refreshCache();
   worker.postMessage(
-    { type: "attachModel", backend: model.backend, buffer: model.buffer, port: model.port, name: manifest.model },
+    { type: "attachModel", backend: model.backend, buffer: model.buffer, port: model.port, name: source.name },
     [model.port],
   );
 }

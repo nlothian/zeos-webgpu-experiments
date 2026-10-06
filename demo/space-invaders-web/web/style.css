@@ -124,6 +124,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .model-status { gap: 8px 10px; }
 .model-status[hidden], .model-status progress[hidden] { display: none; }
+.model-cache { gap: 8px 10px; }
+.model-cache[hidden], .model-cache button[hidden] { display: none; }
 .model-status progress { width: 160px; height: 8px; accent-color: var(--accent); }
 
 .board-box { display: flex; justify-content: center; min-height: 120px; }

@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from zeos_browser import page
+from zeos_browser import model_source, page
 
 WEB = Path(__file__).resolve().parents[1]
 REPO = WEB.parents[1]
@@ -165,3 +165,24 @@ def test_build_assembles_everything_the_page_fetches(tmp_path: Path) -> None:
     worker = (dist / "pyodide_worker.js").read_text(encoding="utf-8")
     for local in re.findall(r'import "\./([^"]+)"', worker):
         assert (dist / local).is_file()
+    # Every module a built script imports, statically or not, was built beside it.
+    for script in dist.glob("*.js"):
+        text = script.read_text(encoding="utf-8")
+        for local in re.findall(r'(?:from |import\()"\./([^"]+)"', text):
+            assert (dist / local).is_file(), f"{script.name} imports {local}, which was not built"
+
+    # By default the page loads the model from the Hub, at the pinned commit; nothing local.
+    assert not (dist / "models").exists()
+    if all(source.is_dir() for source, _ in build.VENDOR.values()):
+        assert manifest["model_source"] == "huggingface"
+        assert manifest["model_sources"] == {
+            "huggingface": {
+                "name": model_source.HF_REPO.split("/")[1],
+                "endpoint": model_source.HF_ENDPOINT,
+                "repo": model_source.HF_REPO,
+                "revision": model_source.HF_REVISION,
+            }
+        }
+        assert manifest["model"] == model_source.HF_REPO.split("/")[1]
+    else:
+        assert "model" not in manifest

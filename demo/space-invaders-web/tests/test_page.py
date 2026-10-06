@@ -378,7 +378,14 @@ def test_build_assembles_everything_the_page_fetches(built: tuple[Path, dict[str
     for name in build.PAGE:
         assert (dist / name).read_bytes() == (WEB / name).read_bytes(), name
     if all(source.is_dir() for source, _ in build.VENDOR.values()):
+        # --model: the local export is linked in and loaded by default; the Hub stays offered.
         assert manifest["model"] == "Tiny-ZEOS-OPT"
+        assert manifest["model_source"] == "local"
+        assert manifest["model_sources"]["local"] == {
+            "name": "Tiny-ZEOS-OPT",
+            "path": "models/Tiny-ZEOS-OPT/",
+        }
+        assert set(manifest["model_sources"]) == {"huggingface", "local"}
         assert (dist / "models" / "Tiny-ZEOS-OPT").is_symlink()
         assert (dist / "vendor" / "onnxruntime-web" / "ort.webgpu.min.mjs").is_file()
         assert (dist / "vendor" / "tokenizers" / "tokenizers.min.mjs").is_file()
@@ -396,14 +403,18 @@ def test_everything_the_page_references_was_built(built: tuple[Path, dict[str, A
     assert "app.js" in refs and "style.css" in refs
     for ref in refs:
         assert (dist / ref).is_file(), f"index.html refers to {ref}, which was not built"
-    for script in ("app.js", "si_worker.js", "board.js", "stub_thread.js"):
+    page_scripts = ("app.js", "si_worker.js", "board.js", "stub_thread.js")
+    # zeos-browser's modules app.js imports, whose own imports must be built too.
+    model_scripts = ("model_host.js", "model_thread.js", "model_cache.js")
+    for script in page_scripts + model_scripts:
         text = (dist / script).read_text(encoding="utf-8")
         for local in re.findall(r'from "\./([^"]+)"', text) + re.findall(
             r'import\("\./([^"]+)"\)', text
         ):
             assert (dist / local).is_file(), f"{script} imports {local}"
-        for fetched in re.findall(r'"(\w+\.(?:js|json))"', text):
-            assert (dist / fetched).is_file(), f"{script} fetches {fetched}"
+        if script in page_scripts:
+            for fetched in re.findall(r'"(\w+\.(?:js|json))"', text):
+                assert (dist / fetched).is_file(), f"{script} fetches {fetched}"
     for element in re.findall(r'\$\("([\w-]+)"\)', (dist / "app.js").read_text(encoding="utf-8")):
         assert f'id="{element}"' in shell, f"app.js looks up #{element}, which index.html lacks"
 

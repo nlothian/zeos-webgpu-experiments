@@ -10,6 +10,7 @@
 // CONTRACTS.md section 3.
 
 import { BoardView, boardSize, lagStats, markerFor } from "./board.js";
+import { describeModelProgress, modelCacheControls, modelSource, startBrowserModel } from "./model_host.js";
 
 /** Simulated latency of the stub machine, per decode step and per position filled. */
 const STUB_LATENCY = { stepMs: 20, positionMs: 1 };
@@ -29,6 +30,8 @@ const state = {
   isolated: self.crossOriginIsolated === true,
   gpu: null, // null unknown, else {ok, why}
   model: null, // the export's name, from the manifest
+  source: null, // where the model loads from (model_host.js's modelSource), or why it cannot
+  refreshCache: () => {}, // redraws the model cache line
   stub: false, // whether the build has the Space Invaders stub (web/stub/)
   describe: null,
   started: null, // {arm, board, seed, machine}
@@ -87,6 +90,7 @@ function renderChecks() {
 function modelBlocker() {
   if (!state.isolated) return "the page is not cross-origin isolated (serve it with serve.py)";
   if (state.model === null) return "this build has no model (see the README: npm install, then build.py)";
+  if (state.source instanceof Error) return state.source.message;
   if (state.gpu === null) return "checking WebGPU…";
   if (!state.gpu.ok) return `the model needs WebGPU, and ${state.gpu.why}; choose the stub`;
   return null;
@@ -147,8 +151,6 @@ function failPhase() {
 
 // -- model --------------------------------------------------------------------
 
-const mb = (n) => `${Math.round(n / 1e6)} MB`;
-
 function setModelStatus(text, fraction = null) {
   $("model-status-row").hidden = false;
   $("model-status").textContent = text;
@@ -158,15 +160,8 @@ function setModelStatus(text, fraction = null) {
 }
 
 function onModelProgress(progress) {
-  if (progress.phase === "session") {
-    setModelStatus(`downloaded ${mb(progress.bytes)}; ONNX Runtime is building the WebGPU session`, 1);
-    return;
-  }
-  const { file, loaded, total, files, file_index, bytes, bytes_total } = progress;
-  const whole = bytes_total > 0 ? `${mb(bytes)} of ${mb(bytes_total)}` : `${mb(loaded)} of ${mb(total)}`;
-  const which = files > 0 ? ` (file ${file_index + 1} of ${files}: ${file})` : ` (${file})`;
-  const fraction = bytes_total > 0 ? bytes / bytes_total : total > 0 ? loaded / total : null;
-  setModelStatus(`downloading ${whole}${which}`, fraction);
+  const { text, fraction } = describeModelProgress(progress);
+  setModelStatus(text, progress.phase === "session" ? 1 : fraction);
 }
 
 let modelThread = null;
@@ -175,18 +170,18 @@ let modelThread = null;
  * Pyodide worker, once; it stays loaded across runs. */
 async function ensureModel() {
   if (modelThread !== null) return;
-  const { startBrowserModel } = await import("./model_host.js");
-  setModelStatus(`loading ${state.model} on WebGPU`, 0);
+  setModelStatus(`loading ${state.source.name} on WebGPU`, 0);
   const started = performance.now();
   const model = await startBrowserModel({
-    modelUrl: `models/${state.model}/`,
+    model: state.source,
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     onProgress: onModelProgress,
   });
   modelThread = model;
   setModelStatus(`loaded on ${model.backend} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
-  send("attachModel", { backend: "webgpu", buffer: model.buffer, port: model.port, name: state.model }, [model.port]);
+  state.refreshCache();
+  send("attachModel", { backend: "webgpu", buffer: model.buffer, port: model.port, name: state.source.name }, [model.port]);
 }
 
 let stubThread = null;
@@ -425,9 +420,22 @@ const handlers = {
       refreshControls();
     }
   },
-  ready: ({ pyodide, python, model, stub, describe }) => {
+  ready: async ({ pyodide, python, model, stub, describe }) => {
     state.booted = true;
     state.model = model;
+    if (model !== null) {
+      try {
+        state.source = modelSource(await (await fetch("manifest.json")).json());
+        $("model-cache-row").hidden = false;
+        state.refreshCache = modelCacheControls({
+          status: $("model-cache"),
+          button: $("clear-model-cache"),
+          source: state.source,
+        });
+      } catch (err) {
+        state.source = err;
+      }
+    }
     state.stub = stub;
     state.describe = describe;
     renderChecks();
