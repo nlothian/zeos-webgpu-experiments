@@ -4,44 +4,76 @@
 // This source code is licensed under the AGPL-3.0-only licence found in the
 // LICENSE file in the root directory of this source tree.
 
-// Run export/bench/worker.html (OptZeosWorker on WebGPU) in headed Chrome and report its
-// checks and timings. Exits 1 if a check fails, 2 if the page errors, and 0 with a
-// skip message when the export is absent. `--page mask.html` runs the masked-tool-name
-// timings instead, and `--page chunks.html` the `maxChunk` timings and the stopped-step
-// check.
+// The model's checks on WebGPU, in headed Chrome. Opt-in: it needs a GPU, the export,
+// `npm install`, Playwright and Google Chrome, so no default test suite runs it.
 //
-//   node tests/opt_zeos_webgpu.mjs [--port 8767] [--ort URL] [--steps 32] [--page worker.html]
-//     [--query "configs=2"]
+// By default it runs, one page each, with the model loaded afresh:
 //
-// Needs Playwright and Google Chrome. Playwright is not a dependency of this demo:
-// PLAYWRIGHT_MODULE names a directory to import it from (any project's
-// node_modules/playwright). WebGPU is shared: run nothing else heavy on the GPU at the
-// same time, or the timings halve.
+// - export/bench/checks.html: the graph's logits against transformers' reference, hidden
+//   tokens swapped with nothing else moving (after a prefill, a decode step and
+//   single-token runs), and a cancelled step resumed bit for bit;
+// - export/bench/grammar.html: JsMachine's grammar mask under Pyodide over the model,
+//   after injected text, yields only valid commands and no control token;
+// - export/bench/worker.html: the cache against cache-free runs, a replay after a mask
+//   change against a fresh prefill, truncate and fork, and the prefill and decode timings.
+//
+// `--page NAME` runs one page instead (also mask.html, the masked-tool-name timings, and
+// chunks.html, the maxChunk timings). Prints each page's checks and timings; exits 1 if a
+// check fails, 2 if a page errors, and 0 with a skip message when the export is absent.
+//
+//   PLAYWRIGHT_MODULE=<a node_modules/playwright> node tests/opt_zeos_webgpu.mjs \
+//     [--page checks.html] [--port 8767] [--ort URL] [--steps 32] [--query "configs=2"]
+//
+// PLAYWRIGHT_MODULE names a directory to import Playwright from (any project's
+// node_modules/playwright); Playwright is not a dependency here. ONNX Runtime Web is this
+// directory's npm install unless --ort names another build. grammar.html runs on the
+// zeos and zeos-coop-count-web wheels, which this builds into export/bench/wheels/ with
+// `uv build` first. WebGPU is shared: run nothing else heavy on the GPU at the same time,
+// or the timings halve.
 
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-const DEMO = fileURLToPath(new URL("..", import.meta.url));
-const REPO = join(DEMO, "..", "..");
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const REPO = join(ROOT, "..", "..");
+const PAGES = ["checks.html", "grammar.html", "worker.html"];
+const WHEELS = ["zeos", "zeos-coop-count-web"];
 const { values } = parseArgs({
   options: {
     port: { type: "string", default: "8767" },
-    ort: { type: "string" },
+    ort: { type: "string", default: "/node_modules/onnxruntime-web/dist/ort.webgpu.min.mjs" },
     steps: { type: "string", default: "32" },
     model: { type: "string", default: "/models/Qwen3.5-4B-ZEOS-OPT/" },
-    page: { type: "string", default: "worker.html" },
+    page: { type: "string" },
     // More query parameters for the page, as `a=1&b=2`.
     query: { type: "string", default: "" },
   },
 });
+const pages = values.page === undefined ? PAGES : [values.page];
 
-if (!existsSync(join(DEMO, values.model.replace(/^\//, ""), "meta.json"))) {
+if (!existsSync(join(ROOT, values.model.replace(/^\//, ""), "meta.json"))) {
   console.log(`skip: no export at ${values.model}; run export/opt_zeos_surgery.py`);
   process.exit(0);
+}
+
+if (pages.includes("grammar.html")) {
+  const out = join(ROOT, "export", "bench", "wheels");
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  for (const name of WHEELS) {
+    const built = spawnSync("uv", ["build", "--wheel", "--package", name, "--out-dir", out], {
+      cwd: REPO,
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    if (built.status !== 0) throw new Error(`uv build --package ${name} failed`);
+  }
+  const wheels = readdirSync(out).filter((n) => n.endsWith(".whl")).sort();
+  writeFileSync(join(out, "index.json"), `${JSON.stringify({ wheels })}\n`);
 }
 
 async function playwright() {
@@ -50,16 +82,36 @@ async function playwright() {
   return import("playwright");
 }
 
-const { chromium } = await playwright();
-const server = spawn("uv", ["run", "--frozen", "python", join(DEMO, "serve.py"), "--dir", DEMO, "--port", values.port], {
-  cwd: REPO,
-  stdio: ["ignore", "pipe", "inherit"],
-});
-await new Promise((resolve, reject) => {
-  server.stdout.on("data", (chunk) => String(chunk).includes("serving") && resolve());
-  server.once("exit", (code) => reject(new Error(`serve.py exited with ${code}`)));
-});
+const TYPES = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".json": "application/json",
+  ".wasm": "application/wasm",
+  ".whl": "application/zip",
+  ".zip": "application/zip",
+};
 
+// This directory, cross-origin isolated (SharedArrayBuffer, which the model thread's
+// channel needs), with symbolic links followed.
+const server = createServer((request, response) => {
+  const path = normalize(join(ROOT, decodeURIComponent(new URL(request.url, "http://x").pathname)));
+  if (!path.startsWith(ROOT) || !existsSync(path) || !statSync(path).isFile()) {
+    response.writeHead(404).end();
+    return;
+  }
+  response.writeHead(200, {
+    "Content-Type": TYPES[extname(path)] ?? "application/octet-stream",
+    "Content-Length": statSync(path).size,
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Resource-Policy": "same-origin",
+  });
+  createReadStream(path).pipe(response);
+});
+await new Promise((resolve) => server.listen(Number(values.port), "127.0.0.1", resolve));
+
+const { chromium } = await playwright();
 let status = 0;
 const browser = await chromium.launch({
   channel: "chrome",
@@ -67,19 +119,27 @@ const browser = await chromium.launch({
   args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=metal"],
 });
 try {
-  const page = await browser.newPage();
-  page.on("console", (message) => console.log(`[page] ${message.text()}`));
-  const query = new URLSearchParams({ steps: values.steps, model: values.model });
-  if (values.ort) query.set("ort", values.ort);
-  for (const [k, v] of new URLSearchParams(values.query)) query.set(k, v);
-  await page.goto(`http://localhost:${values.port}/export/bench/${values.page}?${query}`);
-  await page.waitForFunction(() => window.benchResult !== undefined, null, { timeout: 30 * 60_000, polling: 1000 });
-  const result = await page.evaluate(() => window.benchResult);
-  const failed = result.checks.filter((c) => !c.ok);
-  console.log(JSON.stringify({ timings: result.timings, failed, error: result.error }, null, 2));
-  status = result.error ? 2 : failed.length ? 1 : 0;
+  for (const name of pages) {
+    const page = await browser.newPage();
+    page.on("console", (message) => console.log(`[${name}] ${message.text()}`));
+    const query = new URLSearchParams({ steps: values.steps, model: values.model, ort: values.ort });
+    for (const [k, v] of new URLSearchParams(values.query)) query.set(k, v);
+    await page.goto(`http://localhost:${values.port}/export/bench/${name}?${query}`);
+    await page.waitForFunction(() => window.benchResult !== undefined, null, { timeout: 30 * 60_000, polling: 1000 });
+    const result = await page.evaluate(() => window.benchResult);
+    const failed = (result.checks ?? []).filter((c) => !c.ok);
+    console.log(
+      JSON.stringify(
+        { page: name, passed: (result.checks ?? []).length - failed.length, failed, skipped: result.skipped, timings: result.timings, error: result.error },
+        null,
+        2,
+      ),
+    );
+    status = Math.max(status, result.error ? 2 : failed.length ? 1 : 0);
+    await page.close();
+  }
 } finally {
   await browser.close();
-  server.kill();
+  server.close();
 }
 process.exit(status);

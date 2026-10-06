@@ -6,3 +6,5 @@
 # npm dependencies: Pyodide for the Node determinism test, ONNX Runtime and the
 # tokenizer for the model worker.
 /node_modules
+# The wheels tests/opt_zeos_webgpu.mjs builds for export/bench/grammar.html.
+/export/bench/wheels
