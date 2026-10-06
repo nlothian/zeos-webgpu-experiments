@@ -283,7 +283,7 @@ def test_the_reflex_runs_while_a_pilot_step_is_in_flight() -> None:
     result = machine.decode(EVADE, allow_control=False)
     assert result.request.op is OpKind.WRITE
     assert [t.text for t in result.request.payload] == ["left"]
-    assert machine.cancellations == 1, "the kernel took the machine off the pilot"
+    assert machine.cancellations == 0 and worker.inFlight, "a reflex step cancels nothing"
     assert all(not key.endswith(":evade") for key in worker.context_ids)
     assert machine.native_words == 1 and machine.step_log[-1]["outcome"] == "native"
     machine.destroy_context(EVADE)
@@ -360,6 +360,7 @@ def test_poll_results_are_normalised_from_attributes_too() -> None:
         tokenId = 7
         attention = None
         cancelled = False
+        resident = 9
 
         class stats:  # noqa: N801 - the JavaScript field name
             positions = 3
@@ -370,14 +371,19 @@ def test_poll_results_are_normalised_from_attributes_too() -> None:
         "tokenId": 7,
         "attention": None,
         "cancelled": False,
+        "resident": 9,
         "stats": {"positions": 3, "chunks": 1, "fillMs": 2.5},
     }
     assert normalise_poll(None) is None
-    assert normalise_poll({"cancelled": True, "resident": 4, "stats": None}) == {
-        "cancelled": True,
-        "resident": 4,
-        "stats": {"positions": 0, "chunks": 0, "fillMs": 0.0},
-    }
+    answer = {"cancelled": True, "resident": 4, "stats": {"positions": 0, "chunks": 0, "fillMs": 0}}
+    assert normalise_poll(answer) is answer, "a Python answer is not rebuilt"
+
+    class Short:
+        cancelled = True
+        stats = None
+
+    with pytest.raises(AttributeError):
+        normalise_poll(Short())
 
 
 def test_the_fake_clock_is_what_the_worker_sleeps_on() -> None:
@@ -434,13 +440,14 @@ def test_the_defaults_are_the_benchs() -> None:
     machine = PilotJsMachine(worker)
     assert (machine._max_chunk, machine._stall_ms) == (256, 5.0) == (DEFAULT_MAX_CHUNK, 5.0)
     assert machine.forbid_verbs == () and machine.abi.verb("exit") is not None
+    assert machine._uncapped_above is None, "every step is capped unless asked"
 
 
 def test_a_long_fill_runs_at_the_workers_own_chunk() -> None:
     """The first step over a body, or a replay after a splice, is not chunk-capped; the
     steps after it, a board at a time, are."""
     worker, _ = fake_worker()
-    machine = pilot(worker, body=" ".join(["w"] * 1500))
+    machine = pilot(worker, body=" ".join(["w"] * 1500), uncapped_above=1024)
     machine.decode(PILOT, allow_control=False)
     assert worker.last_options is not None and worker.last_options["maxChunk"] is None
     machine.decode(PILOT, allow_control=False)
@@ -458,3 +465,106 @@ def test_prewarm_covers_the_move_states() -> None:
     language = machine._language("pilot")
     head = language.advance(language.start, "write stdout ")
     assert head in states, "the state a move is chosen from is warm"
+
+
+# --- the review round ----------------------------------------------------------------
+
+
+class Failing(FakePilotWorker):
+    """A worker whose channel answers the next poll with an error."""
+
+    fail = False
+
+    def pollDecode(self, timeoutMs: float) -> Any:
+        if self.fail:
+            self.fail = False
+            self._flight = None
+            raise RuntimeError("model thread: out of memory")
+        return super().pollDecode(timeoutMs)
+
+
+def test_an_error_reply_surfaces_and_close_still_returns() -> None:
+    clock = FakeClock()
+    worker = Failing(step_ms=10.0, clock=clock, sleep=clock.sleep)
+    machine = pilot(worker)
+    machine.decode(PILOT, allow_control=False)
+    worker.fail = True
+    with pytest.raises(RuntimeError, match="out of memory"):
+        machine.decode(PILOT, allow_control=False)
+    assert machine._flight is None
+    machine.close()
+    assert worker.context_ids == ()
+
+
+def test_an_unrequested_cancel_is_an_error() -> None:
+    class SelfCancelling(FakePilotWorker):
+        def pollDecode(self, timeoutMs: float) -> Any:
+            self.cancelDecode()
+            return super().pollDecode(timeoutMs)
+
+    clock = FakeClock()
+    machine = pilot(SelfCancelling(clock=clock, sleep=clock.sleep))
+    with pytest.raises(RuntimeError, match="nobody cancelled"):
+        machine.decode(PILOT, allow_control=False)
+    assert machine._flight is None
+
+
+def test_reading_cannot_be_forbidden_when_the_machine_reads() -> None:
+    worker, _ = fake_worker()
+    with pytest.raises(ValueError, match="cannot be forbidden"):
+        PilotJsMachine(worker, forbid_verbs=("read",))
+    free = PilotJsMachine(worker, forbid_verbs=("read",), turn_ends_at_call=False)
+    assert free.abi.verb("read") is None
+
+
+def test_invalidate_drops_a_pending_read_as_the_native_machine_does() -> None:
+    worker, _ = fake_worker()
+    machine = pilot(worker)
+    until(machine, op="write")
+    machine.invalidate(PILOT)
+    assert words(until(machine)) == [" write", " stdout", " right;"], "a new turn, not a read"
+
+
+def test_a_drained_step_is_logged_under_its_own_job() -> None:
+    machine, _worker = in_flight()
+    machine.create_context(OTHER, "pilot")
+    machine.inject(OTHER, tokens_from_text(BODY))
+    while not machine.decode(PILOT, allow_control=False).tokens:
+        pass
+    machine.decode(PILOT, allow_control=False)
+    machine.decode(OTHER, allow_control=False)
+    while machine.step_log[-1]["outcome"] == "stall":
+        machine.decode(OTHER, allow_control=False)
+    cancelled = [e for e in machine.step_log if e["outcome"] == "cancelled"]
+    assert cancelled and all(e["job"] == str(PILOT) for e in cancelled)
+
+
+def test_the_step_log_is_bounded_and_the_totals_are_not() -> None:
+    worker, _ = fake_worker(step_ms=10.0)
+    machine = pilot(worker, step_log_size=8)
+    for _ in range(3):
+        until(machine, op="read")
+    assert len(machine.step_log) == 8
+    assert sum(machine.step_totals.values()) > 8
+    assert machine.step_totals["token"] == machine.steps == 9
+    assert machine.step_totals["stall"] == machine.stalls
+    assert machine.positions_total > 0
+
+
+def test_the_tokenize_cache_is_least_recently_used_and_can_be_off() -> None:
+    worker, _ = fake_worker()
+    machine = PilotJsMachine(worker, tokenize_cache=2)
+    for text in (" a", " b", " a", " c", " a", " b"):
+        machine._tokenize(text)
+    assert list(machine._token_cache) == [" a", " b"]
+    assert (machine.tokenize_hits, machine.tokenize_calls) == (2, 4)
+    off = PilotJsMachine(worker, tokenize_cache=0)
+    off._tokenize(" a")
+    off._tokenize(" a")
+    assert off.tokenize_calls == 2 and not off._token_cache
+
+
+def test_planning_with_a_step_in_flight_is_refused() -> None:
+    machine, _worker = in_flight()
+    with pytest.raises(AssertionError, match="in flight"):
+        machine._plan_step(PILOT, allow_control=False)

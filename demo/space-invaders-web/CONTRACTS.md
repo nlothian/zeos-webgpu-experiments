@@ -173,23 +173,30 @@ than reimplementing it.
 
 What the machine workstream (`machine.py`, `prompt_player.py`, `fake_worker.py`,
 `pyodide_glue.py`, `web/stub/pilot_stub_worker.js`) settled that the sections above leave
-open, and the one change it made to `contracts.py`:
+open, and the changes it made to `contracts.py`:
 
 - **`PilotMachine.prewarm`** is `prewarm(descriptor="pilot", commands=PREWARM_COMMANDS)
   -> float`: it returns the milliseconds the walk took, so the page can report it. It was
   `prewarm() -> None`; a call with no arguments is unchanged.
-- **Optional extras.** `PilotJsMachine` also takes `tokenize_cache` (words kept, default
-  4096: a board is tokenized a word at a time, and each tokenize is a round trip to the
-  model thread). `BrowserPromptPlayer` also takes `bridge` and `max_chunk` (`None`, the
+- **`DecodeDone` carries `resident`**, as the channel's reply does; the machine tracks
+  the positions the worker holds from it. `normalise_poll` takes a Python dict as given
+  and reads a JsProxy field by field, with no defaults: a missing field is an error.
+- **`PilotMachine.step_log`** is a `deque` (newest `step_log_size` entries, default
+  4096); `step_totals` (per outcome), `positions_total` and `fill_ms_total` count every
+  decode.
+- **Optional extras.** `PilotJsMachine` also takes `tokenize_cache` (an LRU of words,
+  default 4096, 0 for none: a board is tokenized a word at a time, and each tokenize is a
+  round trip to the model thread), `payloads`, `uncapped_above` and `step_log_size`. `BrowserPromptPlayer` also takes `bridge` and `max_chunk` (`None`, the
   default, leaves `maxChunk` out, so the worker fills in its own chunk). Both still match
   their `*Factory` Protocols.
 - **Defaults from the benchmark** (`bench/RESULTS.md`): `DEFAULT_MAX_CHUNK` is 256 (it
   was 64; below about 800 positions a run's fixed overhead made chunk 64 read a board
   1.65x slower), and `stall_ms` defaults to `DEFAULT_STALL_MS`, 5 (it was 1), both in
-  `contracts.py`. A step with more than `uncapped_above` (1024) positions to fill -- the
-  first step over a descriptor body, a replay after a splice -- is sent without
-  `maxChunk`, so warm-up and replay run at the worker's own chunk; such a step is
-  cancelled only between the worker's own runs. `uncapped_above=None` caps every step.
+  `contracts.py`. Every pilot step is capped at `max_chunk` by default. `uncapped_above`
+  (off by default; `UNCAPPED_ABOVE` = 1024 is the measured candidate) sends a step with
+  more positions than that to fill -- warm-up over a body, a replay after a splice --
+  without `maxChunk`; such a step can be cancelled only between the worker's own runs,
+  so an inject, trunc or splice behind it would wait seconds in `_settle`.
 - **The pilot's grammar** is the native pilot ABI (`write`, `read`, `exit`) less
   `forbid_verbs` (off by default), over the aliases `descriptors` binds (default
   `{"pilot": ("stdin", "stdout")}`), with the payload of `payloads`' aliases narrowed to
@@ -202,29 +209,34 @@ open, and the one change it made to `contracts.py`:
   after each space, which covers the move states (about 6 per descriptor); each cold
   state costs 1.6-2.1 s under Pyodide, so expect seconds of warm-up.
 - **What cancels, and what restarts the command.** Inject, trunc, splice, fork, a
-  narrowing `set_mask`, block padding and `invalidate` cancel the job's step; the decode
-  of another job (native or served) cancels whatever is in flight. Inject, trunc, fork,
-  a narrowing `set_mask`, `invalidate`, and a splice that reaches the current command
-  also reset the job's parser and grammar round (the native `_cancel`); an upstream
-  splice renumbers the command instead. `invalidate` does this even with nothing in
-  flight (resetting an empty round changes nothing), and leaves a pending automatic
-  `read stdin` in place: a turn whose `write` completed has made its move.
+  narrowing `set_mask`, block padding and `invalidate` cancel the job's step. A decode of
+  another served job cancels the step in flight only when it needs the channel for a step
+  of its own; a native decode, or a served job's automatic `read stdin`, needs no channel
+  and cancels nothing. A preemption therefore drops the pilot's step only through
+  `ZeosDriver`'s `invalidate`. Inject, trunc, fork, a narrowing `set_mask`, `invalidate`,
+  and a splice that reaches the current command also reset the job's parser and grammar
+  round and drop a pending automatic `read stdin` (the native `_cancel`); an upstream
+  splice renumbers the command instead. A worker that reports a cancel nobody asked for,
+  or answers a poll with an error, ends the step: the machine drops it and raises.
+- **`forbid_verbs`** cannot include `read` while `turn_ends_at_call` is on, since the
+  machine ends each turn with one.
 - **Settling.** Only operations that call the worker synchronously wait for a cancelled
   step to drain (create/destroy a served context, inject, trunc, splice, fork, `raw`,
   `prewarm`, `close`). The rest post the cancel and let a later `decode` drain it, polling
   for at most `stall_ms` and stalling meanwhile; native jobs never touch the worker.
 - **Step log.** A `decode` that drains a cancelled step and then begins the next logs a
-  `cancelled` entry and then the entry for its own outcome. The automatic `read stdin`
+  `cancelled` entry (under the job whose step it was) and then the entry for its own
+  outcome. The automatic `read stdin`
   is logged as `native` (no worker call).
 - **The prompt arm** prefills the system prompt into `prompt-prefix:prompt`, keeps it,
   and forks each decision into `prompt-arm:prompt` (a truncate would rewind to the KV
-  snapshot below the prefix and replay ~170 positions every decision); its replies may use every id
-  except the pad id and control ids other than `<|im_end|>` (the end-of-sequence id is
+  snapshot below the prefix and replay ~170 positions every decision); its replies may
+  use every id except the pad id and control ids other than `<|im_end|>` (the end-of-sequence id is
   allowed and ends the reply). `warm()` decodes and discards one step to make a lazily
   filling worker compute the system prompt.
 - **The JS stub** defines `globalThis.createPilotStubWorker(options)` (so
   `self.createPilotStubWorker` in a worker), options `{moves, replies, stepMs, positionMs,
-  reads, blockSize, terminator, chunk}`. It also carries `meta.tokenizerSize` (its vocabulary size) and `backend` (`"stub"`), which
-  `serveChannel` reads for the channel's `pieces` and `backend` requests. It is a
-  model-side worker: `decodeStep` is async
-  and honours `shouldStop` and `maxChunk`; begin/poll/cancel come from the channel.
+  reads, blockSize, terminator, chunk}`. It also carries `meta.tokenizerSize` (its
+  vocabulary size) and `backend` (`"stub"`), which `serveChannel` reads for the
+  channel's `pieces` and `backend` requests. It is a model-side worker: `decodeStep` is
+  async and honours `shouldStop` and `maxChunk`; begin/poll/cancel come from the channel.

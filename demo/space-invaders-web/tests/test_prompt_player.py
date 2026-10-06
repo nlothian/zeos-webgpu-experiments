@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from machine_helpers import FakeClock, fake_worker
@@ -160,3 +160,25 @@ def test_the_step_chunk_is_passed_when_asked_for() -> None:
     player, worker, _ = arm(max_chunk=32)
     ask(player)
     assert worker.last_options is not None and worker.last_options["maxChunk"] == 32
+
+
+def test_an_error_reply_ends_the_request_and_close_still_returns() -> None:
+    class Failing(FakePilotWorker):
+        fail = False
+
+        def pollDecode(self, timeoutMs: float) -> Any:
+            if self.fail:
+                self._flight = None
+                raise RuntimeError("model thread: out of memory")
+            return super().pollDecode(timeoutMs)
+
+    clock = FakeClock()
+    worker = Failing(step_ms=10.0, clock=clock, sleep=clock.sleep)
+    player = BrowserPromptPlayer(worker, view=LeadView(), rules=Rules())
+    player.begin(*board())
+    worker.fail = True
+    with pytest.raises(RuntimeError, match="out of memory"):
+        player.poll(1.0)
+    assert not player.busy
+    player.close()
+    assert worker.context_ids == ()

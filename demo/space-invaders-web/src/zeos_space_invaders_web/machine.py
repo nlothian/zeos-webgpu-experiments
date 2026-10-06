@@ -18,8 +18,11 @@ taken:
   RUNNING and the kernel can take the machine away from it at any token boundary. When
   it is in, ``_accept_step`` joins it to the context as ``JsMachine`` would.
 * **A step whose context changes is cancelled.** An inject, trunc, splice or fork, a
-  narrowing ``set_mask``, block padding, ``invalidate``, and the decode of another job
-  (the kernel descheduled this one) all cancel the step in flight; its token is never
+  narrowing ``set_mask``, block padding and ``invalidate`` cancel the job's step in
+  flight, and so does a decode of another served job that needs the channel for a step
+  of its own. A natively-served decode and an automatic ``read stdin`` need no channel
+  and cancel nothing: a preemption reaches the machine as ``invalidate``, from the
+  driver that reads the journal; its token is never
   delivered (race rule 1 in ``CONTRACTS.md``). Every operation that has to call the
   worker synchronously first *settles*: cancels the step and waits for the channel to
   hand it back, at most one prefill chunk later. Operations that do not touch the
@@ -41,9 +44,10 @@ and the next step for the context resumes from there (race rule 3).
 from __future__ import annotations
 
 import time
+from collections import OrderedDict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from zeos.core.ids import JobId, TokenKind
 from zeos.machine.abi import SyscallABI
@@ -98,9 +102,12 @@ PILOT_DESCRIPTORS: Mapping[str, Sequence[str]] = {"pilot": ("stdin", "stdout")}
 #: (``bench/RESULTS.md``); narrowed, every command was a valid move, in fewer tokens.
 PILOT_PAYLOADS: Mapping[str, Sequence[str]] = {"stdout": tuple(ACTIONS)}
 
-#: A step with more positions than this to fill -- the first step over a descriptor
-#: body, a replay after the pager splices -- runs at the worker's own chunk: at a few
-#: thousand positions the per-run overhead dominates, and a chunk cap only slows it.
+#: A threshold for ``uncapped_above``, off by default: a step with more positions than
+#: this to fill -- the first step over a descriptor body, a replay after the pager
+#: splices -- would run at the worker's own chunk, where the per-run overhead matters
+#: least. The price is that such a step can be cancelled only between the worker's own
+#: (2048-position) runs, so an inject, trunc or splice behind it waits seconds in
+#: ``_settle``.
 UNCAPPED_ABOVE = 1024
 
 #: How long one wait inside ``_settle`` lasts. A settle loops until the step is handed
@@ -169,34 +176,30 @@ class PayloadLanguage(CommandLanguage):
         return ((_WORD, i, w, p + 1),) if word[p] == char else ()
 
 
-def _stats(raw: object) -> DecodeStats:
-    if raw is None or type(raw).__name__ == "JsNull":
-        return {"positions": 0, "chunks": 0, "fillMs": 0.0}
-    return {
-        "positions": int(_field(raw, "positions", 0)),  # pyright: ignore[reportArgumentType]
-        "chunks": int(_field(raw, "chunks", 0)),  # pyright: ignore[reportArgumentType]
-        "fillMs": float(_field(raw, "fillMs", 0.0)),  # pyright: ignore[reportArgumentType]
-    }
-
-
-def _field(raw: object, name: str, default: object = None) -> object:
-    """A field of a poll result: a dict from a Python worker, a JsProxy under Pyodide."""
-    if isinstance(raw, Mapping):
-        return raw.get(name, default)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    return getattr(raw, name, default)
-
-
 def normalise_poll(raw: object) -> DecodeDone | DecodeCancelled | None:
-    """``pollDecode``'s answer as the contract's TypedDicts; ``None`` while running."""
+    """``pollDecode``'s answer as the contract's TypedDicts; ``None`` while running.
+
+    A Python worker (and ``PyodideAsyncWorker``) already answers in that shape, and is
+    taken at its word; a JsProxy is read field by field. A field the contract requires
+    and the answer lacks is an error, not a zero.
+    """
     if raw is None or type(raw).__name__ == "JsNull":
         return None
-    stats = _stats(_field(raw, "stats"))
-    if bool(_field(raw, "cancelled", False)):
-        return {"cancelled": True, "resident": int(_field(raw, "resident", 0)), "stats": stats}  # pyright: ignore[reportArgumentType]
+    if isinstance(raw, dict):
+        return cast("DecodeDone | DecodeCancelled", raw)
+    js: Any = raw
+    stats: DecodeStats = {
+        "positions": int(js.stats.positions),
+        "chunks": int(js.stats.chunks),
+        "fillMs": float(js.stats.fillMs),
+    }
+    if bool(js.cancelled):
+        return {"cancelled": True, "resident": int(js.resident), "stats": stats}
     return {
-        "tokenId": int(_field(raw, "tokenId")),  # pyright: ignore[reportArgumentType]
-        "attention": _field(raw, "attention"),
+        "tokenId": int(js.tokenId),
+        "attention": js.attention,
         "cancelled": False,
+        "resident": int(js.resident),
         "stats": stats,
     }
 
@@ -256,13 +259,20 @@ class PilotJsMachine(JsMachine):
         turn_ends_at_call: bool = True,
         forbid_verbs: Sequence[str] = (),
         payloads: Mapping[str, Sequence[str]] = PILOT_PAYLOADS,
-        uncapped_above: int | None = UNCAPPED_ABOVE,
+        uncapped_above: int | None = None,
         tokenize_cache: int = 4096,
+        step_log_size: int = 4096,
     ) -> None:
         if stall_ms < 0:
             raise ValueError("stall_ms must be >= 0")
         if max_chunk < 1:
             raise ValueError("max_chunk must be >= 1")
+        if turn_ends_at_call and "read" in forbid_verbs:
+            raise ValueError(
+                "turn_ends_at_call ends each turn with a read, so 'read' cannot be forbidden"
+            )
+        if tokenize_cache < 0:
+            raise ValueError("tokenize_cache must be >= 0")
         super().__init__(
             worker,
             bridge=bridge,
@@ -283,14 +293,23 @@ class PilotJsMachine(JsMachine):
         self._flight: _Flight | None = None
         #: Word to ids. A board is a few hundred words, each tokenized on its own, and a
         #: tokenize is a round trip to the model thread; boards repeat their words.
-        self._token_cache: dict[str, list[int]] = {}
+        self._token_cache: OrderedDict[str, list[int]] = OrderedDict()
         self._token_cache_size = tokenize_cache
 
         self.last_roundtrip: float | None = None
         self.roundtrips: list[float] = []
         self.cancellations = 0
         self.cancel_ms: list[float] = []
-        self.step_log: list[StepLogEntry] = []
+        #: The most recent decodes; ``step_totals`` counts every one.
+        self.step_log: deque[StepLogEntry] = deque(maxlen=step_log_size)
+        self.step_totals: dict[StepOutcome, int] = {
+            "token": 0,
+            "stall": 0,
+            "cancelled": 0,
+            "native": 0,
+        }
+        self.positions_total = 0
+        self.fill_ms_total = 0.0
         #: Tokens the worker delivered, and empty steps handed out while one was awaited.
         self.steps = 0
         self.stalls = 0
@@ -329,15 +348,19 @@ class PilotJsMachine(JsMachine):
     def _tokenize(self, text: str) -> list[int]:
         if not text:
             return []
+        if self._token_cache_size == 0:
+            self.tokenize_calls += 1
+            return super()._tokenize(text)
         cached = self._token_cache.get(text)
         if cached is not None:
+            self._token_cache.move_to_end(text)
             self.tokenize_hits += 1
             return list(cached)
         self.tokenize_calls += 1
         ids = super()._tokenize(text)
-        if len(self._token_cache) >= self._token_cache_size:
-            self._token_cache.clear()
         self._token_cache[text] = ids
+        if len(self._token_cache) > self._token_cache_size:
+            self._token_cache.popitem(last=False)
         return list(ids)
 
     def _rewind(self, ctx: Any, kv_at: int) -> None:
@@ -345,6 +368,11 @@ class PilotJsMachine(JsMachine):
         for job, held in self._contexts.items():
             if held is ctx and job in self._rounds:
                 self._rounds[job].filled = min(self._rounds[job].filled, kv_at)
+
+    def _plan_step(self, job: JobId, *, allow_control: bool) -> _StepPlan:
+        # Planning flushes and frames through synchronous worker calls.
+        assert self._flight is None, "a step was planned with another in flight"
+        return super()._plan_step(job, allow_control=allow_control)
 
     def _language(self, descriptor: str) -> CommandLanguage:
         language = self._languages.get(descriptor)
@@ -369,7 +397,13 @@ class PilotJsMachine(JsMachine):
         return options
 
     def _poll(self, timeout_ms: float) -> DecodeDone | DecodeCancelled | None:
-        return normalise_poll(self._async.pollDecode(timeout_ms))
+        """Poll the step in flight. A worker that answers with an error has ended the
+        step, so the flight is dropped before the error goes on up."""
+        try:
+            return normalise_poll(self._async.pollDecode(timeout_ms))
+        except BaseException:
+            self._flight = None
+            raise
 
     def _cancel(self) -> None:
         """Ask the step in flight to stop; never waits."""
@@ -389,9 +423,7 @@ class PilotJsMachine(JsMachine):
         rnd = self._rounds.get(flight.job)
         if rnd is not None:
             # A step that finished regardless filled everything it was planned against.
-            rnd.filled = (
-                answer["resident"] if answer["cancelled"] is True else len(flight.plan.ctx.ids)
-            )
+            rnd.filled = answer["resident"]
 
     def _settle(self) -> None:
         """Cancel the step in flight and wait for the channel to hand it back, so that a
@@ -417,10 +449,16 @@ class PilotJsMachine(JsMachine):
         rnd = self._rounds[job]
         rnd.opened = None
         rnd.start = len(ctx.tokens)
+        # As the native machine drops a finished reply's pending read with the reply.
+        rnd.auto_read = False
 
     def _log(
         self, job: JobId, outcome: StepOutcome, began: float, stats: DecodeStats | None = None
     ) -> None:
+        self.step_totals[outcome] += 1
+        if stats:
+            self.positions_total += stats["positions"]
+            self.fill_ms_total += stats["fillMs"]
         self.step_log.append(
             {
                 "job": str(job),
@@ -479,39 +517,43 @@ class PilotJsMachine(JsMachine):
         began = time.monotonic()
         native = self._native.get(job)
         if native is not None:
-            # The kernel took the machine away from whatever was in flight.
-            self._cancel()
+            # Served locally: the channel, and any step in flight on it, is untouched. A
+            # preemption of the job that step is for reaches here as ``invalidate``.
             result = self._decode_native(job, native)
             self._log(job, "native", began)
             return result
 
+        rnd = self._rounds[job]
+        if rnd.auto_read:
+            # Needs no worker either, so a step in flight for another job is left alone.
+            rnd.auto_read = False
+            rnd.start = len(self._ctx_of(job).tokens)
+            self._log(job, "native", began)
+            return DecodeResult(
+                tokens=(),
+                request=self.abi.parse(_READ_STDIN),
+                attention=None,
+                attention_hint=AttentionHint(tags=("self",)),
+            )
+
         flight = self._flight
         if flight is not None and flight.cancelled_at is None:
             if flight.job != job:
-                self._cancel()  # descheduled
+                # This job's step needs the channel, which serves one step at a time.
+                self._cancel()
             elif flight.plan.allow_control != allow_control:
                 self._cancel()  # planned under the other token mask
         if self._flight is not None and self._flight.cancelled_at is not None:
+            drained_job = self._flight.job
             drained = self._poll(self._stall_ms)
             if drained is None:
                 self.stalls += 1
                 self._log(job, "stall", began)
                 return self._stall()
             self._drained(drained)
-            self._log(job, "cancelled", began, drained["stats"])
+            self._log(drained_job, "cancelled", began, drained["stats"])
 
-        rnd = self._rounds[job]
         if self._flight is None:
-            if rnd.auto_read:
-                rnd.auto_read = False
-                rnd.start = len(self._ctx_of(job).tokens)
-                self._log(job, "native", began)
-                return DecodeResult(
-                    tokens=(),
-                    request=self.abi.parse(_READ_STDIN),
-                    attention=None,
-                    attention_hint=AttentionHint(tags=("self",)),
-                )
             plan = self._plan_step(job, allow_control=allow_control)
             now = time.monotonic()
             pending = len(plan.ctx.ids) - rnd.filled
@@ -530,15 +572,10 @@ class PilotJsMachine(JsMachine):
             self._log(job, "stall", began)
             return self._stall()
         if answer["cancelled"] is True:
-            # Nobody here asked; the step is gone all the same, and so is its token.
-            if flight.cancelled_at is None:
-                flight.cancelled_at = time.monotonic()
-                self.cancellations += 1
-            self._drained(answer)
-            self._log(job, "cancelled", began, answer["stats"])
-            return self._stall()
+            self._flight = None
+            raise RuntimeError(f"job {job}: the worker cancelled a step nobody cancelled")
         self._flight = None
-        rnd.filled = len(flight.plan.ctx.ids)
+        rnd.filled = answer["resident"]
         result = self._accept_step(flight.plan, answer["tokenId"], answer["attention"])
         self.steps += 1
         self._log(job, "token", began, answer["stats"])
@@ -688,8 +725,9 @@ class PilotJsMachine(JsMachine):
     def invalidate(self, job: JobId) -> None:
         """Drop whatever is being generated for ``job``: cancel its step in flight and
         start its command afresh, keeping the words already decoded (native
-        ``partial="keep"``). A completed command's turn end still stands. A no-op for a
-        locally-served job, or one with no context."""
+        ``partial="keep"``). A pending automatic ``read stdin`` goes too, as the native
+        machine drops a finished reply's read with it. A no-op for a locally-served job,
+        or one with no context."""
         if job in self._native or job not in self._contexts:
             return
         self._cancel_job(job)

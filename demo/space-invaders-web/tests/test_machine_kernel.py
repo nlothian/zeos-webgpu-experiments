@@ -20,9 +20,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from machine_helpers import fake_worker
+from zeos.machine.base import DecodeResult, MachineRequest, OpKind
 from zeos_space_invaders.game import Controls, Game, H, snapshot
 from zeos_space_invaders.players.zeos import REFLEX, ZeosDriver, evade_behaviour
+from zeos_space_invaders.players.zeos.api_machine import Native
 
 from zeos_space_invaders_web.fake_worker import FakePilotWorker
 from zeos_space_invaders_web.machine import PilotJsMachine
@@ -78,3 +81,71 @@ def test_a_threat_preempts_the_pilot_mid_step_and_the_dodge_meets_its_deadline()
     assert machine.native_words > 0
     driver.close()
     assert worker.context_ids == ()
+
+
+def _quiet_reflex(_native: Native) -> DecodeResult:
+    """A reflex that dispatches, preempts and exits, and changes nothing in the world, so
+    the pilot resumes with nothing injected."""
+    return DecodeResult(tokens=(), request=MachineRequest(op=OpKind.EXIT))
+
+
+@pytest.mark.parametrize("invalidating", [False, True])
+def test_reflex_decodes_do_not_cancel_a_long_pilot_step(invalidating: bool) -> None:
+    """Only the driver's ``invalidate`` drops the pilot's step when the reflex preempts it;
+    the reflex's own decodes never touch the channel. Without the invalidate the step
+    survives every dispatch and the move is made."""
+    worker, _ = fake_worker(step_ms=150.0)
+    machine = PilotJsMachine(worker, stall_ms=1.0)
+    machine.register_behaviour(REFLEX, _quiet_reflex)
+    driver = ZeosDriver(machine=machine)  # pyright: ignore[reportArgumentType]
+    invalidated: list[object] = []
+    if invalidating:
+        real = machine.invalidate
+
+        def spy(job: Any) -> None:
+            invalidated.append(job)
+            real(job)
+
+        machine.invalidate = spy  # type: ignore[method-assign]
+    else:
+        driver._invalidate_preempted = lambda: None  # type: ignore[method-assign]
+    game = Game(seed=1)
+    game.rng.random = lambda: 1.0
+    game.player = 4
+    driver.controls = Controls(game, per_tick=1)
+    decisions: list[Any] = []
+    for tick in range(10):
+        game.dangers = [[H - 2, game.player]] if tick % 2 else []
+        decisions.append(driver.step(game.render(), snapshot(game)))
+        driver.controls.tick()
+    assert driver.preemptions >= 3
+    reflex_steps = machine.step_totals["native"]
+    assert reflex_steps >= driver.preemptions
+    if invalidating:
+        assert 0 < machine.cancellations <= len(invalidated)
+    else:
+        assert machine.cancellations == 0
+        assert any(d is not None and d.by == "pilot" for d in decisions)
+    driver.close()
+
+
+def test_a_pilot_preempted_and_invalidated_resumes_and_plays_on() -> None:
+    """``invalidate`` drops a pending automatic read as the native machine does; the
+    resumed pilot starts a fresh command, and keeps flying once the fire stops."""
+    worker, _ = fake_worker(step_ms=20.0, position_ms=0.05)
+    driver, machine, game = _driver(worker)
+    decisions: list[Any] = []
+    for tick in range(16):
+        game.dangers = [[H - 2, game.player]] if 3 <= tick < 6 else []
+        decisions.append(driver.step(game.render(), snapshot(game)))
+        assert driver.controls is not None
+        driver.controls.tick()
+    assert driver.preemptions > 0
+    late = [d for d in decisions[7:] if d is not None and d.by == "pilot"]
+    assert late, "the pilot never moved again after it was preempted"
+    states = {str(job.descriptor.name): job.state.value for job in driver.kernel.sched.jobs()}
+    assert states["pilot"] not in ("faulted", "done")
+    malformed = [e for e in driver.kernel.events if "malformed" in getattr(type(e), "KIND", "")]
+    assert not malformed
+    assert machine.cancellations > 0
+    driver.close()

@@ -471,6 +471,7 @@ class FakePilotWorker:
             "tokenId": flight.choice.token_id,
             "attention": None,
             "cancelled": False,
+            "resident": resident,
             "stats": stats,
         }
 

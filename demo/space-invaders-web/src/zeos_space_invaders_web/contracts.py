@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from importlib import resources
@@ -113,13 +114,15 @@ class DecodeDone(TypedDict):
     """A step that ran to the end: the token chosen and the attention it measured.
 
     ``attention`` is the per-block mass ``decodeStep`` reports (``None`` for a backend that
-    cannot measure it). Never delivered for a step that was cancelled, even when the
-    worker had finished it by the time the cancel arrived.
+    cannot measure it). ``resident`` is the context's positions in the KV cache after the
+    step, as the channel's reply carries it. Never delivered for a step that was
+    cancelled, even when the worker had finished it by the time the cancel arrived.
     """
 
     tokenId: int
     attention: object | None
     cancelled: Literal[False]
+    resident: int
     stats: DecodeStats
 
 
@@ -230,7 +233,8 @@ class PilotMachine(Protocol):
     cancellations: int
     #: Cancel-to-drained wall time of each cancellation, in milliseconds.
     cancel_ms: list[float]
-    step_log: list[StepLogEntry]
+    #: The most recent decodes, bounded; running totals live beside it.
+    step_log: deque[StepLogEntry]
 
     def register_behaviour(
         self, descriptor: str, behaviour: Callable[[Native], DecodeResult]

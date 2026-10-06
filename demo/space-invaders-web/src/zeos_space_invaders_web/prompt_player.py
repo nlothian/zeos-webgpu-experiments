@@ -35,7 +35,12 @@ from zeos_coop_count_web.js_machine import IM_END, IM_START, Bridge, PythonBridg
 from zeos_space_invaders.game import Rules
 from zeos_space_invaders.players.base import PromptPlayer
 
-from zeos_space_invaders_web.contracts import AsyncModelWorker, PromptReply
+from zeos_space_invaders_web.contracts import (
+    AsyncModelWorker,
+    DecodeCancelled,
+    DecodeDone,
+    PromptReply,
+)
 from zeos_space_invaders_web.machine import normalise_poll
 
 __all__ = ["CONTEXT_ID", "PREFIX_ID", "BrowserPromptPlayer"]
@@ -187,11 +192,12 @@ class BrowserPromptPlayer(PromptPlayer):
         deadline = time.monotonic() + max(timeout_s, 0.0)
         while True:
             remaining = max(deadline - time.monotonic(), 0.0)
-            answer = normalise_poll(self._worker.pollDecode(remaining * 1000.0))
+            answer = self._poll(remaining * 1000.0)
             if answer is None:
                 return None
             self._in_flight = False
             if answer["cancelled"] is True:
+                self._obs, self._info = None, {}
                 raise RuntimeError("the prompt arm's step was cancelled by someone else")
             token_id = answer["tokenId"]
             if token_id in self._stops:
@@ -210,6 +216,16 @@ class BrowserPromptPlayer(PromptPlayer):
             self._begin_step()
             if time.monotonic() >= deadline:
                 return None
+
+    def _poll(self, timeout_ms: float) -> DecodeDone | DecodeCancelled | None:
+        """Poll the step in flight. A worker that answers with an error has ended the
+        step and the request with it, so both are dropped before the error goes up."""
+        try:
+            return normalise_poll(self._worker.pollDecode(timeout_ms))
+        except BaseException:
+            self._in_flight = False
+            self._obs, self._info = None, {}
+            raise
 
     def _finish(self) -> PromptReply:
         obs, info = self._obs, self._info
@@ -237,7 +253,7 @@ class BrowserPromptPlayer(PromptPlayer):
         """Cancel any request under way and destroy both contexts."""
         if self._in_flight:
             self._worker.cancelDecode()
-            while normalise_poll(self._worker.pollDecode(_DRAIN_POLL_MS)) is None:
+            while self._in_flight and self._poll(_DRAIN_POLL_MS) is None:
                 pass
             self._in_flight = False
         self._obs, self._info = None, {}
