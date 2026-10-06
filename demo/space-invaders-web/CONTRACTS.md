@@ -16,7 +16,7 @@ chunk (`maxChunk`, 128 positions for a pilot step). Stop reaches the loop throug
 control SharedArrayBuffer the page writes, because the loop never yields to the worker's
 event loop.
 
-## 1. The channel (`demo/coop-count-web/web/model_channel.js`)
+## 1. The channel (`packages/zeos-browser/web/model_channel.js`, then `demo/coop-count-web/web/`)
 
 The changes are additive: `SyncModelWorker`'s existing synchronous methods, including
 `decodeStep`, behave as before, and coop-count-web's page and tests are unaffected.

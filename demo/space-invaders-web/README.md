@@ -8,17 +8,19 @@ pager does not act (see *Settings that differ from the native demo*).
 The port puts [`../space-invaders`](../space-invaders/) in a static web page: the ZEOS
 kernel and the game run under Pyodide, and the pilot is served by
 `Qwen3.5-4B-ZEOS-OPT` over WebGPU through the worker channel of
-[`../coop-count-web`](../coop-count-web/). The game keeps real time, so a slow model falls
+[`zeos-browser`](../../packages/zeos-browser/README.md). The game keeps real time, so a slow model falls
 behind and the reflex preempts it, as in the native demo. A prompt-loop arm on the same
 model is the comparison.
 
 ## Getting started
 
-The page borrows coop-count-web's npm install (ONNX Runtime Web, the tokenizer, and the
-Pyodide the Node tests use) and its model export. From the repository root:
+The page uses zeos-browser's npm install (ONNX Runtime Web, the tokenizer, and the
+Pyodide the Node tests use) and its model export (see *Getting the model* in
+[`packages/zeos-browser`](../../packages/zeos-browser/README.md)). From the repository
+root:
 
 ```bash
-(cd demo/coop-count-web && npm install)              # once; also caches PyYAML for Node
+npm install --prefix packages/zeos-browser           # once; also caches PyYAML for Node
 uv run python demo/space-invaders-web/build.py       # wheels, page, case, vendor -> web/dist
 uv run python demo/space-invaders-web/serve.py       # http://localhost:8766
 ```
@@ -33,13 +35,13 @@ there is no SharedArrayBuffer, and the page says so. It uses port 8766 so that i
 beside coop-count-web's page on 8765. `serve.py --port` and `--dir` change both.
 
 `build.py` links the model export (by default
-`../coop-count-web/models/Qwen3.5-4B-ZEOS-OPT`) into `web/dist/models/` and names it in
+`packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT`) into `web/dist/models/` and names it in
 `manifest.json`; `--model DIR` offers another export. The link works with `serve.py`;
 **to put `web/dist` on a static host, build with `--copy-model`**, which copies the
 export (gigabytes) instead, because a static host does not follow symbolic links.
 Without the npm install or the export the build still works, and the page offers only
 the stub. `--link-node-modules` links `node_modules`
-here to coop-count-web's.
+here to zeos-browser's.
 
 ## What you'll see
 
@@ -241,7 +243,7 @@ Each file's `note` names its settings, and each row carries the contention check
   `settings_default.json` and `settings_ablation.json`.
 - `web/`: the page (`index.html`, `app.js`, `board.js`, `style.css`) and `si_worker.js`,
   the Web Worker that hosts Pyodide and the run loop. The model thread and its channel
-  are coop-count-web's files, copied in by `build.py`.
+  are zeos-browser's files (`packages/zeos-browser/web`), copied in by `build.py`.
 
 ## Tests
 
@@ -253,7 +255,7 @@ uv run python demo/space-invaders-web/build.py && \
 ```
 
 The pytest suite builds `web/dist` into a temporary directory and, when
-coop-count-web's npm install is present, plays under Pyodide in Node
+zeos-browser's npm install is present, plays under Pyodide in Node
 (`tests/pyodide_run.mjs`): a `FakeRun`, and both arms against the JavaScript pilot stub
 over the real channel (`test_e2e_pyodide.py`). `test_e2e_stub.py` plays both arms under
 CPython against `FakePilotWorker`. No test runs the model on the CPU: the model runs only

@@ -1,7 +1,7 @@
 # Benchmarks for the Space Invaders browser port
 
 Measured on 6 October 2026, on the user's M1 Max (32 GB, 10 cores), against
-`demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT` and the existing synchronous APIs
+`demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT` (now `packages/zeos-browser/models/`) and the existing synchronous APIs
 (`JsMachine`, `OptZeosWorker`, `NodeWorker`). Nothing outside `bench/` was changed.
 
 **Caveat on CPU timings.** Up to four other agents ran Node model workers at the same
@@ -187,8 +187,9 @@ PLAYWRIGHT_MODULE=… node demo/space-invaders-web/bench/prefill_webgpu.mjs \
 ```
 
 **Setup.**
-- Headed Chrome via Playwright, as `tests/opt_zeos_webgpu.mjs` runs it. `demo/` is
-  served by coop-count-web's `serve.py`.
+- Headed Chrome via Playwright, as zeos-browser's `tests/opt_zeos_webgpu.mjs` runs it.
+  The repository root is served by this demo's `serve.py` (`demo/` by coop-count-web's
+  when these were measured).
 - `OptZeosWorker` on WebGPU with the page's own onnxruntime-web 1.30.0 (local
   `node_modules`, no CDN). The adapter is apple metal-3, and the model loads in 9.3 s.
 - The inputs are real ids: the pilot prefix from §2, then framed boards (arrival

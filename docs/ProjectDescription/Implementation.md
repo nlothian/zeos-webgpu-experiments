@@ -174,7 +174,7 @@ class DecodeResult:
 ```
 
 A backend that can measure populates `attention` and leaves `attention_hint` None, as
-`JsMachine` does over the Transformers.js worker in `demo/coop-count-web`.
+`JsMachine` does over a model worker in `packages/zeos-browser`.
 `ScriptedMachine` and the llama.cpp machine do the reverse. Splitting them in the type system is slightly
 ugly, and the ugliness is the point: it marks exactly where the fiction lives so no
 policy claim can rest on it by accident.

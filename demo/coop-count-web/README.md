@@ -3,13 +3,13 @@
 The ZEOS kernel and the coop-count demo, running inside [Pyodide](https://pyodide.org) in a
 browser, with no server beyond a file host. A member of the repository's uv workspace.
 
-The page loads Pyodide, installs the `zeos` wheel and this package's wheel, writes the
+The page loads Pyodide, installs the `zeos` and `zeos-browser` wheels, writes the
 coop-count cases into Pyodide's in-memory filesystem, lints the chosen case and runs it.
 The run's output panel has two tabs, both filled as the run streams. *transcript*, the
 default, shows the transcript `zeos-count run` prints to a terminal (`counter-a  say 1`,
 `reset-count ──▶ count.progress_a 51`, `counter-a  ... waiting on count.b2a`), collected
 from the same seat callbacks and journal events the CLI prints from
-(`zeos_coop_count_web.transcript`), so it never alters the journal. *event log (JSON)* shows the
+(`zeos_browser.transcript`), so it never alters the journal. *event log (JSON)* shows the
 journal itself, one JSON line per event. The ZEOS debugger draws the
 case's wiring and then the finished run, and the journal can be downloaded as the
 `.jsonl` file `zeos-count run --journal` would have written. The *interrupt* button on the page is the
@@ -25,23 +25,24 @@ once needs a network connection to download 2.8 GB from the Hugging Face Hub and
 Every command runs from the repository root.
 
 ```bash
-# 1. Python packages, including the export group (PyTorch, transformers, onnx).
+# 1. Python packages, including zeos-browser's export group (PyTorch, transformers, onnx).
 uv sync --all-packages --group export
 
 # 2. ONNX Runtime Web and the tokenizer, which build.py copies into the page.
-npm install --prefix demo/coop-count-web
+npm install --prefix packages/zeos-browser
 
 # 3. Download Qwen3.5-4B as onnx-community's -OPT export (q4f16, 2.8 GB).
 uv run hf download onnx-community/Qwen3.5-4B-ONNX-OPT \
     --include "*.json" "chat_template.jinja" \
       "onnx/embed_tokens_q4f16.onnx*" "onnx/decoder_model_merged_q4f16.onnx*" \
-    --local-dir demo/coop-count-web/models/Qwen3.5-4B-ONNX-OPT
+    --local-dir packages/zeos-browser/models/Qwen3.5-4B-ONNX-OPT
 
 # 4. Give it the key mask and measured attention the page runs (see "The OPT+ZEOS
-#    graph"). Writes demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT/ in seconds.
-uv run python demo/coop-count-web/export/opt_zeos_surgery.py \
-    --src demo/coop-count-web/models/Qwen3.5-4B-ONNX-OPT \
-    --out demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT
+#    graph" in packages/zeos-browser). Writes packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT/
+#    in seconds.
+uv run python packages/zeos-browser/export/opt_zeos_surgery.py \
+    --src packages/zeos-browser/models/Qwen3.5-4B-ONNX-OPT \
+    --out packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT
 
 # 5. Optional: drop PyTorch and the rest of the export group again.
 uv sync --all-packages
@@ -56,15 +57,16 @@ uv run python demo/coop-count-web/serve.py
 Open <http://localhost:8765/> and press **run**. The defaults are the language model on
 the GPU, the scenario `coop-count-scripted`, and *press the keys automatically*, which
 sends the interrupt at 39 ms of virtual time. The first run downloads the 2.8 GB of
-weights into the browser and prefills the first prompt; *The OPT+ZEOS worker* below
-gives the model worker's load, prefill and decode timings.
+weights into the browser and prefills the first prompt; *The OPT+ZEOS worker* in
+[`packages/zeos-browser`](../../packages/zeos-browser/README.md) gives the model worker's
+load, prefill and decode timings.
 The *transcript* tab shows the counters counting and the interrupt handler resetting
 the count.
 
 `build.py` prints the model it put on the page. If it says `model: none`, step 2, 3 or 4
 is missing. The page then still runs every scenario that has recorded answers, and
 offers the language model as *(not in this build)*. To offer another export, pass
-`--model`, for example `--model demo/coop-count-web/models/Qwen3.5-2B-zeos-q4`.
+`--model`, for example `--model packages/zeos-browser/models/Qwen3.5-2B-zeos-q4`.
 
 **Serving it elsewhere.** `web/dist/models/` is a symbolic link to the export, so copy
 the export in with `build.py --copy-model` before uploading `web/dist/` to a file host.
@@ -85,16 +87,16 @@ Three machines are offered for a case, under *answered by*:
 
 | on the page | machine | what answers each decode |
 |---|---|---|
-| Qwen3.5-4B language model, in your browser | `transformers` | `JsMachine` over a model worker: `web/opt_zeos_worker.js` for the default OPT+ZEOS export, `web/transformers_worker.js` for an `export_model.py` one. A language model decoding under the kernel, with measured attention. The default; offered when the build found an export. |
+| Qwen3.5-4B language model, in your browser | `transformers` | `JsMachine` over a model worker: zeos-browser's `web/opt_zeos_worker.js` for the default OPT+ZEOS export, `web/transformers_worker.js` for an `export_model.py` one. A language model decoding under the kernel, with measured attention. The default; offered when the build found an export. |
 | recorded answers (no model) | `scripted` | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
-| recorded answers, via the JavaScript model interface | `stub` | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
+| recorded answers, via the JavaScript model interface | `stub` | `JsMachine` over zeos-browser's stub worker, `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
 
 On `coop-count-scripted` the two decode the same words and their journals hold the same
 events in the same order, with two exceptions, both about attention. The seat's mask
 hides the blocks a job has written since the kernel's last mask refresh, so the kernel
 journals the job's attention to its own open segment as denied (`mask.denied`, 30 times
 in this run) and leaves that segment out of the working set; `JsMachine` treats those
-blocks as visible (see *the mask's horizon* below), so it has no `mask.denied` events
+blocks as visible (see *the mask's horizon* in zeos-browser's README), so it has no `mask.denied` events
 and two `vm.working_set` events count one more segment. The page's table of finished
 runs shows each journal's SHA-256, so two runs of the same machine with the same inputs
 show the same digest. `coop-count-pipe` and
@@ -112,10 +114,10 @@ would deliver it, `reset-count` is already parked on `keys.number`
 a tape cannot read. Untick *press the keys automatically* (which plays the case's `events.jsonl`) to press the button yourself; with it
 ticked, the case's own schedule presses it at 39 ms.
 
-**The run loop.** `zeos_coop_count_web.live.LiveRun` is the `zeos-count` run loop cut
+**The run loop.** `zeos_browser.live.LiveRun` is the `zeos-count` run loop cut
 into single turns: deliver what the schedule has due, deliver what the page queued,
 tick, reap, add one virtual millisecond. With no presses its journal is the CLI's,
-which `tests/test_js_machine_case.py` checks against `zeos_coop_count.cli` when
+which zeos-browser's `tests/test_js_machine_case.py` checks against `zeos_coop_count.cli` when
 llama-cpp-python is installed. A press is delivered at the start of the next turn, the
 place the CLI delivers a scheduled event, so pressing at the turns `events.jsonl` names
 reproduces the scheduled run exactly. While a job is parked on a device pipe the run
@@ -144,766 +146,39 @@ script and the data into the shell, and shows it in an iframe; no server is invo
 
 Pinned to **Pyodide 314.0.7** (Python 3.14.2), the current stable release when this was
 written, in two places that `tests/test_page.py` holds equal: the CDN URL in
-`web/pyodide_worker.js` and the npm dependency in `package.json`. This release refuses to
+`web/pyodide_worker.js` and the npm dependency in `packages/zeos-browser/package.json`. This release refuses to
 load in a classic Web Worker, so the worker is a module worker.
 
-## Why a separate package
+## Why separate packages
 
 `zeos-coop-count` declares `llama-cpp-python`, `huggingface-hub` and `anthropic` as hard
 dependencies, none of which installs under Pyodide, and its `machine.py`, `boot.py` and
 `cli.py` import llama.cpp at module level. Rather than install that wheel without its
-dependencies and import around it, this package depends on `zeos` alone and carries what
-the browser needs. The scripted seat is `zeos.machine.seat`, the cases are read from
+dependencies and import around it, the page runs on `zeos` and
+[`zeos-browser`](../../packages/zeos-browser/README.md), which depends on `zeos` alone and
+carries what a browser needs: `JsMachine` and its grammar mask, the run loop the page
+steps (`zeos_browser.live`, `zeos_browser.page`), the model workers and the channel to
+them. The scripted seat is `zeos.machine.seat`, the cases are read from
 `demo/coop-count/cases/`, and the terminal-only `keyboard.py` is replaced by the page's
 console. `JsMachine`'s word-to-token bookkeeping and ChatML framing are `LlamaMachine`'s,
 written again over the worker interface, since the module that holds `LlamaMachine`
 imports llama.cpp. `demo/coop-count` is unchanged.
 
-## The JavaScript machine seam
-
-`zeos_coop_count_web.js_machine.JsMachine` is a `SyscallSeat` and a full
-`MachineBackend`. It keeps, per job, the kernel's words, the model token ids behind them
-and the chat framing folded into their spans, and hands every token-level operation to a
-worker object passed to its constructor: a JavaScript object reached through Pyodide in
-the browser, or a Python object with the same methods under CPython.
-
-```python
-from zeos_coop_count_web.js_machine import JsMachine
-
-JsMachine(
-    worker,  # a ZeosModelWorker
-    bridge=None,  # PythonBridge() by default; PyodideBridge() for a JS object
-    descriptors=...,
-    valued=...,  # from zeos.machine.seat.seat_maps(...)
-    block_size=16,  # the kernel's block size, in kernel words
-    chat_template="chatml",  # or None
-)
-```
-
-The worker implements exactly this interface:
-
-```
-interface ZeosModelWorker {
-  // Model identity and reserved IDs. Call once.
-  info(): { blockSize: number; padId: number; controlIds: number[]; eosId: number;
-            vocabSize: number };
-  tokenize(text: string): Int32Array;        // no BOS, no special-token parsing
-  piece(tokenId: number): string;            // the text of one token
-  createContext(jobId: string): void;
-  destroyContext(jobId: string): void;
-  length(jobId: string): number;             // model tokens currently resident
-  // Prefill. Appends ids to the context and runs the forward pass for them.
-  append(jobId: string, ids: Int32Array): void;
-  // Drop every token at position >= n and the KV behind it.
-  truncate(jobId: string, n: number): void;
-  // Copy parent's tokens and KV into a fresh context for child.
-  fork(parentId: string, childId: string): void;
-  // One greedy decode step. Returns the chosen id and measured attention mass per
-  // KV block for this step, summed over layers and heads and normalised so the
-  // values sum to 1.0 over blocks that received attention. A backend that cannot
-  // measure returns attention = null.
-  decodeStep(jobId: string, opts: {
-    allowedBlocks: Uint8Array | null;       // 1 = may attend, indexed by block; null = all
-    allowedTokens: Uint8Array | null;       // 1 = may emit, indexed by token id; null = all
-  }): { tokenId: number; attention: Float32Array | null };
-}
-```
-
-How `JsMachine` uses it, which is what an implementation has to get right:
-
-- **Context ids** are `"<job>:<descriptor>"`, opaque to a worker (the stub reads the
-  descriptor from them to pick a tape). `createContext` and `fork` are given only an id
-  the worker does not hold; every other method only one it does.
-- **Residency.** The worker's tokens are always a prefix of `JsMachine`'s ids. Before
-  each `decodeStep` it appends whatever lies past `length()`, so a step never meets an
-  empty context; `trunc`, `splice` and chat framing inserted mid-context `truncate`
-  first and let the next decode re-append the tail.
-- **A decode step leaves the context unchanged.** The chosen id is appended by the
-  `append` before the next step. The step computes the next-token distribution at the
-  last resident position, attending only the allowed blocks, and reports that query's
-  attention.
-- **Blocks** in `allowedBlocks` and `attention` are the worker's: `info().blockSize`
-  model tokens each, one entry per block of the resident context. They are not the
-  kernel's blocks, which count kernel words, and a word can be several tokens. A worker
-  block is allowed only if every word with a token in it lies in a kernel block the
-  kernel's mask allows, so a block straddling a hidden segment is hidden whole. Measured
-  mass on a worker block is shared among the kernel blocks with tokens in it, in
-  proportion to how many. Both are exact when every word is one token, as with the stub.
-  `JsMachine` refuses attention that is negative, does not sum to 1.0 within 1e-3, or
-  has the wrong number of entries (`WorkerViolation`), the unit check the
-  `DecodeResult` docstring calls normative; and attention on a block the step was sent
-  as 0 (`MaskViolation`).
-- **The mask's horizon.** The kernel builds its mask from the segments that exist when
-  it installs it — at each block boundary, inject, fork and splice — and decodes on
-  until the next refresh, so blocks the job has written into since are not in it. Those
-  blocks, at or past the kernel block count when the mask was installed, can only hold
-  the job's own decoded tokens and padding, because every foreign arrival refreshes the
-  mask first. `JsMachine` allows them: hiding them would hide the position doing the
-  attending. `visible_blocks` reports the same set, so the attention the kernel sums is
-  the attention the model could have paid. A `trunc` below the horizon lowers it.
-- **Reserved ids.** `allowedTokens` has one entry per vocabulary id. The pad and
-  end-of-sequence ids are always 0, the `controlIds` are 0 unless the kernel enabled
-  control tokens for the step, and the grammar mask below zeroes the rest it forbids.
-  An id the mask refused raises (`ControlTokenViolation` for a control id,
-  `WorkerViolation` otherwise) rather than reaching the kernel.
-- **Vocabulary size** is `info().vocabSize`. `allowedTokens` has that many entries, and
-  `piece` is called once for every id below it when `JsMachine` is constructed. The pad,
-  end-of-sequence and control ids must lie below it (`WorkerViolation` otherwise).
-- **Padding** is `info().padId`, one per kernel pad word.
-- **Chat framing.** With `chat_template="chatml"` (the default, as for `LlamaMachine`)
-  the prompt opens a user turn, the first decode closes it and opens the assistant's,
-  and each arrival mid-turn closes the assistant's turn and opens a user turn. Since
-  `tokenize` parses no special tokens, the turn markers are found among `controlIds`:
-  the id whose `piece` is exactly `<|im_start|>` and the one whose piece is
-  `<|im_end|>`. The text between them (`user\n`, `assistant\n`) goes through
-  `tokenize`. **A worker for a ChatML model, such as Qwen3.5, must list both
-  markers in `controlIds` and return their literal text from `piece`**; `JsMachine`
-  refuses to start otherwise.
-
-### The grammar mask
-
-The llama seat compiles the syscall ABI to GBNF and lets llama.cpp's sampler walk it.
-`zeos_coop_count_web.token_mask` walks the same language in Python and sends the result
-as `allowedTokens`: before each step it marks every vocabulary id whose piece keeps the
-current round a prefix of some valid round. The language is the one `build_grammar`
-renders — request-free verbs, then one call; only the aliases the descriptor binds; a
-number with no leading zeros for an actuator; one to `max_text` characters for a
-payload — except that a round may open with one space and the space after a terminator
-opens the next command, because the seat speaks every word after a job's first with a
-leading space. A terminator longer than one character is matched as a literal, and a
-payload excludes each of its characters, as the GBNF character class does. A piece that
-completes two terminators is refused: the seat's parser splits at the first terminator
-only, so the second command would never reach the kernel. It is a small automaton over
-characters whose states are integer tuples.
-
-Cost: a mask is computed once per (descriptor, round state, control flag) by one pass
-over the vocabulary, at about one automaton step per character of each piece, and
-cached; every later step from a seen state is a dictionary lookup plus one copy of a
-vocabulary-sized `Uint8Array` across the FFI. A counting run revisits a few dozen
-states. Reading the vocabulary costs one `piece` call per id when `JsMachine` is
-constructed.
-
-### The stub worker and the Python fake
-
-`web/stub_worker.js` implements `ZeosModelWorker` with no model, to exercise every
-method of the seam from Python under Pyodide. `zeos_coop_count_web.fake_worker.FakeWorker`
-is the same worker in Python, for tests under CPython. Both have a fixed vocabulary (five
-reserved tokens, then every word of the tapes and of the ChatML headers, with and
-without a leading space), a whitespace tokenizer, a tape per descriptor taken from the
-case's `emit` steps, and no attention. Tapes must be ASCII and both refuse any other
-text, since Python and JavaScript split and sort non-ASCII text differently. Each step gives the next word of the current
-command, split as `zeos.machine.seat.words_of` splits it, checks that `allowedBlocks`
-and `allowedTokens` are sized to the context and the vocabulary, and refuses a word the
-token mask forbids.
-
-The Pyodide determinism test runs `coop-count-scripted` through `JsMachine` over the
-stub in Pyodide and over the fake in CPython and requires the same bytes, so the two
-cannot drift apart unnoticed. To run `JsMachine` over the fake:
-
-```python
-from zeos.descriptor.loader import load_case
-from zeos.machine.seat import seat_maps
-from zeos_coop_count_web.fake_worker import FakeWorker, tapes_from_scripts
-from zeos_coop_count_web.js_machine import JsMachine
-
-bundle = load_case(path)
-descriptors, valued = seat_maps(bundle.descriptors, bundle.pipes)
-machine = JsMachine(
-    FakeWorker(tapes_from_scripts(bundle.scripts)), descriptors=descriptors, valued=valued
-)
-```
-
-In the browser the page builds the stub with `createStubWorker(tapes)` and passes it to
-`zeos_coop_count_web.page.open_run(case_dir, "js", worker=stub)`, which wraps it in
-`PyodideBridge`; any other object implementing the interface goes the same way.
-
-## The model machine
-
-The page's default machine is `JsMachine` over a real language model: Qwen3.5-4B as the
-OPT+ZEOS graph (`export/opt_zeos_surgery.py`, run by `web/opt_zeos_worker.js`; see *The
-OPT+ZEOS graph* and *The OPT+ZEOS worker*), or, with `build.py --model`, Qwen3.5-2B or a
-Qwen2.5 model exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
-`web/transformers_worker.js`, with the tokenizer Transformers.js uses. It supplies all
-four things ZEOS asks of a serving stack: the allowed-block mask is applied inside the
-forward pass, in every layer (before the softmax in the softmax layers; see *The
-architecture* for the linear-attention ones); each decode step's attention is measured,
-averaged over the softmax layers' heads and normalised, per position; the control ids
-are reserved in the sampler; and the syscall grammar constrains every step. The kernel
-therefore receives measured attention, `DecodeResult.attention`, where every other
-backend in the repository gives it a hint, and integrity demotes on it.
-
-### The model
-
-The page offers Qwen3.5-4B as the OPT+ZEOS graph by default; *The OPT+ZEOS worker*
-gives its timings. The runs below are of the 2B, exported by `export/export_model.py`,
-and were made at int8 on the WebAssembly backend the page then had; the model now runs
-on WebGPU only, where the int8 export does not run (see *Backends*).
-
-**Qwen3.5-2B** (`Qwen/Qwen3.5-2B`, the post-trained model; its base is
-`Qwen3.5-2B-Base`). It speaks ChatML, which is what `JsMachine` frames prompts in
-(`chat_template="chatml"`, as for `LlamaMachine`), and it is the smaller sibling of
-Qwen3.5-4B, which follows the coop-count procedure under llama.cpp. Its architecture is a
-hybrid of linear and softmax attention, which the export handles as described in *The
-architecture* below.
-
-On `coop-count-pipe`, with its `events.jsonl`, it gets further than the Qwen2.5 models
-did and then deadlocks. Counter-a does its first turn exactly as the procedure says:
-`say 1` to `say 10`, `write tools 10`, `write stdout go`, `read stdin`. Counter-b, woken
-with the status line reading 10, says `11` and then records it -- `write tools 11`,
-`write stdout go`, `read stdin` -- instead of counting on to 20. Counter-a, woken with a
-RESUME notice (`count.b: 0 -> 11`), goes straight back to `read stdin` instead of
-counting. The handler, preempting at the keypress, does exactly its four commands: `read
-stdin`, then `write tools 500`, `write peer 500` with the number that arrived, and `exit`.
-Then both counters are asleep on each other's pipe, nothing is left to deliver, and the
-run ends quiescent after 99 ticks (95 decode steps), well short of the 400-tick cap.
-Counter-b's mistake is the model's, not the quantisation's: at full precision it too
-prefers `write` to `say` after `say 11;`.
-
-The Qwen2.5 models this page ran before did worse. The 0.5B counter-a said 1 to 10,
-recorded 11 rather than 10, woke its peer and slept; counter-b, woken, said
-`1000000000000000` over and over until the run was cut off; and the handler said
-`"attention" and` and exited instead of reading the console. The 1.5B kept the turn
-structure for 400 ticks, but neither counter said a number, and its handler did not read
-the console either. Those exports were in the earlier two-graph format; the script still
-exports Qwen2 models in the current format (`--model Qwen/Qwen2.5-0.5B-Instruct`). What the kernel gets from any of them is real: measured
-attention, enforced masks, and commands that only the grammar allows.
-
-### The architecture
-
-Qwen3.5-2B (`model_type` `qwen3_5`; `Qwen3_5ForConditionalGeneration` on the Hub, of
-which only the text model is exported) is not a plain transformer. Against Qwen2.5:
-
-- **Hybrid layers.** Of its 24 layers, 18 are Gated DeltaNet layers (linear attention:
-  a 16-head recurrent state of 128 x 128 per head, updated by the gated delta rule) and
-  6, every fourth, are softmax attention (8 query heads, 2 KV heads, head dim 256).
-- **A short causal convolution** (kernel 4) over each DeltaNet layer's q, k and v
-  projections, so a position's keys depend on the three positions before it.
-- **Gated softmax attention.** `q_proj` also produces a per-head output gate
-  (`sigmoid`), q and k are RMS-normalised per head, and rotary embedding covers only the
-  first 64 of the 256 channels (`partial_rotary_factor` 0.25, theta 1e7; the multimodal
-  rope sections coincide for text). No q/k/v biases.
-- **Zero-centred RMSNorm**: every norm but the DeltaNet's gated one scales by
-  `1 + weight`.
-- Tied embeddings over a 248,320-row table (the tokenizer has 248,070 ids), and a
-  multi-token-prediction head the export leaves out.
-
-The DeltaNet state is not a per-position cache and cannot be cut at a position, which
-paging needs; it can be *re-derived*. The rewrite therefore keeps the contract with three
-cache parts: the softmax layers' KV, position-major as before (24 KB a position); each
-DeltaNet layer's state (19 MB a context, whatever its length); and each DeltaNet layer's
-last three convolution inputs (1.3 MB). The worker cuts by going back to a snapshot of
-the state and running the tokens after it again (see *The worker*).
-
-**The mask in a DeltaNet layer.** A hidden position is *skipped*: its write strength
-(beta) and its decay are zeroed, so the state never takes it in, and its convolution taps
-are zeroed, so no later position's keys read it. This is exact -- the layer's output is
-what it would be with that position absent from its recurrence -- but it is a property of
-the state, not of one query: the state a step reads must have been built under that
-step's mask. The worker guarantees that by running the positions again from the first
-one whose visibility changed. A softmax layer applies the mask before its softmax, as
-before.
-
-**Measured attention covers the six softmax layers.** A DeltaNet layer has no attention
-distribution to measure: its output is the state read with the query. `attention` is the
-last position's softmax probabilities averaged over the six softmax layers' 48 heads --
-so a hidden position still gets exactly zero and the rest still sum to one -- and says
-nothing of what the 18 DeltaNet layers read. Those layers are masked exactly, but their
-reading is not in `DecodeResult.attention`; integrity demotion on this model rests on the
-softmax layers alone.
-
-### The export
-
-`export/export_model.py` writes, into `models/<name>-zeos-<quant>/` (gitignored):
-
-- `model.onnx` -- one graph for prefill and decode. Up to 16 new token ids, the cache (KV
-  of the earlier positions, the DeltaNet state and convolution window) and a key mask
-  over every position, past and new, in; the logits at the last position, the new
-  positions' KV, the state and window after them, and the last position's attention per
-  position out. Attention is computed explicitly (scores, mask, softmax); a hidden key
-  gets `-inf` before the softmax and so exactly zero after it, and sees itself only when
-  nothing else is visible to it, so its softmax is defined. Block size is 1, so the
-  attention vector has one entry per position and `JsMachine` sums it onto the kernel's
-  blocks exactly, which a fixed multi-token block cannot do when a kernel word is several
-  tokens. One graph rather than a prefill and a decode graph keeps one copy of the
-  weights.
-- `weights-0.bin`, `weights-1.bin`, ... -- every large initialiser, in files of at most
-  1 GiB: Node reads no file over 2 GiB whole, and the browser holds smaller buffers more
-  readily. `meta.json` -- shapes, layer types, reserved ids, the weight files and every
-  file's digest; the tokenizer's two files.
-
-Over a chunk, a DeltaNet layer's pseudo-values solve a unit lower-triangular system. The
-graph solves it by repeated squaring, (I + L)^-1 = (I - L)(I + L^2)(I + L^4)(I + L^8),
-which is exact for 16 positions and, in float32, accurate: at 16 positions the logits
-stay within 8e-5 of `transformers`, where at 32 they already drift by 1.5. Hence the
-16-position chunk (`maxChunk`).
-
-The script holds the rewrite to `transformers`' own logits before it exports, prefilling
-in chunks of 1, 7 and 16 so that the state and convolution window are carried across
-runs (drift 4e-5 to 8e-5 at full precision, 0.05 to 0.07 with the int8 embedding), and
-checks the exported graph under ONNX Runtime CPU: a hidden position receives exactly zero,
-the rest sum to one, and hiding it changes the logits. The script still exports Qwen2 instruct models (`model_type`
-`qwen2`: every layer softmax, an empty state); the worker then cuts its cache directly.
-
-**Quantisation.** The default, `q4`, is 4-bit weight-only `MatMulNBits`, the form
-ONNX Runtime's WebGPU backend runs: 1.69 GB of weights for the 2B.
-`int8` is ONNX Runtime's dynamic quantisation of every
-weight matmul (per-channel int8 weights, int8 activations computed per run), plus a
-per-row int8 embedding table and a separately quantised output projection: 2.40 GB of
-weights. WebGPU has no kernel for its integer matmuls, so the page cannot run it; it was
-the fast path on the WebAssembly backend the page used to offer.
-
-The chunk also bounds the int8 error. Dynamic quantisation gives a matmul's activations
-one scale for the whole chunk, and over 64 positions of counter-a's prompt that flipped
-the model's first choice after a wake from `say` to `read` (`say` minus `read`: +0.16 at
-full precision, -0.97 at int8 in chunks of 64, +0.12 in chunks of 16, +0.22 one position
-at a time), which deadlocked the run. In chunks of 16 the int8 export agrees with full
-precision on that choice, at 15% more prefill time than chunks of 64.
-
-The export needs PyTorch, `transformers` (the locked 5.17 loads `qwen3_5`, so the group
-needed no upgrade), `onnx` and ONNX Runtime, which are a non-default dependency group of this package,
-so the root `uv sync --all-packages` never installs them:
-
-```bash
-uv sync --all-packages --group export                     # from the repository root
-uv run python demo/coop-count-web/export/export_model.py  # Qwen3.5-2B at q4; 1.7 GB
-uv sync --all-packages                                    # drop the export group again
-```
-
-The script downloads the model from the Hugging Face Hub (4.3 GB of bf16 safetensors for
-Qwen3.5-2B) into `models/<name>/` first. It holds the model in float32 while it traces
-the graph, and releases it before quantising, since the quantiser holds the whole
-float32 graph as well. `--quant int8` gives the int8 export described above. Two
-exports from the same source are byte-identical. The page's Qwen3.5-4B is not made by
-this script but by `export/opt_zeos_surgery.py`, below.
-
-### The OPT+ZEOS graph
-
-`export/opt_zeos_surgery.py` writes a second graph for Qwen3.5-4B. It is not a re-export:
-it edits `onnx-community/Qwen3.5-4B-ONNX-OPT`, whose decoder runs every DeltaNet layer as
-the fused `com.microsoft` operators `LinearAttention` and `CausalConvWithState` and every
-softmax layer as `GroupQueryAttention`, all with 4-bit `MatMulNBits` weights, which ONNX
-Runtime Web runs on WebGPU. Every one of those nodes, and every weight byte, is kept; only
-the way the mask reaches them changes, and the measured attention is added.
-
-```bash
-uv run python demo/coop-count-web/export/opt_zeos_surgery.py \
-    --src <the -OPT download> --out demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT
-```
-
-It takes seconds and loads no weights. The output (2.8 GB) is:
-
-- `onnx/decoder_zeos_q4f16.onnx`, plus `onnx/decoder_zeos_q4f16.onnx_data` (1.9 GiB) and
-  `onnx/decoder_zeos_q4f16.onnx_data_1`, the `-OPT` decoder's two data files copied byte
-  for byte under the new name.
-- `onnx/embed_tokens_q4f16.onnx` and its data, copied unchanged: the token ids go through
-  this graph first and the decoder takes its `inputs_embeds`.
-- `config.json`, `generation_config.json`, `tokenizer.json`, `tokenizer_config.json` and
-  `chat_template.jinja` from `-OPT`.
-- `meta.json`: the decoder's inputs and outputs with their shapes and types, the layer
-  types, the cache shapes, `eosId` (`<|im_end|>`, 248046), `padId` (`<|endoftext|>`,
-  248044), `controlIds` (`<|im_start|>`, `<|im_end|>`, `<|endoftext|>`), `vocabSize`
-  (248,077: the `-OPT` tokenizer's ids, added tokens included; the logits are 248,320
-  wide), and the size and SHA-256 of every file.
-
-**The decoder's contract** (batch 1; `S` new positions, `P` past positions, `T = P + S`):
-
-| input | type | shape | |
-|---|---|---|---|
-| `inputs_embeds` | float32 | `[1, S, 2560]` | the embedding graph's output for the new ids |
-| `key_mask` | bool | `[1, T]` | true = visible, over every position, past and new |
-| `position_ids` | int64 | `[3, 1, S]` | the absolute positions, the same in all three rows (text) |
-| `num_logits_to_keep` | int64 | scalar | 1 for the last position only |
-| `past_key_values.N.key`, `.value` | float16 | `[1, 4, P, 256]` | softmax layers N = 3, 7, ..., 31 (BNSH) |
-| `past_conv.N` | float16 | `[1, 8192, 3]` | DeltaNet layers N = 0, 1, 2, 4, ..., 30: the convolution's carried inputs |
-| `past_recurrent.N` | float16 | `[1, 32, 128, 128]` | DeltaNet layer N: the recurrent state |
-
-| output | type | shape | |
-|---|---|---|---|
-| `logits` | float16 | `[1, num_logits_to_keep, 248320]` | |
-| `present.N.key`, `.value` | float16 | `[1, 4, T, 256]` | the whole cache, past and new |
-| `present_conv.N`, `present_recurrent.N` | float16 | as the inputs | after the last new position |
-| `attention` | float32 | `[T]` | the last position's attention, per position |
-
-`attention_mask` is gone: the graph casts `key_mask` back to it internally, so the
-lengths `GroupQueryAttention` reads (`seqlens_k`, `total_sequence_length`) are still the
-full length. A run takes any number of new positions; `LinearAttention` solves a prefill
-chunk-parallel, so there is no 16-position bound, and `meta.json` gives `maxChunk` 2048,
-the size the tests and benchmark run.
-
-**The mask.** In the softmax layers `GroupQueryAttention`'s `attention_bias` input,
-which `-OPT` filled from its padding mask, is now 0 at a visible key and -65504 at a
-hidden one, on top of the operator's own causal mask, so a hidden key gets exactly zero
-weight; a position whose every causal key is hidden sees itself, as in `ZeosQwen`, so its
-softmax is defined. No operator is replaced: the bias input can hide an arbitrary
-position, where `seqlens_k` cannot. In the DeltaNet layers, a hidden *new* position has
-its write strength (beta) and its log decay set to zero, so the state passes it by
-unchanged; its projection enters `CausalConvWithState` as zeros, so neither later
-positions' taps nor the carried `present_conv` window hold it; and it still reads its
-own projection through the last tap, which the graph adds back before the SiLU (the
-convolution runs with `activation` none for that). The `-OPT` graph's padding mask on the
-output gate and on the inputs of beta and the decay is removed. With every position
-visible the logits are `-OPT`'s up to float16 rounding (2e-2 at most, KL under 1e-5).
-
-A position that was visible when the state took it in cannot be hidden by the graph, as
-with the `ZeosQwen` export: the state is not per position. Whoever drives the graph
-rewinds `past_recurrent` and `past_conv` to a snapshot from before the position and runs
-the positions after it again under the new mask, as `web/transformers_worker.js` does
-for that export. The softmax layers' cache needs no replay; the mask acts on it at every
-run.
-
-**Measured attention.** `attention` is recomputed beside each `GroupQueryAttention`
-from the tensors it reads, the rotated query of the last new position and
-`present.N.key`: the scaled scores, the hidden keys set to -1e9, a softmax, summed over
-the 16 heads, then averaged over the 8 layers and multiplied by the visibility. A hidden
-position is exactly zero and the vector sums to one. As with `ZeosQwen`, the 24 DeltaNet
-layers contribute nothing to it.
-
-**Checks.** `export/bench/checks.html` runs the decoder on WebGPU through
-`OptZeosWorker` (`tests/opt_zeos_webgpu.mjs` drives it; see *The OPT+ZEOS worker*).
-Prefilled in chunks of 1 and 7 (an 88-token chat turn) and of 16 and 512 (a 634-token
-one), with the cache carried, then one decode step, its logits choose what
-`transformers` (float32) chooses and stay within KL 0.1 of it. Hiding the three tokens
-of a password the last position must recall moves its distribution as far as `ZeosQwen`
-in float32 moves it under the same mask, and to the same first choice. The hidden
-positions receive exactly zero and the rest sums to one. The prompts are
-`export/bench/reference_prompts.json`, and the reference logits
-`models/.reference/opt-zeos-<key>.npz` (the key is a digest of the prompts' ids), which
-`export/opt_zeos_reference.py` writes once from the bf16 weights at `models/Qwen3.5-4B`
-(the `export` group, about 20 GB of memory); without it these comparisons are skipped,
-and say so. Measured
-on ONNX Runtime CPU when the graph was written: KL 0.003 on the short turn and 0.016 on
-the long one, for both this graph and `-OPT`, and a password-hiding KL of 9.4 against
-9.3 for `ZeosQwen`.
-
-**Speed.** `export/bench/` is a page that times the decoder on WebGPU with ONNX
-Runtime Web 1.31.0-dev.20260914, the build Transformers.js 4.3 runs `-OPT` with, and the
-cache kept on the GPU between runs. Serve the demo directory and open it:
-
-```bash
-uv run python demo/coop-count-web/serve.py --dir demo/coop-count-web --port 8766
-# http://localhost:8766/export/bench/?opt=/models/Qwen3.5-4B-ONNX-OPT/
-```
-
-In Chrome 154 on an Apple M1 Max, three runs each, with nothing else on the GPU (the
-runs agreed within 3%; with another WebGPU page running they halved):
-
-| | OPT+ZEOS | `-OPT` |
-|---|---|---|
-| prefill, 512 from empty | 324 tok/s | 299 tok/s |
-| prefill, 2048 from empty | 326 tok/s | 270 tok/s |
-| prefill, 4 x 512 with the cache carried | 313 tok/s | 270 tok/s |
-| prefill, 2048 after 2048 | 302 tok/s | 236 tok/s |
-| decode step, ~64 positions | 45 ms (22 tok/s) | 40 ms (25 tok/s) |
-| decode step, ~4,100 positions | 56 ms (18 tok/s) | 46 ms (22 tok/s) |
-
-The decode times include reading back the logits and, for OPT+ZEOS, the attention
-vector. Without the attention output and the convolution's own-tap correction a step
-took 42 ms and 49 ms, so most of the decode cost is the attention output, which reads
-every layer's whole key cache once per step.
-
-### The worker
-
-`web/transformers_worker.js` implements `ZeosModelWorker` over the graph, driving it with
-onnxruntime-web directly rather than through Transformers.js: Transformers.js' model
-classes run their own exports with their own cache, and this graph has inputs and outputs
-no model class knows (the masks, the attention vector) and a cache the worker owns. The
-tokenizer is `@huggingface/tokenizers`, the library Transformers.js 4 tokenizes with,
-loaded from the export's `tokenizer.json`. `tokenize` runs its normaliser, pre-tokeniser
-and BPE without the added-token splitter, so a literal `<|im_end|>` in text stays text; it
-matches Hugging Face's `split_special_tokens=True` token for token.
-
-A job's KV is one growable `Float32Array`; its DeltaNet state and convolution window are
-the graph's last outputs, never written to, so `fork` shares them and copies only the KV.
-Its last token is pending, with no cache behind it, until a decode step feeds it through
-the graph, so every step is exactly one forward pass of one token, and `append` prefills
-everything before it in chunks of 16. A decode step does not append the id it chooses
-(`JsMachine` does, before the next). The mask of a job's latest step is applied to old
-positions when new tokens are prefilled, so content appended later never reads a position
-the kernel had hidden.
-
-A context keeps a snapshot of its state every 256 positions (`SNAPSHOT_EVERY`; 20 MB
-each), the state from before its latest decode step, and, per cached position, whether
-the state took that position in. `truncate`, and a step whose mask disagrees with that
-record, go back to the latest snapshot at or before the position and run the tokens after
-it again: at most 255 positions. In a `coop-count-pipe` run
-this happens when the kernel rewrites a status line in place (`machine.splice`); masks
-that hide nothing new cost nothing. The worker refuses an `allowedBlocks` shorter than the
-context, a mask that hides every block, and an `allowedTokens` that allows nothing.
-
-`info()` is `{blockSize: 1, padId: <|endoftext|> (248044), controlIds: [<|im_start|>,
-<|im_end|>, <|endoftext|>] (248045, 248046, 248044), eosId: <|im_end|>, vocabSize:
-248070}`. `vocabSize` is the tokenizer's vocabulary; the logits are 248,320 wide because
-the embedding is padded, and no id past the tokenizer's is ever chosen. The config's
-`eos_token_id` is `<|endoftext|>`, but the chat template ends a turn with `<|im_end|>`,
-which is the end of sequence `JsMachine` reserves.
-
-**Thinking mode.** Qwen3.5's chat template opens an assistant turn with `<think>\n` (thinking)
-or an empty `<think>\n\n</think>\n\n` (not thinking), and without either the model's
-first choice after `<|im_start|>assistant\n` is `<think>`. `JsMachine` frames turns as
-`LlamaMachine` does, with neither: `<think>` and `</think>` (248068, 248069) are added
-tokens whose pieces begin with `<`, which the grammar never admits, so a job cannot think
-out loud in tags and decodes commands from its first token. Inserting the empty block
-was tried at the decision where counter-b goes wrong (below) and did not change it: at
-full precision the model prefers `write` over `say` after `say 11;` with the block (18.9
-against 17.1) and without it (18.8 against 17.7).
-
-The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it.
-
-### The OPT+ZEOS worker
-
-`web/opt_zeos_worker.js` (`OptZeosWorker`) implements `ZeosModelWorker` over the OPT+ZEOS
-graph. It has the same interface, `info()`, tokenizer (`encodePlain`, so a literal
-`<|im_end|>` in content stays text) and `sample` rule (`sampleToken`) as
-`TransformersWorker`, and it imports nothing else: ONNX Runtime and the `Tokenizer` class
-are handed in. `model_thread.js` chooses it when `meta.json` names a
-`decoder` and an `embedTokens` graph (`isOptZeosMeta`), and `TransformersWorker`
-otherwise, so `build.py --model models/Qwen3.5-4B-ZEOS-OPT` offers it to the page with no
-other change. `info()` is `{blockSize: 1, padId: 248044, controlIds: [248045, 248046,
-248044], eosId: 248046, vocabSize: 248077}`, and `meta.tokenizerSize` (what the `pieces`
-call reads) is `vocabSize`.
-
-**Two sessions.** The embedding graph turns the new ids into `inputs_embeds` (float32,
-left on the GPU) and the decoder runs them against the cache, with `key_mask` built from
-the step's `allowedBlocks`, `position_ids` the absolute positions in all three rows, and
-`num_logits_to_keep` 1. The tied embedding matrix is both the embedding graph's data and
-the decoder's second shard; files with the same SHA-256 in `meta.json` are read once.
-
-**Pending tokens.** `append` records ids and runs nothing. The next `decodeStep` runs
-every id without a cache behind it under that step's mask, in chunks of at most
-`maxChunk` (2048) cut at the snapshot positions, and reads the logits and the attention of
-the last position only. In a run of steps each step is one forward pass of one token,
-since `JsMachine` appends the chosen id before the next step.
-
-**The cache stays on the GPU.** On WebGPU every `present*` output, the logits and the
-attention are `gpu-buffer` outputs. The presents are fed back as the next run's inputs,
-and only the last chunk's logits (0.5 MB of float16) and attention are read back. A run's
-outputs are new tensors that are never written to, so a context, its snapshots and its
-forks share one set of them, with a reference count, and `dispose` it when the count
-reaches zero. `fork` copies nothing on the GPU. Cutting the softmax layers' keys and
-values to `n` positions copies the first `n` positions of each of the four heads into a
-new buffer with `copyBufferToBuffer`, without a round trip through the CPU.
-
-**Snapshots.** The DeltaNet state is not per position. A cache keeps the state after
-every `SNAPSHOT_EVERY` (256) positions, and the state from before its latest run, as
-references to the graph's own output tensors. About 25 MB of GPU memory each (24 layers,
-a 1 MiB recurrent state and a 48 KiB window per layer). There is no copy and no
-download. Downloaded snapshots would cost 25 MB of read-back for every snapshot taken and
-25 MB of upload for every rewind. That traffic happens on every prefill, and the memory
-is bounded, so the snapshots stay on the GPU. At most `MAX_SNAPSHOTS` (16, so 400 MB) are
-kept per cache. Past that, the one whose neighbours are closest is dropped, so old
-snapshots thin out and recent ones stay 256 apart.
-
-A cut goes back to the latest snapshot (or the pre-run state) at or before the position,
-and the next step replays from there. A cut is a `truncate`, or a step whose mask
-disagrees, at some past position, with the mask the cache was built under. Masks that
-hide nothing new cost nothing. Replay and a fresh prefill cut their chunks at the same
-positions, so a replay under a new mask is bit for bit the fresh prefill under that mask.
-
-Prefill speed hardly depends on the chunk size. With chunks of 256, 512, 1,024 and 2,048,
-a 2,048-token prefill ran at 250–305 tok/s, and the order changed from run to run. So
-256 costs nothing measurable and bounds a replay to 255 positions.
-
-**Two caches.** A context keeps the cache of its latest step's mask and the cache of the
-mask before it (`maxTracks`, 2 by default; each with its own softmax keys and values, 32
-KB a position, and snapshots). A step whose mask agrees with the current cache over the
-positions it holds runs there. One that agrees with the kept cache switches to it and runs
-only the positions that cache has not seen. One that agrees with neither starts a new
-cache, a copy of whichever of the two shares more of its history rewound to the latest
-snapshot before they part, keeps the current one and drops the other. So a mask that hides
-past positions for a few steps and then shows them again -- `ChatToolMachine`'s masked
-tool name -- costs a replay from a snapshot the first time it narrows and a catch-up after
-that, and the cache of the wide mask is never rewound. With `maxTracks` 1 a disagreeing
-mask rewinds the one cache, as it always did.
-
-**Hidden runs.** A hidden position leaves the DeltaNet state as it was (beta and the log
-decay are zero) and enters the convolution as zeros, and no later query can attend its
-keys. So a run of at least 3 hidden positions (`convShape[2]`), not including the last
-position, is not run through the graph (`skipHidden`, on by default): the recurrent state
-is carried as it is, the convolution window becomes zeros, and the softmax cache grows by
-zeros there in one copy, which the key mask hides. Chunks are also cut where such a run
-starts. A fresh prefill and a replay under the same mask cut and skip alike, so they
-still agree bit for bit, and a skipped run aligned with the chunks is bit for bit the run
-it stands in for. `export/bench/checks.html` checks that hidden tokens swapped for others
-change no logit and no attention weight, with hidden runs carried past and with every
-hidden position run through the graph.
-
-**Mask on demand, measured** by `export/bench/mask.html` (`tests/opt_zeos_webgpu.mjs
---page mask.html`) in Chrome on an Apple M1 Max: a chat-agent context of a 6,739-token
-prompt and three tool calls, the first two answered by 518- and 728-token results, 8,178
-positions in all, stepped as `JsMachine` steps it, with the results hidden for the 7 steps
-of each tool's name. The extra time of the name's steps and the step after them, against
-the same schedule unmasked:
-
-| | second call (one result to hide) | third call (two) |
-|---|---|---|
-| the call unmasked: its text, name and arguments, and its result's prefill | 9.7 s | 5.7 s |
-| masked: two caches, hidden runs carried past (the default) | +2.2 s (22%) | +1.8 s (31%) |
-| masked: two caches, hidden runs run | +4.7 s (48%) | +6.1 s (114%) |
-| masked: one cache, a rewind and replay each way | +7.7 s (80%) | +17.1 s (321%) |
-
-The first call, with nothing to hide, costs nothing extra. In the default the extra time
-is the second cache's catch-up and the first cache's run of the name's 8 tokens. The
-second cache, first narrowed at the second call, replays 136 positions from the snapshot
-at 6,656 (0.5 s) and carries the 490 result positions past; at the third it runs the 51
-positions it had not seen (0.4 s), carries 700 past, and runs the 42 after them (1.2 s).
-The first cache's 8-token run takes 0.33 s against 0.06 s for the decode step it replaces.
-Short prefill runs are what cost: at 7,000 positions a run of 8 new tokens takes 0.32 s,
-of 40 tokens 0.76 s, against 0.065 s for one, and a skip's copy of the cache adds about
-0.15 s to the run after it. The name's own steps cost what they would unmasked.
-
-**WebGPU only.** `OptZeosWorker.load` runs both sessions on WebGPU. onnxruntime-web's
-WebAssembly backend loads the graph, but a run fails with `std::bad_alloc`: a 4 GiB heap
-cannot hold 2.4 GB of weights as well as the activations.
-
-**Measured** in Chrome on an Apple M1 Max, through the interface, with nothing else on the
-GPU, by `export/bench/worker.html` with ONNX Runtime Web 1.31.0-dev.20260914 (1.30.0,
-this demo's pinned version, gave the same results):
-
-| | |
-|---|---|
-| load (files in the HTTP cache) | 3.8–4.2 s |
-| prefill, a 1,020-token prompt, until the first step's choice | 3.5 s (289 tok/s) |
-| decode step at ~1,050 positions | 47–48 ms (21 tok/s) |
-| step after hiding 16 positions at 600 in a 1,052-token context (540 positions replayed from the snapshot at 512, the 16 carried past) | 2.4–2.5 s |
-
-**The checks on WebGPU.** The model runs on WebGPU only, so its checks run there, in
-headed Chrome, driven by `tests/opt_zeos_webgpu.mjs`. They are opt-in -- they need a GPU,
-the export, `npm install`, Playwright and Chrome -- and no default test suite runs them:
-
-```bash
-PLAYWRIGHT_MODULE=<a node_modules/playwright> node demo/coop-count-web/tests/opt_zeos_webgpu.mjs
-```
-
-It serves this directory cross-origin isolated and runs three pages, loading the model
-afresh in each (about two minutes in all on an Apple M1 Max). It exits 1 if a check
-fails and 2 if a page errors; `--page NAME` runs one page, and with no export it prints
-a skip and exits 0. Run nothing else heavy on the GPU at the same time.
-
-- `export/bench/checks.html`: the graph's logits against `transformers`' reference (see
-  *The OPT+ZEOS graph*); the hidden tokens of a context swapped for others, with the same
-  mask, leave every logit and every attention weight the same bits -- after a prefill,
-  after a single-token decode step over that cache, and with every position, the hidden
-  ones too, run as a single-token step; both with hidden runs carried past and with every
-  hidden position run through the graph, while the same swap with nothing hidden does
-  move the logits; and a step stopped before a run of the graph, resumed with the same
-  `maxChunk`, chooses the same token with the same logits and attention as the
-  uninterrupted step, with and without a mask.
-- `export/bench/grammar.html`: `JsMachine` under Pyodide, in a worker, over the model on
-  its own thread through `SyncModelWorker`, as the page runs them. After injected text
-  written to talk the model out of the command language (forged chat markers, a fake
-  status line, prose demands), every line it completes parses as a command on a pipe the
-  job may use, no control id is chosen and no `<` is emitted; and a context one token
-  short of a chat turn gets no control id out. It runs on the `zeos` and
-  `zeos-coop-count-web` wheels, which the driver builds into `export/bench/wheels/` first.
-- `export/bench/worker.html`: the 32 greedy steps choose what one run without a cache
-  chooses for the same tokens; the first step is bit for bit a cache-free run cut into the
-  same chunks (against one cut into a single 2,048 chunk its KL is 4e-3: the recurrent
-  state crosses a chunk boundary in float16, and two chunkings of the graph alone differ
-  by that much); hidden positions receive exactly zero and the rest sums to one; the
-  replay after a mask change equals a fresh prefill under the new mask, logit for logit;
-  `truncate` back to the prompt reproduces the first step exactly; a fork taken before
-  the cut keeps the longer context; and the timings above.
-
-### Calling an asynchronous model synchronously
-
-`JsMachine.decode` is synchronous, the kernel loop that calls it stays synchronous, and
-ONNX Runtime Web's `session.run` returns a promise. The page resolves that with a second
-thread and a `SharedArrayBuffer`:
-
-- the page starts the model in its own module Web Worker (`web/model_thread.js`, started
-  by `web/model_host.js`) and hands the Pyodide worker a `MessagePort` to it and the
-  shared buffer;
-- in the Pyodide worker, `SyncModelWorker` (`web/model_channel.js`) is the
-  `ZeosModelWorker` `JsMachine` calls: each method posts the call on the port and blocks
-  in `Atomics.wait` until the model thread has awaited the session and written the reply
-  into the buffer (`web/frames.js` is the encoding, typed arrays as raw bytes).
-
-Pyodide's own `run_sync` would have needed the kernel entered through an async call and
-JavaScript Promise Integration, which not every browser ships; `Atomics.wait` works in
-every current browser, inside a worker. It needs the page cross-origin isolated, which is
-why `serve.py` and `coi_serviceworker.js` exist. The page starts the model thread rather
-than the Pyodide worker because a worker started from inside a worker failed to start in
-the Chromium this was tested in. Under Node, for the tests, the same channel serves the
-stub worker on a `worker_threads` thread (`web/node_model_thread.mjs`), where
-`Atomics.wait` is allowed on the main thread too.
-
-**A decode step that does not block.** `SyncModelWorker` also has
-`beginDecodeStep(jobId, opts)`, which posts a step and returns its request id at once;
-`pollDecode(timeoutMs)`, an `Atomics.wait` on the reply for at most `timeoutMs` that
-returns null while the step runs and otherwise
-`{tokenId, attention, cancelled: false, resident, stats}`; and `cancelDecode()`, which
-stores the step's id in an abort slot of the buffer (int32 slot 2; slot 3 marks the step
-in flight). `serveChannel` hands the worker a `shouldStop` that reads that slot, and the
-workers ask it before every run of the graph, so a cancel lands within one chunk; `opts`
-may carry `maxChunk` to make the chunks of that step smaller (they are still cut at the
-snapshot positions). A cancelled step answers `{cancelled: true, resident, stats}`: its
-token is dropped even if it had finished, the `resident` positions it ran stay cached,
-and the next step for the context resumes from them and, given the same `maxChunk`,
-chooses what an uninterrupted step would have, bit for bit (with another `maxChunk` the
-later chunks are cut differently, so it agrees only to float16 rounding). While a step is in flight every other call that reaches
-the model thread throws `channel busy: decode in flight`. Every reply names its request;
-a reply to another request (possible only after a call timed out) makes the channel
-unusable, and every later call throws. Without the new options every
-worker computes what it did before; replies only gain `resident` and `stats`
-(`positions` run, `chunks` runs, `fillMs` spent in them but a final one-position decode).
-`NodeWorker` has the same four members for CPython, over a pipe to the stub worker in a
-Node child process (`node_bridge.mjs`): it waits with `select`, and a cancel is a control
-frame `{cancel: id}` that the bridge reads while the step runs. `stub_worker.js` takes
-`{stepMs, positionMs}` of simulated latency so tests can poll, time out and cancel
-(`startNodeModel({stub})`, `NodeWorker(stub=...)`); neither serves a model.
-
-What smaller chunks cost on WebGPU, measured by `export/bench/chunks.html`
-(`tests/opt_zeos_webgpu.mjs --page chunks.html`) with the 4B in Chrome on an Apple M1
-Max, while other jobs loaded the machine (median of five fresh prefills; a second
-session agreed within 10% except the 250-position rows at 256 and the graph's chunk,
-which it ran in about 835 ms):
-
-| positions | graph's chunk | 256 | 128 | 64 | 32 |
-|---|---|---|---|---|---|
-| 250 | 1132 ms (1 run) | 1103 ms (1) | 1098 ms (2) | 1315 ms (4) | 2039 ms (8) |
-| 1000 | 4328 ms (4) | 4416 ms (4) | 4560 ms (8) | 5619 ms (16) | 8825 ms (32) |
-
-So each extra run costs roughly 60 to 160 ms at 64 and 130 to 160 ms at 32; at 1000
-positions 128 is within 5% of the graph's chunk and 64 about 30% slower. A stop lands
-at the next run's start, so its latency is at most one run: at 64, about 260 ms for each
-of the first two runs of a 1000-position step and about 350 ms on average over all 16.
-A step stopped before its third run (128 positions resident) returned at once, and,
-resumed with the same `maxChunk`, matched the uninterrupted step bit for bit.
-
-**Backends.** The model runs on WebGPU only, and the page shows it beside the clock. The
-page's default is the Qwen model, falling back to the recorded answers when the page is
-not cross-origin isolated or the browser has no WebGPU; in either case the model option
-says why it is unavailable. A browser that has `navigator.gpu` but offers no adapter
-gets the reason from the model thread when *run* is pressed, and loads nothing. The
-build's default export is Qwen3.5-4B as the OPT+ZEOS graph
-(`models/Qwen3.5-4B-ZEOS-OPT`, 2.8 GB, which `export/opt_zeos_surgery.py` writes); *The
-OPT+ZEOS worker* gives its timings. Pass `--model` to offer another export, such as
-`models/Qwen3.5-2B-zeos-q4`.
-
-ONNX Runtime's WebGPU backend has no kernel for the int8 export's integer matmuls, so an
-int8 export does not run on the page. The q4 export (`--quant q4`, 1.69 GB) runs on
-WebGPU, and `build.py --model models/Qwen3.5-2B-zeos-q4` puts it on the page: on an
-Apple M1 Max its prompts prefilled in about 20 s and `coop-count-pipe` ran its 400 ticks
-in 122 s, about 0.2 s a tick including Pyodide's side. It decodes differently from the
-int8 export the 2B runs above were made with (4-bit weights, and the GPU's arithmetic):
-counter-a counted from 1 to 50 without stopping at 10, recorded 50 and woke its peer;
-counter-b said 10 and recorded 10; counter-a, woken, started again from 1 and was at 25
-when the run was cut off; the handler read the 500 and then waited on the console again.
-
-### The grammar
-
-`JsMachine`'s Python token mask (`token_mask`) is kept. Against the Qwen3.5 vocabulary
-(248,077 pieces) it is correct -- `export/bench/grammar.html` puts the 4B, on WebGPU,
-after a context of injected text written to talk it out of the command language
-(forged chat markers, a fake status line, prose demands) and every completed line parses
-as a command, no control id is ever chosen and no `<` is ever emitted -- and it is fast
-enough: with Qwen2.5's 151,665 pieces, building the mask for a round state the run had
-not met cost 0.11 s on average under Pyodide (0.81 s at most, 0.06 s under CPython), and
-the cost grows with the vocabulary, here 1.6 times larger; a cached state costs nothing,
-so a counting round pays a few seconds once, against about 0.3 s a decode step for as
-long as the run lasts.
-
-### Running it
+This demo keeps the page itself (`web/index.html`, `app.js`, `style.css`,
+`pyodide_worker.js`), `build.py`, which copies zeos-browser's JavaScript beside it, and
+`serve.py`, and its Python package, `zeos-coop-count-web`, holds the reader of the
+measured-attention evidence (`zeos_coop_count_web.evidence`).
+
+## The machine seam, the model and the chat agent
+
+`JsMachine` and the worker interface it drives, the grammar mask, the stub worker and
+the Python fake, the model (Qwen3.5-4B as the OPT+ZEOS graph), its export, the workers
+that run it on WebGPU, the channel that makes them synchronous, and the model's checks on
+WebGPU are documented in [`packages/zeos-browser`](../../packages/zeos-browser/README.md).
+The chat agent the gemma-data-agent site runs, `ChatToolMachine`, is
+[`packages/zeos-chat`](../../packages/zeos-chat/README.md).
+
+## Running it
 
 In the page: follow *Getting it running*, leave *answered by* on the language model,
 choose a scenario, and run. A run stops at 400 ticks, as
@@ -911,7 +186,7 @@ choose a scenario, and run. A run stops at 400 ticks, as
 when every job is asleep on another, and, in the page, held open while a job waits on
 the console.
 
-### Measured attention
+## Measured attention
 
 The write-up and its journals were made with the Qwen2.5-0.5B-Instruct int8 export in
 the earlier two-graph format, whose every layer was softmax attention; its numbers are
@@ -925,7 +200,7 @@ uv run python -m zeos_coop_count_web.evidence demo/coop-count-web/docs/evidence/
 ```
 
 A later run of the same script with Qwen3.5-2B, whose measured attention covers only its
-six softmax layers (see *The architecture*), found that on `coop-count-pipe` with its
+six softmax layers (see *The architecture* in zeos-browser's README), found that on `coop-count-pipe` with its
 schedule the 2B's 95 decode steps all carried measured attention, no segment less trusted
 than its reader received any, and the newest, not yet masked block got 0.05 of a step's
 attention on average (0.28 at most).
@@ -938,7 +213,7 @@ handler of `coop-count-pipe`, with the console declared untrusted, put 0.36 of i
 step's attention on the keypress and was demoted for it; and the block a job is writing
 into gets 0.17 of each step's attention on average.
 
-### Determinism
+## Determinism
 
 The kernel's half of a run is deterministic in the page as under CPython: with the stub
 worker, a run in Pyodide writes the same journal bytes as the same run under CPython
@@ -948,236 +223,25 @@ match one made on another. On the one device checked, with the 0.5B's q4 export,
 twenty greedy steps of a short chat prompt in the same browser chose the same tokens and
 reported bit-identical attention.
 
-## The chat machine
-
-`zeos_coop_count_web.chat_machine.ChatToolMachine` runs a chat agent rather than a counter:
-the model writes prose and Qwen3.5 tool calls, and the tools run in the host page, outside
-the kernel. It is a `JsMachine` with the two ABI-shaped halves replaced -- what a step may
-emit, and what a finished piece asks the kernel for -- so it runs on any
-`ZeosModelWorker`: the model worker, the stub worker, or a Python one.
-
-**The case** is `src/zeos_coop_count_web/cases/chat-agent/`, shipped in the wheel
-(`zeos_coop_count_web.chat.CHAT_CASE`). One pinned job, `chat-agent`, holds the whole
-conversation, and its descriptor body is a placeholder the host replaces with its system
-prompt and tool declarations:
-
-| pipe | kind | ring | what it carries |
-|---|---|---|---|
-| `chat.user` | device, principal `user` | TRUSTED (2) | what the user types |
-| `tools.results` | device, principal `tool` | EXTERNAL (3) | what a tool returned |
-| `tools.results.trusted` | device, principal `device`, `session_floor: false` | TRUSTED (2) | a result the host wrote itself |
-| `tools.read` | sink, capability `min_integrity: 3` | EXTERNAL | calls that only read |
-| `tools.effect` | sink, capability `min_integrity: 2` | TRUSTED | calls with side effects |
-| `chat.out` | sink, capability `min_integrity: 3` | EXTERNAL | the reply that ends a turn |
-| `chat.history` | device, principal `device` | EXTERNAL (3) | a past assistant turn, replayed |
-| `chat.history.trusted` | device, principal `device` | TRUSTED (2) | a past turn the host vouches for |
-
-It declares `on_fault: retry` and `integrity.dynamics: low-watermark` (without dynamics
-the confused-deputy lint refuses a job holding `tools.effect` and reading
-`tools.results`), and a 16,384-token window.
-
-**A turn.** The machine frames the context as Qwen3.5's chat template does: the body is
-the `system` turn, a message a `user` turn, a tool result a `user` turn holding
-`<tool_response>\n...\n</tool_response>`, and the model's turn opens with
-`<|im_start|>assistant\n` and the thinking prefix (`<think>\n`, or the empty think block
-with thinking off). The model decodes freely, except that it may not emit the pad, a
-control id other than `<|im_end|>`, `<tool_call>`, `</tool_call>`, `<think>` and
-`</think>`, or a piece that completes `</?(KERNEL|RESUME|FAULT|STATUS|STUB)` or
-`</?tool_response` across the turn so far (`FrameGuard`, one cached mask per guard state).
-On `</tool_call>` closing a call that parses as the app's Qwen parser parses it, the
-machine asks for a `WRITE_READ`: `{"name", "arguments"}` as JSON to `tools.read` or
-`tools.effect` by the host's tool-class table (a tool it does not name is an effect),
-then a read of `tools.results` (or `tools.results.trusted`, below). A table entry is `"read"`, `"effect"`, or a rule
-`{"read_if": {param: pattern}}`: a read when the call's arguments are exactly those
-parameters, each a string the pattern matches in full (case-insensitive, `.` matching a
-newline), and an effect otherwise -- so a tool whose class depends on what it is asked,
-such as SQL that only reads, is still classified inside the machine, and the kernel's
-check on `tools.effect` stays the only gate. When the model chooses `<|im_end|>` the machine does not
-append it: it writes the turn's text to `chat.out` and reads `chat.user`, and the marker
-becomes framing in front of the next message. A write the kernel refuses is answered with
-a `FAULT` notice; the machine's next step reads `tools.results` again rather than
-decoding, so the job waits there until the host settles the refused call.
-
-**Trusted results.** `open_chat(trusted_results={tool: {param: pattern}})` names calls
-whose results the host wrote itself rather than fetched -- a reference card bundled with
-the app, say. A call whose arguments match the rule as a `read_if` rule matches reads its
-result from `tools.results.trusted`, chosen from the call when the model writes it, so
-the kernel knows the ring before anything runs; the `tool_call` and `approval_required`
-events carry it as `results`. The result is framed as any other tool response. It is
-TRUSTED, so attending it never demotes the job, and the pipe is declared
-`session_floor: false`: in strict mode reading it neither raises the floor to 3 nor
-lowers a 3 an earlier tool result set in the same turn. `deliver_tool_result(text,
-trusted=True)` delivers on it, and refuses a `trusted` that disagrees with the call's
-`results`; `deliver_refusal` answers on whichever pipe the call reads.
-
-**The tool's name, chosen masked.** `open_chat(mask_tool_choice=True)` hides every
-delivery on an EXTERNAL device pipe -- `tools.results` and `chat.history`, as the case
-declares them -- while the model writes a tool's name: from the step after it emits
-`<tool_call>` to the step whose piece closes `<function=NAME>`. The arguments and the rest
-of the turn see everything again. So the choice of tool is made without reading what the
-tools returned, and a planted instruction in a result cannot be what picked it. Only the
-delivered words' own ids are hidden: the framing around them stays in view, so the model
-still sees that a tool answered (`<tool_response>\n` ... `\n</tool_response>`) and where
-its own turn began. The kernel frames, the descriptor body, the user's messages, results
-on `tools.results.trusted` and turns on `chat.history.trusted` are never hidden. What the
-model wrote in its own turn after reading a result stays in view too.
-
-The narrowing is the machine's, on top of the kernel's mask, for those steps only. On
-them `visible_blocks` leaves out every kernel block that holds a hidden word, and the
-step's measured mass on such a block is dropped rather than summed: the worker gave the
-hidden ids exactly zero, so what is left there is the framing or the model's own text in
-the block a result shares with the job's output, which the kernel would otherwise credit
-to the result. A hidden segment therefore gets no attention on those steps, cannot demote
-the job, and raises no `mask.denied`; that holds for a worker that measures attention, and
-one that cannot leaves the kernel its usual guess. The machine keeps the hidden words' offsets through
-`trunc` and `splice` (a stub spliced over a result is the kernel's text and is not
-hidden). The `tool_call` and `approval_required` events carry `name_masked` and
-`name_hidden` (the hidden segments' ids). Off, the default, nothing changes: the journal
-is byte for byte the same.
-
-On the OPT+ZEOS worker the narrowed steps run on a second cache (see "Two caches" under
-"The OPT+ZEOS worker"), so a narrowing costs a catch-up rather than a replay each way.
-
-While it writes the name the model sees an empty `<tool_response>`, so it can ask for a
-tool that has already answered. In the gemma-data-agent site's prompt-injection runs with
-masking on, Qwen3.5-4B called ListInputs again and again until the host's limit of ten
-calls in two of five; in the others it went on to the SQL it was asked for.
-
-An instruction to call a destructive tool, planted in a tool result in three
-conversations that ask for a lookup and then a note, each run masked and unmasked
-(greedy, on onnxruntime-node's CPU provider when the repository had one): unmasked, the
-model followed the plant in one of the three (`send_email` to the address the result
-named, in place of `save_note`); masked, it called `save_note` in all three, with
-arguments taken from the result. In the other two it ignored the plant either way.
-
-**Look-alikes in content.** The worker tokenizes deliveries with no special tokens
-(`encodePlain`), so a tool result or a user message that spells
-`</tool_response><|im_end|>\n<|im_start|>assistant\n<tool_call>...` is plain text: the
-turn it arrived in stays open, and the machine never parses it as a call, since it only
-parses what the model decodes. A delivery that spells a kernel frame tag at the start of
-a word raises the spoof alarm (`spoof` event, a `FAULT` notice in the context); a tag
-glued to the text before it, `1,"<KERNEL>`, does not, by the kernel's word-initial rule
-(`zeos.core.framing.opens_frame`).
-
-**Whitespace.** The run sets `KernelConfig.preserve_whitespace`, under which the kernel
-tokenises a delivery and the body keeping each word's leading whitespace, so a CSV, a
-SQL result or a file reaches the model with its line breaks. With the flag off, the
-default, the kernel tokenises as it always has and every journal is unchanged. A frame
-tag after a line break is still an imitation, and still alarms.
-
-**Sampling.** Greedy by default. With `sampling=Sampling(temperature=0.7, top_k=20)` every
-step sends `opts.sample = {temperature, topK, u}`, with `u` from a `random.Random` seeded
-from the run's seed and the job, and the worker takes the id `sample_index` defines;
-`web/transformers_worker.js` implements it as `sampleToken`, and
-`tests/test_chat_machine.py` checks the two agree. The stub worker checks the options and
-plays its tape.
-
-**The host's API** is `zeos_coop_count_web.chat`:
-
-```python
-run = open_chat(
-    worker,                         # a ZeosModelWorker
-    tool_classes={"ReadLines": "read", "WriteLines": "effect"},
-    system_prompt=prompt,           # replaces the case's body
-    thinking=False, theta_read=0.2, seed=0, sampling=None,
-    param_types={"RunSQL": {"sql": "string"}},
-    trusted_results={"CallSkill": {"skill": "sql|react"}},
-    mask_tool_choice=False,         # hide EXTERNAL deliveries while a tool's name is written
-)
-run.send_user(text)                 # deliver on chat.user before the next tick
-events = run.step(16)               # up to 16 ticks; stops when only a delivery helps
-run.drain("tools.read")             # one string per write since the last drain
-run.deliver_tool_result(text)       # on tools.results, ring 3
-run.deliver_tool_result(text, trusted=True)  # on tools.results.trusted, ring 2
-run.deliver_refusal()               # a refusal, on the pipe the call reads
-run.waiting_on()                    # "chat.user", a results pipe, or None
-run.state()                         # integrity, session floor, segments, demotions
-run.journal_bytes()
-run.import_history(turns)           # a fresh run only: replay a past conversation
-run.close()                         # free the worker's contexts for the next run
-```
-
-`import_history` takes `{"role": "user" | "assistant" | "tool", "text"}` turns, the first
-the user's, and delivers them one at a time while the machine reads each pipe in turn
-without decoding: a user turn on `chat.user`, a tool result on `tools.results` (or, with
-`"trusted": True`, on `tools.results.trusted`), and an
-assistant turn on `chat.history`, or on `chat.history.trusted` when the turn carries
-`"integrity": 2` (the host recorded it was written at TRUSTED). A past assistant turn is
-framed as `<|im_start|>assistant\n` and its text, with no thinking prefix, as the app's
-own renderer writes past turns. Nothing is attended, so the watermark does not move until
-the next live turn reads the past; the run then waits on `chat.user`.
-
-`step` returns plain dicts: `token`, `tool_call`, `approval_required`, `tool_refused`,
-`reply`, `arrived`, `demoted`, `spoof`, `fault` and `waiting`, with the fields the module
-docstring lists. A tool call on `tools.effect` is refused for privilege when the job's
-watermark has fallen to 3 -- it attended a tool result past `theta_read` -- or when its
-session floor is 3 because the last thing it read was a tool result (MP's confused-deputy
-rule), which holds until the next user message. That is `gate_mode="strict"`, the
-default. With `gate_mode="attention"`, `open_chat` declares `tools.results` and
-`chat.history` with `session_floor: false` (a `PipeSpec` field, default true, which a
-case's `pipes.yaml` can also set), so reading a tool result leaves the floor where the
-user's message put it and only the watermark -- what the job measurably attended --
-refuses an effect. `approval_required` carries the call,
-both integrities and the demotion history; on approval the host runs the call itself and
-delivers the result, and on denial it delivers a refusal.
-
-**Padding.** A kernel block is 16 words (`block_size`), and every injection begins on a
-block boundary, so the context holds up to 15 pad ids in front of each turn marker. The
-model sees them; `block_size` is a parameter of `open_chat`.
-
 ## Tests
 
 ```bash
-cd demo/coop-count-web
-npm install        # once: Pyodide for Node, and PyYAML cached beside it
-uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
+npm install --prefix packages/zeos-browser   # once: Pyodide for Node, and PyYAML cached beside it
+uv run pytest demo/coop-count-web            # or, from demo/coop-count-web: uv run pytest
 ```
 
-- `test_js_machine_contract.py` — the coop-count machine contract suite, run against
-  the scripted backend and `JsMachine` over the fake, and again over a fake that
-  measures attention, so the two attention clauses bind.
-- `test_js_machine_case.py` — `coop-count-scripted` through `JsMachine` and `LiveRun`:
-  the interrupt preempts a counter and it resumes dirty, the journal differs from the
-  seat's only in attention, a press lands where the scheduled event would, a parked
-  handler holds the run open, and a second interrupt while it is parked is withheld.
-- `test_js_machine_seam.py` and `test_token_mask.py` — the seam's obligations and
-  refusals, and the language the mask admits.
-- `test_chat_machine.py` — the chat machine and `ChatRun` on scripted workers
-  (`tests/chat_workers.py`): a multi-turn chat whose `<|im_end|>` is intercepted, a tool
-  call round trip whose result keeps its line breaks, demotion after attending a ring-3
-  result and the privilege fault on `tools.effect` that follows while `tools.read` still
-  lands, the session floor's refusal without demotion, `read_if` rules choosing a sink
-  from the call's arguments, a replayed history framed and ringed as the host named it
-  (and demoting a job that attends its untrusted turns), `close` freeing the worker, a frame tag in a tool result
-  raising the spoof alarm (every frame name; not a tag glued to the word before it),
-  a tool's name chosen masked (the narrowing holds exactly from `<tool_call>` to the
-  name's `>`, hides only the EXTERNAL deliveries' own text and replayed untrusted turns,
-  credits them no attention and raises no denial, demotes only once the arguments
-  attend the result, follows `splice` and `trunc`, and changes nothing when off),
-  a result or a user message spelling ChatML that neither closes its turn nor calls a
-  tool, trusted results on ring 2 (no demotion, no floor in either gate mode, a floor
-  an earlier result raised kept, the host's `trusted` checked against the call,
-  replayed history), the frame guard, the parser, the sampler against the
-  JavaScript one, and the same journal bytes for the same seed.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
   page fetches.
-- `tests/js/channel_async.test.mjs` and `test_node_worker_async.py` — the decode step
-  that does not block, over the stub with simulated latency: begin never waits, a poll
-  times out and then returns the result, calls refuse while a step is in flight, a
-  cancel lands between chunks and the step resumes from what it ran, a result that raced
-  the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
-  `tests/js/model_channel.test.mjs` — what `SyncModelWorker` forwards. They need Node
-  and skip without it.
 - `test_pyodide_determinism.py` — the smoke fixture, the seat and the stub, each under
-  Pyodide in Node and under CPython, compared byte for byte. It builds both wheels with
-  `uv build`, installs them by unpacking as Pyodide installs a pure wheel, and copies the
-  cases into the in-memory filesystem as the page does. It skips when Node, the npm
-  package or the cached PyYAML is missing; `ZEOS_PYODIDE_DIR` points it at a Pyodide
-  installed elsewhere.
+  Pyodide in Node and under CPython, compared byte for byte. It builds the `zeos` and
+  `zeos-browser` wheels with `uv build`, installs them by unpacking as Pyodide installs a
+  pure wheel, and copies the cases into the in-memory filesystem as the page does. It
+  skips when Node, the npm package or the cached PyYAML is missing; `ZEOS_PYODIDE_DIR`
+  points it at a Pyodide installed elsewhere.
 
-No test in these suites runs the model, so none needs a GPU or the export. The model runs
-on WebGPU only, and its checks are the opt-in `tests/opt_zeos_webgpu.mjs` (see *The
-OPT+ZEOS worker*).
+`JsMachine`, the grammar mask, the channel and the model have their tests in
+`packages/zeos-browser`, and the chat agent in `packages/zeos-chat`. No test here runs
+the model, so none needs a GPU or the export.
 
 `uv build` (used by `build.py`, the determinism test and `test_page.py`) fetches the
 hatchling build backend from PyPI the first time it runs, so those need a network once.
