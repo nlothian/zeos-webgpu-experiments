@@ -230,6 +230,38 @@ describe("TransformersWorker", { skip }, () => {
     for (const name of ["seen", "never", "open"]) w.destroyContext(name);
   });
 
+  test("a step told to stop keeps what it ran, and resumes to the same bits", async () => {
+    const ids = prompt(w, "The secret word is pineapple. Say a fruit, then say a vegetable.");
+    const hidden = 1;
+    const mask = new Uint8Array(ids.length).map((_, b) => (b === hidden ? 0 : 1));
+    const opts = { allowedBlocks: mask, allowedTokens: null, maxChunk: 4 };
+    w.createContext("twin");
+    await w.append("twin", ids);
+    const want = await w.decodeStep("twin", opts);
+    assert.equal(want.resident, ids.length);
+
+    // The mask disagrees with the prefill from position 1, so the step replays from 0 in
+    // runs of 4; stopped before the third run, then before the final decode.
+    w.createContext("stopped");
+    await w.append("stopped", ids);
+    let asked = 0;
+    const first = await w.decodeStep("stopped", { ...opts, shouldStop: () => ++asked > 2 });
+    assert.deepEqual({ ...first, stats: { ...first.stats, fillMs: 0 } }, {
+      cancelled: true,
+      resident: 8,
+      stats: { positions: 8, chunks: 2, fillMs: 0 },
+    });
+    const second = await w.decodeStep("stopped", { ...opts, shouldStop: () => w.contexts.get("stopped").kvLength === ids.length - 1 });
+    assert.equal(second.cancelled, true);
+    assert.equal(second.resident, ids.length - 1);
+    assert.equal(second.stats.positions, ids.length - 1 - 8);
+    const done = await w.decodeStep("stopped", opts);
+    assert.equal(done.stats.positions, 1, "only the final decode was left");
+    assert.equal(done.tokenId, want.tokenId);
+    assert.equal(bits(done.attention), bits(want.attention));
+    for (const name of ["twin", "stopped"]) w.destroyContext(name);
+  });
+
   test("fork deep-copies tokens and cache: the two contexts then decode independently", async () => {
     w.createContext("parent");
     await w.append("parent", prompt(w, "Count to five."));

@@ -95,11 +95,20 @@ export function decodeFrame(bytes) {
 
 /** Answer one decoded request against a worker. Two calls sit outside the interface:
  * `pieces`, every piece at once, because asking one round trip at a time costs seconds,
- * and `backend`, which execution provider the worker runs on. */
-export async function serveRequest(worker, request) {
+ * and `backend`, which execution provider the worker runs on.
+ *
+ * A *begun* decode step (`request.begun`, sent by `SyncModelWorker.beginDecodeStep` or
+ * `NodeWorker.beginDecodeStep`) can be cancelled while it runs. A function cannot cross a
+ * frame, so the transport passes `shouldStop`, which reads its own abort signal (a slot of
+ * the shared buffer, or the latest cancel frame), and it is added to the step's options
+ * here. */
+export async function serveRequest(worker, request, { shouldStop = null } = {}) {
   try {
     let value;
-    if (request.method === "pieces") {
+    if (request.begun && request.method === "decodeStep" && shouldStop !== null) {
+      const [jobId, opts] = request.args;
+      value = await worker.decodeStep(jobId, { ...(opts ?? {}), shouldStop });
+    } else if (request.method === "pieces") {
       value = [];
       for (let id = 0; id < worker.meta.tokenizerSize; id++) value.push(worker.piece(id));
     } else if (request.method === "backend") {

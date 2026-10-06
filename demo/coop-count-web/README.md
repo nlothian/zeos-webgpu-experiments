@@ -840,6 +840,28 @@ the Chromium this was tested in. Under Node the same channel runs with a
 `worker_threads` thread (`web/node_model_thread.mjs`), where `Atomics.wait` is allowed on
 the main thread too.
 
+**A decode step that does not block.** `SyncModelWorker` also has
+`beginDecodeStep(jobId, opts)`, which posts a step and returns its request id at once;
+`pollDecode(timeoutMs)`, an `Atomics.wait` on the reply for at most `timeoutMs` that
+returns null while the step runs and otherwise
+`{tokenId, attention, cancelled: false, resident, stats}`; and `cancelDecode()`, which
+stores the step's id in an abort slot of the buffer (int32 slot 2; slot 3 marks the step
+in flight). `serveChannel` hands the worker a `shouldStop` that reads that slot, and the
+workers ask it before every run of the graph, so a cancel lands within one chunk; `opts`
+may carry `maxChunk` to make the chunks of that step smaller (they are still cut at the
+snapshot positions). A cancelled step answers `{cancelled: true, resident, stats}`: its
+token is dropped even if it had finished, the `resident` positions it ran stay cached,
+and the next step for the context resumes from them and chooses what an uninterrupted
+step would have, bit for bit. While a step is in flight every other call that reaches
+the model thread throws `channel busy: decode in flight`. Without the new options every
+worker computes what it did before; replies only gain `resident` and `stats`
+(`positions` run, `chunks` runs, `fillMs` spent in them but a final one-position decode).
+`NodeWorker` has the same four members for CPython, over the pipe: it waits with
+`select`, and a cancel is a control frame `{cancel: id}` that `node_bridge.mjs` reads
+while the step awaits the graph. `stub_worker.js` takes `{stepMs, positionMs}` of
+simulated latency so tests can poll, time out and cancel (`startNodeModel({stub})`,
+`NodeWorker(stub=...)`).
+
 **Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
 clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
 alone (see *Determinism* below); with more threads the model thread did not finish
@@ -1194,6 +1216,14 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   `models/Qwen3.5-4B-ZEOS-OPT`.
 - `test_js_machine_contract.py` also runs the contract suite over the real model worker
   (`js-transformers`), driven from Node.
+- `tests/js/channel_async.test.mjs` and `test_node_worker_async.py` — the decode step
+  that does not block, over the stub with simulated latency: begin never waits, a poll
+  times out and then returns the result, calls refuse while a step is in flight, a
+  cancel lands between chunks and the step resumes from what it ran, a result that raced
+  the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
+  The real-model halves (in `opt_zeos_worker.test.mjs`, `transformers_worker.test.mjs`
+  and the last test of `test_node_worker_async.py`) check that a stopped step resumes to
+  the same bits, and that `maxChunk` cuts smaller chunks to the same token.
 - `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model
   on a thread of its own behind `SyncModelWorker`) writes CPython's journal.
 - These five and the `js-transformers` backend skip without Node, `npm install` or the

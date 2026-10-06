@@ -68,6 +68,16 @@
  * same positions, so they still agree bit for bit; and a skipped run aligned with the
  * chunks is bit for bit the run it stands in for, since a hidden position adds exact
  * zeros and multiplies by exact ones.
+ *
+ * **A step that can stop.** `decodeStep` also takes `maxChunk`, a smaller run length for
+ * this step (chunks are still cut at the snapshot positions and hidden runs), and
+ * `shouldStop`, asked before every run of the graph. When it answers true the step
+ * returns `{cancelled: true, resident, stats}` at once: the positions already run stay in
+ * the cache (`resident` of them), so the next step for the context resumes from there.
+ * Chunks are cut as a function of where they start, so a step stopped and then resumed
+ * runs exactly the chunks it would have run uninterrupted, and chooses the same token
+ * bit for bit. Every answer carries `resident` and `stats` (`positions` run, `chunks`
+ * runs, `fillMs` spent in them, not counting a final one-position decode).
  */
 
 import { encodePlain, sampleToken } from "./transformers_worker.js";
@@ -79,6 +89,9 @@ export const SNAPSHOT_EVERY = 256;
 export const MAX_SNAPSHOTS = 16;
 /** The most caches one context keeps, one per mask history. */
 export const MAX_TRACKS = 2;
+
+/** What `fill` returns for a step `shouldStop` ended. */
+const STOPPED = Symbol("stopped");
 
 /** Whether a `meta.json` describes an OPT+ZEOS export rather than an `export_model.py`
  * one. */
@@ -474,7 +487,10 @@ export class OptZeosWorker {
     this.contexts.set(childId, ctx);
   }
 
-  async decodeStep(jobId, { allowedBlocks = null, allowedTokens = null, sample = null } = {}) {
+  async decodeStep(
+    jobId,
+    { allowedBlocks = null, allowedTokens = null, sample = null, shouldStop = null, maxChunk = null } = {},
+  ) {
     const ctx = this.ctx(jobId);
     const n = ctx.tokens.length;
     if (n === 0) throw new Error(`job ${jobId}: cannot decode an empty context`);
@@ -493,11 +509,18 @@ export class OptZeosWorker {
     if (allowedTokens !== null && allowedTokens.length < this.meta.vocabSize) {
       throw new RangeError(`job ${jobId}: allowedTokens covers ${allowedTokens.length} ids of ${this.meta.vocabSize}`);
     }
-    const { logits, attention } = await this.fill(ctx, allowed);
+    if (maxChunk !== null && !(Number.isInteger(maxChunk) && maxChunk >= 1)) {
+      throw new RangeError(`job ${jobId}: maxChunk ${maxChunk} is not a positive integer`);
+    }
+    const stats = { positions: 0, chunks: 0, fillMs: 0 };
+    const chunk = maxChunk === null ? this.chunk : Math.min(maxChunk, this.chunk);
+    const out = await this.fill(ctx, allowed, { chunk, shouldStop, stats });
+    if (out === STOPPED) return { cancelled: true, resident: ctx.track.kvLength, stats };
+    const { logits, attention } = out;
     const limit = this.meta.vocabSize;
     const tokenId =
       sample === null ? argmax(logits, allowedTokens, limit) : sampleToken(logits, allowedTokens, limit, sample);
-    return { tokenId, attention };
+    return { tokenId, attention, resident: ctx.track.kvLength, stats };
   }
 
   // -- outside the interface -------------------------------------------------------
@@ -647,9 +670,11 @@ export class OptZeosWorker {
     return new Shared(tensors);
   }
 
-  /** Make a cache cover every position as `allowed` sees it, running what is missing,
-   * and return the last position's logits and attention. */
-  async fill(ctx, allowed) {
+  /** Make a cache cover every position as `allowed` sees it, running what is missing in
+   * runs of at most `chunk`, and return the last position's logits and attention; or
+   * `STOPPED`, with the positions run so far cached, if `shouldStop` answers true before
+   * a run. `stats` collects the runs. */
+  async fill(ctx, allowed, { chunk = this.chunk, shouldStop = null, stats = null } = {}) {
     const n = ctx.tokens.length;
     const track = this.select(ctx, allowed);
     // A step repeated with nothing appended runs its position again.
@@ -665,7 +690,7 @@ export class OptZeosWorker {
           continue;
         }
       }
-      let count = Math.min(this.chunk, n - start, boundary - start);
+      let count = Math.min(chunk, n - start, boundary - start);
       if (this.skipHidden) {
         for (let q = start + 1; q < start + count; q++) {
           if (!allowed[q] && allowed[q - 1] && this.skippable(allowed, q, n) > q) {
@@ -674,12 +699,19 @@ export class OptZeosWorker {
           }
         }
       }
+      if (shouldStop?.()) return STOPPED;
       const last = start + count === n;
       if (last) {
         track.previous?.state.release();
         track.previous = { pos: start, state: track.state.retain() };
       }
+      const began = performance.now();
       out = await this.run(ctx, track, start, count, allowed, last);
+      if (stats !== null) {
+        stats.positions += count;
+        stats.chunks += 1;
+        if (!(last && count === 1)) stats.fillMs += performance.now() - began;
+      }
     }
     return out;
   }
