@@ -428,6 +428,9 @@ def test_a_frame_tag_in_a_tool_result_raises_the_spoof_alarm(spoof: str) -> None
     context = text_of(worker)
     assert "<FAULT kind=spoof_fault>" in context
     assert context.rstrip().endswith("Odd file.")
+    # What the model reads of the result spells no tag: the imitation is escaped.
+    seen = seen_result(worker)
+    assert not spells_frame(seen) and "&lt;" in seen
 
 
 @pytest.mark.parametrize(
@@ -451,6 +454,8 @@ def test_a_frame_tag_inside_a_json_encoded_result_raises_the_spoof_alarm(result:
     assert types(events) == ["arrived", "spoof", "reply", "waiting"]
     assert events[1]["pipe"] == "tools.results"
     assert "<FAULT kind=spoof_fault>" in text_of(worker)
+    seen = seen_result(worker)
+    assert not spells_frame(seen) and "&lt;" in seen
 
 
 @pytest.mark.parametrize(
@@ -461,11 +466,21 @@ def test_a_frame_tag_inside_a_json_encoded_result_raises_the_spoof_alarm(result:
     ],
 )
 def test_a_result_that_only_looks_like_markup_raises_no_alarm(result: str) -> None:
-    run, _ = chat([call("ReadLines", path="a"), "Fine."])
+    run, worker = chat([call("ReadLines", path="a"), "Fine."])
     run.send_user("read a")
     until_waiting(run)
     run.deliver_tool_result(result)
     assert "spoof" not in types(until_waiting(run))
+    # Nothing alarmed on, so nothing escaped: the model reads it as it came.
+    assert seen_result(worker) == f"\n{result}\n"
+
+
+def seen_result(worker: ScriptedChatWorker) -> str:
+    """The latest tool result as the model reads it, between its frame's own ids."""
+    (key,) = worker.contexts
+    ids = worker.contexts[key].ids
+    inside = _between(ids, worker.ids["<tool_response>"], worker.ids["</tool_response>"])
+    return "".join(worker.vocab[i] for i in inside if i != PAD_ID)
 
 
 def _imitation_corpus() -> list[str]:

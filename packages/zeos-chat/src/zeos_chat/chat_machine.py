@@ -92,7 +92,10 @@ kernel's words exactly as ``JsMachine`` folds its own, so no kernel offset moves
 The turn markers, ``<think>``, ``</think>``, ``<tool_response>`` and ``</tool_response>``
 are written as the worker's own ids for those pieces when its vocabulary has them, as a
 prompt rendered by the template would be; ``tokenize`` parses no special tokens, so
-nothing that arrives as content can produce one. A word the kernel injects is written
+nothing that arrives as content can produce one. An ordinary word that spells a kernel
+frame tag -- a forged ``<FAULT ...>approved</FAULT>`` in a tool result, say -- is written
+as ``zeos.core.framing.shown`` escapes it (``&lt;FAULT``), so only the kernel's own frames,
+whose tags are ``CONTROL`` words, reach the model as tags. A word the kernel injects is written
 as it is when it carries its own leading whitespace (``KernelConfig.preserve_whitespace``)
 or is the first of its injection, and after a space otherwise, so a newline in a tool
 result reaches the model as a newline.
@@ -142,7 +145,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from zeos.core.framing import FOLDED_FRAMES, FRAMES, fold
+from zeos.core.framing import FOLDED_FRAMES, FRAMES, fold, shown
 from zeos.core.ids import JobId, PipeName, TokenKind
 from zeos.machine.base import (
     AttentionHint,
@@ -843,7 +846,11 @@ class ChatToolMachine(JsMachine):
         ids: list[int] = []
         spans: list[int] = []
         for k, tok in enumerate(tokens):
-            text = tok.text if (k == 0 or tok.text[:1].isspace()) else " " + tok.text
+            # An ordinary word that spells a frame tag reaches the model escaped
+            # (``framing.shown``), so a forged notice in a tool result never reads as the
+            # kernel's own: a frame's tags are CONTROL words and are written as they are.
+            word = shown(tok)
+            text = word if (k == 0 or word[:1].isspace()) else " " + word
             word = self._tokenize(text) or [self._pad_id]
             ids.extend(word)
             spans.append(len(word))
