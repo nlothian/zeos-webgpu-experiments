@@ -240,9 +240,11 @@ class PilotMachine(Protocol):
         (native ``partial="keep"``). A no-op if nothing is in flight."""
         ...
 
-    def prewarm(self) -> None:
-        """Fill the grammar's mask cache with ``PREWARM_COMMANDS``. Called before the
-        clock starts; synchronous."""
+    def prewarm(
+        self, descriptor: str = "pilot", commands: Sequence[str] = PREWARM_COMMANDS
+    ) -> float:
+        """Fill the grammar's mask cache for ``descriptor`` with ``commands``, and return
+        the milliseconds it took. Called before the clock starts; synchronous."""
         ...
 
     def close(self) -> None:

@@ -168,3 +168,44 @@ Each workstream edits only its own files; the table is the plan's.
 
 `load_board` already lives in `contracts.py`; `boards.py` re-exports or extends it rather
 than reimplementing it.
+
+## Machine notes
+
+What the machine workstream (`machine.py`, `prompt_player.py`, `fake_worker.py`,
+`pyodide_glue.py`, `web/stub/pilot_stub_worker.js`) settled that the sections above leave
+open, and the one change it made to `contracts.py`:
+
+- **`PilotMachine.prewarm`** is `prewarm(descriptor="pilot", commands=PREWARM_COMMANDS)
+  -> float`: it returns the milliseconds the walk took, so the page can report it. It was
+  `prewarm() -> None`; a call with no arguments is unchanged.
+- **Optional extras.** `PilotJsMachine` also takes `tokenize_cache` (words kept, default
+  4096: a board is tokenized a word at a time, and each tokenize is a round trip to the
+  model thread). `BrowserPromptPlayer` also takes `bridge` and `max_chunk` (`None`, the
+  default, leaves `maxChunk` out, so the worker fills in its own chunk). Both still match
+  their `*Factory` Protocols.
+- **The pilot's grammar** is the native pilot ABI (`write`, `read`, `exit`, no payload
+  cap) less `forbid_verbs`, over the aliases `descriptors` binds; the default is
+  `{"pilot": ("stdin", "stdout")}`.
+- **What cancels, and what restarts the command.** Inject, trunc, splice, fork, a
+  narrowing `set_mask`, block padding and `invalidate` cancel the job's step; the decode
+  of another job (native or served) cancels whatever is in flight. Inject, trunc, fork,
+  a narrowing `set_mask`, `invalidate`, and a splice that reaches the current command
+  also reset the job's parser and grammar round (the native `_cancel`); an upstream
+  splice renumbers the command instead. `invalidate` does this even with nothing in
+  flight (resetting an empty round changes nothing), and leaves a pending automatic
+  `read stdin` in place: a turn whose `write` completed has made its move.
+- **Settling.** Only operations that call the worker synchronously wait for a cancelled
+  step to drain (create/destroy a served context, inject, trunc, splice, fork, `raw`,
+  `prewarm`, `close`). The rest post the cancel and let a later `decode` drain it, polling
+  for at most `stall_ms` and stalling meanwhile; native jobs never touch the worker.
+- **Step log.** A `decode` that drains a cancelled step and then begins the next logs a
+  `cancelled` entry and then the entry for its own outcome. The automatic `read stdin`
+  is logged as `native` (no worker call).
+- **The prompt arm** uses context id `prompt-arm:prompt`; its replies may use every id
+  except the pad id and control ids other than `<|im_end|>` (the end-of-sequence id is
+  allowed and ends the reply). `warm()` decodes and discards one step to make a lazily
+  filling worker compute the system prompt.
+- **The JS stub** defines `globalThis.createPilotStubWorker(options)` (so
+  `self.createPilotStubWorker` in a worker), options `{moves, replies, stepMs, positionMs,
+  reads, blockSize, terminator, chunk}`. It is a model-side worker: `decodeStep` is async
+  and honours `shouldStop` and `maxChunk`; begin/poll/cancel come from the channel.
