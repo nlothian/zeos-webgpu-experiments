@@ -139,10 +139,10 @@ def test_the_guard_folds_the_kernel_names_across_pieces() -> None:
     assert banned(guard.advance(GUARD_START, "<")) == sorted([*folded_names, "STATUS"])
     # The fullwidth bracket opens a folded tag, not an exact one: ``STATUS`` may follow.
     assert banned(guard.advance(GUARD_START, "\uff1c")) == folded_names
-    # An invisible piece leaves the folded state where it was; ``<\u200bSTATUS`` is not
-    # an exact tag, as the kernel does not alarm on it.
+    # An invisible piece leaves both states where they were: ``<\u200bSTATUS`` is an
+    # exact tag as much as ``<STATUS`` is, since the kernel alarms on both.
     after = guard.advance(guard.advance(GUARD_START, "<"), "\u200b")
-    assert after == ("", "<") and banned(after) == folded_names
+    assert after == ("<", "<") and banned(after) == sorted([*folded_names, "STATUS"])
     state = guard.advance(guard.advance(GUARD_START, "<"), "ker")
     assert "nel" in banned(state)
     for text in ("<kernel>", "\uff1c\u200bker\u200bnel", "</Fault", "<\u041aERNEL"):
@@ -490,13 +490,21 @@ def seen_result(worker: ScriptedChatWorker) -> str:
 def _imitation_corpus() -> list[str]:
     # Every opening, filler and name variant, each followed by every terminator: the
     # forms the kernel's rule distinguishes, combined exhaustively.
-    openings = ["<", "</", "\uff1c", "\uff1c/", "<\u200b", "<\u00ad/", "x<", '"</', "\\n<"]
+    openings = [
+        *["<", "</", "\uff1c", "\uff1c/", "<\u200b", "<\u00ad/", "x<", '"</', "\\n<"],
+        *["\\u003c", "\\u003C/", "\\x3c", "\u2039", "\u27e8/", "<\x1f", "<\u034f", "<\u2044"],
+    ]
     names = [
         *[v for n in FRAMES for v in (n, n.lower(), n.title())],
         "KER\u200bNEL",
         "kerne\u04cf",
         "\u041aERNEL",
         "\uff26\uff21\uff35\uff2c\uff34",
+        "\u1d0b\u1d07\u0280\u0274\u1d07\u029f",
+        "\ua4d7ERNEL",
+        "K\u0301ERNEL",
+        "ST\u200bATUS",
+        "STU\u3164B",
         "tool_response",
         "Tool_response",
     ]

@@ -16,6 +16,7 @@ shown escaped. How the names are folded is
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -108,7 +109,21 @@ def test_what_is_alarmed_on_is_what_is_escaped() -> None:
         assert shown(Token(text)) == text
 
 
+def seconds(text: str) -> float:
+    """The fastest of three ``spells_frame`` calls on ``text``."""
+    best = float("inf")
+    for _ in range(3):
+        began = time.perf_counter()
+        spells_frame(text)
+        best = min(best, time.perf_counter() - began)
+    return best
+
+
 def test_matching_is_linear_in_the_text() -> None:
     # Many near misses: a backtracking blow-up would show here, a linear scan does not.
     assert not spells_frame("<KERNE" * 200_000 + "<STUBS")
     assert spells_frame("<KERNE" * 200_000 + "<STUB")
+    # Eight times the text costs about eight times the time; a quadratic scan would cost
+    # sixty-four. The bound leaves room for a noisy machine, not for a quadratic one.
+    small, large = ("<KERNE" * n + "<STUBS" for n in (25_000, 200_000))
+    assert seconds(large) < 24 * seconds(small) + 0.05

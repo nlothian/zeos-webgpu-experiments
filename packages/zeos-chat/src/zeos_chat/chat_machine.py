@@ -146,7 +146,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from zeos.core.framing import FOLDED_FRAMES, FRAMES, fold, shown
+from zeos.core.framing import FOLDED_FRAMES, FRAMES, OPENINGS, fold, shown_words, strip
 from zeos.core.ids import JobId, PipeName, TokenKind
 from zeos.machine.base import (
     AttentionHint,
@@ -398,15 +398,17 @@ def utf8_step(pending: bytes, data: bytes) -> tuple[str, bytes]:
 class FrameGuard:
     """Which pieces would complete a banned tag, given what the turn has said so far.
 
-    A banned pattern is ``<NAME`` or ``</NAME``. The guard follows the kernel's imitation
+    A banned pattern is an opening of ``zeos.core.framing.OPENINGS`` (``<``, or a JSON
+    escape of it), an optional ``/``, and a name. The guard follows the kernel's imitation
     rule (``zeos.core.framing.spells_frame``) over its own names and in two tracks, so a
     state is a pair (``GuardState``). A name in ``FOLDED_FRAMES`` (``KERNEL``, ``RESUME``,
     ``FAULT``) is matched in each piece's fold (``zeos.core.framing.fold``): whatever its
-    case, with invisible format characters dropped, NFKC look-alikes such as ``＜ＫＥＲＮＥＬ``
-    and the Cyrillic and Greek homoglyphs read as Latin, and across pieces, since the fold
-    of a concatenation is the concatenation of the folds. Every other name (``STATUS``,
-    ``STUB``, ``tool_response``) is matched exactly and case-sensitively. Matching is
-    anywhere in the text, so ``x<KERNEL`` is banned.
+    case, with what a reader does not see dropped, and look-alikes -- ``＜ＫＥＲＮＥＬ``,
+    ``‹KERNEL``, a Cyrillic ``К``, small capitals -- read as Latin, and across pieces,
+    since the fold of a concatenation is the concatenation of the folds. Every other name
+    (``STATUS``, ``STUB``, ``tool_response``) is matched case-sensitively in each piece's
+    ``strip``, so only invisible characters are dropped. Matching is anywhere in the text,
+    so ``x<KERNEL`` is banned.
 
     It is at least as strict as the kernel: whatever the kernel alarms on contains a
     pattern of one track or the other, since ``<KERNEL`` in the text is ``<KERNEL`` in its
@@ -443,8 +445,10 @@ class FrameGuard:
         views = list(self._pieces)
         for token_id, data in self._bytes.items():
             views[token_id] = utf8_step(b"", data)[0]
-        self._exact = _Track(_tag_patterns(exact), views)
-        self._folded = _Track(_tag_patterns(folded), tuple(map(fold, views)))
+        self._exact = _Track(_tag_patterns(exact, OPENINGS), tuple(map(strip, views)))
+        self._folded = _Track(
+            _tag_patterns(folded, sorted({fold(o) for o in OPENINGS})), tuple(map(fold, views))
+        )
         self._views = tuple(views)
         #: Partial tokens that begin with a continuation byte: the only ones whose text
         #: depends on the incomplete character before them.
@@ -486,12 +490,17 @@ class FrameGuard:
         return cached
 
     def _spells_from(self, state: GuardState, text: str) -> bool:
-        return self._exact.spells(state[0] + text) or self._folded.spells(state[1] + fold(text))
+        return self._exact.spells(state[0] + strip(text)) or self._folded.spells(
+            state[1] + fold(text)
+        )
 
     def advance(self, state: GuardState, piece: str) -> GuardState:
         """The state after the characters ``piece``, which must not have been banned
         from ``state``."""
-        return (self._exact.advance(state[0], piece), self._folded.advance(state[1], fold(piece)))
+        return (
+            self._exact.advance(state[0], strip(piece)),
+            self._folded.advance(state[1], fold(piece)),
+        )
 
     def step(
         self, state: GuardState, pending: bytes, token_id: int
@@ -508,11 +517,11 @@ class FrameGuard:
 
     def spells(self, text: str) -> bool:
         """Whether ``text`` contains a banned pattern anywhere."""
-        return self._exact.spells(text) or self._folded.spells(fold(text))
+        return self._exact.spells(strip(text)) or self._folded.spells(fold(text))
 
 
-def _tag_patterns(names: Iterable[str]) -> list[str]:
-    return [f"{opening}{n}" for n in names for opening in ("<", "</")]
+def _tag_patterns(names: Iterable[str], openings: Iterable[str]) -> list[str]:
+    return [f"{o}{slash}{n}" for n in names for o in openings for slash in ("", "/")]
 
 
 # -- tool calls, as the app's Qwen parser reads and writes them -------------------------
@@ -865,11 +874,11 @@ class ChatToolMachine(JsMachine):
     def _encode(self, tokens: Sequence[Token], ctx: _Context) -> tuple[list[int], list[int]]:
         ids: list[int] = []
         spans: list[int] = []
-        for k, tok in enumerate(tokens):
-            # An ordinary word that spells a frame tag reaches the model escaped
-            # (``framing.shown``), so a forged notice in a tool result never reads as the
-            # kernel's own: a frame's tags are CONTROL words and are written as they are.
-            word = shown(tok)
+        # An ordinary word that spells a frame tag reaches the model escaped
+        # (``framing.shown_words``, which reads a run of words as the text written for
+        # it), so a forged notice in a tool result never reads as the kernel's own: a
+        # frame's tags are CONTROL words and are written as they are.
+        for k, word in enumerate(shown_words(tokens)):
             text = word if (k == 0 or word[:1].isspace()) else " " + word
             word = self._tokenize(text) or [self._pad_id]
             ids.extend(word)
