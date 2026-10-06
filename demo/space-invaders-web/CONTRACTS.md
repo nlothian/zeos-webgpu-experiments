@@ -168,3 +168,30 @@ Each workstream edits only its own files; the table is the plan's.
 
 `load_board` already lives in `contracts.py`; `boards.py` re-exports or extends it rather
 than reimplementing it.
+
+## Page notes
+
+Written by the page workstream; each is the smallest change the page needed.
+
+- **`open_run` takes an optional `clock`.** `page.open_run(arm, board, seed, worker, *,
+  stub, on_frame, stop, clock=None)`: the extra keyword is optional, so the function
+  still satisfies `OpenRun`. Under Pyodide `si_worker.js` passes
+  `{now: performance.now() / 1000, sleep: Atomics.wait(control, CONTROL_STOP, 0, ms)}`,
+  so a sleeping loop wakes the moment Stop is written; `None` is `MonotonicClock`.
+  `stop` is `{is_set: Atomics.load(control, CONTROL_STOP) !== 0}`.
+- **`worker` may be `None`.** The stub machine hands over `self.createPilotStubWorker({})`
+  when the build has `web/stub/pilot_stub_worker.js` defining it (imported by
+  `si_worker.js`; `build.py` copies `web/stub/` when present), else `None`. The model
+  machine hands over the `SyncModelWorker` attached for backend `webgpu`.
+- **`frame` and `decision` bodies are spread.** `{type: "frame", ...Frame}` and
+  `{type: "decision", ...DecisionRecord}`, the `{type, ...body}` convention; neither
+  shape has a `type` field. `started` and `finished` also carry `stopped` (whether Stop
+  was set).
+- **`ready`** carries `{pyodide, python, isolated, model, describe}`: `model` is the
+  manifest's export name or `null`, `describe` is `page.describe_json()` (boards, arms,
+  criteria ids, the registered builders, and the debugger's wiring-only payload).
+- **The integration seam is `page.RUN_BUILDERS: dict[Arm, RunBuilder]`**, where a
+  `RunBuilder` takes a `page.RunContext(arm, spec, worker, stub, on_frame, stop, clock)`
+  and returns a `Run`. An arm with no builder runs as `page.FakeRun`.
+- **Board size** is not a `Frame` field; `board.js` reads it off `Frame.text`
+  (`Game.render`: one line a row, four characters a cell).
