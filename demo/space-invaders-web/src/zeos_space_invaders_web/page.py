@@ -23,6 +23,7 @@ verdicts' detail says so.
 from __future__ import annotations
 
 import dataclasses
+import gc
 import json
 import math
 import random
@@ -33,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
-from zeos.core.ids import JobId
+from zeos.core.ids import DescriptorName, JobId
 from zeos.debugger.payload import build_payload
 from zeos.descriptor.loader import load_case
 from zeos.journal.codec import decode_record
@@ -68,6 +69,7 @@ from zeos_space_invaders_web.contracts import (
     FrameSink,
     LagStats,
     MonotonicClock,
+    PromptReply,
     Run,
     RunResult,
     StopFlag,
@@ -85,12 +87,15 @@ __all__ = [
     "PROMPT_OPTIONS",
     "RUNNER_OPTIONS",
     "RUN_BUILDERS",
+    "DEFAULT_PILOT_CONTEXT",
     "DEFAULT_ZEOS_KERNEL_OPTIONS",
+    "PILOT_CONTEXT",
     "STARVATION_LIMIT",
     "ZEOS_KERNEL_OPTIONS",
     "ZEOS_MACHINE_OPTIONS",
     "FakeRun",
     "LoopClock",
+    "TimedWorker",
     "PromptRun",
     "ZeosRun",
     "channel",
@@ -517,18 +522,26 @@ DEFAULT_ZEOS_KERNEL_OPTIONS: Final[Mapping[str, Any]] = {"starvation_limit": STA
 #: The ``KernelConfig`` overrides in force; ``configure_json``'s ``kernel`` key changes
 #: them (``{"kernel": {"starvation_limit": 8}}`` is the native kernel again).
 ZEOS_KERNEL_OPTIONS: dict[str, Any] = dict(DEFAULT_ZEOS_KERNEL_OPTIONS)
+#: The pilot's descriptor, whose context policy ``PILOT_CONTEXT`` changes.
+PILOT = DescriptorName("pilot")
+#: ``ContextPolicy`` fields laid over the pilot descriptor's ``context:`` block (the
+#: native ``goals/pilot.md``) before the kernel starts; see ``DEFAULT_PILOT_CONTEXT``.
+DEFAULT_PILOT_CONTEXT: Final[Mapping[str, Any]] = {}
+#: The pilot context overrides in force; ``configure_json``'s ``context`` key changes them.
+PILOT_CONTEXT: dict[str, Any] = dict(DEFAULT_PILOT_CONTEXT)
 
 
 def configure_json(text: str) -> None:
     """Replace the arms' options from JSON text ``{"zeos": {...}, "prompt": {...},
-    "kernel": {...}}``; a key left out goes back to its defaults, and ``kernel``'s fields
-    are laid over ``DEFAULT_ZEOS_KERNEL_OPTIONS``. ``si_worker.js`` passes the page's ``?tune=``
+    "kernel": {...}, "context": {...}}``; a key left out goes back to its defaults, and
+    ``kernel``'s and ``context``'s fields are laid over ``DEFAULT_ZEOS_KERNEL_OPTIONS`` and
+    ``DEFAULT_PILOT_CONTEXT``. ``si_worker.js`` passes the page's ``?tune=``
     query parameter through it before each run, which is how the tuning runs set
     ``max_chunk`` or ``stall_ms`` without a rebuild."""
     raw = cast(dict[str, Any], json.loads(text or "{}"))
-    unknown = sorted(set(raw) - {"zeos", "prompt", "kernel"})
+    unknown = sorted(set(raw) - {"zeos", "prompt", "kernel", "context"})
     if unknown:
-        raise ValueError(f"cannot tune {unknown}: only 'zeos', 'prompt' and 'kernel'")
+        raise ValueError(f"cannot tune {unknown}: only 'zeos', 'prompt', 'kernel', 'context'")
     ZEOS_MACHINE_OPTIONS.clear()
     ZEOS_MACHINE_OPTIONS.update(cast(dict[str, Any], raw.get("zeos", {})))
     PROMPT_OPTIONS.clear()
@@ -536,6 +549,9 @@ def configure_json(text: str) -> None:
     ZEOS_KERNEL_OPTIONS.clear()
     ZEOS_KERNEL_OPTIONS.update(DEFAULT_ZEOS_KERNEL_OPTIONS)
     ZEOS_KERNEL_OPTIONS.update(cast(dict[str, Any], raw.get("kernel", {})))
+    PILOT_CONTEXT.clear()
+    PILOT_CONTEXT.update(DEFAULT_PILOT_CONTEXT)
+    PILOT_CONTEXT.update(cast(dict[str, Any], raw.get("context", {})))
 
 
 def channel(worker: object) -> tuple[AsyncModelWorker, Bridge | None]:
@@ -556,6 +572,74 @@ def channel(worker: object) -> tuple[AsyncModelWorker, Bridge | None]:
 
         return attach(worker)
     return cast(AsyncModelWorker, worker), None
+
+
+class GcPauses:
+    """The collector's pauses while a run plays, from ``gc.callbacks``: count, total and
+    longest milliseconds, by generation."""
+
+    def __init__(self) -> None:
+        self.pauses: dict[int, list[float]] = {}
+        self._began = 0.0
+
+    def __enter__(self) -> GcPauses:
+        gc.callbacks.append(self._callback)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        gc.callbacks.remove(self._callback)
+
+    def _callback(self, phase: str, info: dict[str, int]) -> None:
+        if phase == "start":
+            self._began = time.monotonic()
+            return
+        entry = self.pauses.setdefault(int(info["generation"]), [0, 0.0, 0.0])
+        ms = (time.monotonic() - self._began) * 1000.0
+        entry[0] += 1
+        entry[1] += ms
+        entry[2] = max(entry[2], ms)
+
+    def summary(self) -> dict[str, dict[str, float]]:
+        return {
+            f"gen{g}": {"count": int(n), "total_ms": round(t, 1), "max_ms": round(m, 1)}
+            for g, (n, t, m) in sorted(self.pauses.items())
+        }
+
+
+class TimedWorker:
+    """The worker with the wall time of every call kept per method, so a stall in the loop
+    can be put down to the call that made it. Attributes pass through; ``inFlight`` is
+    read through, not timed."""
+
+    def __init__(self, worker: AsyncModelWorker) -> None:
+        self._worker = worker
+        #: method -> [calls, total ms, max ms]
+        self.calls: dict[str, list[float]] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self._worker, name)
+        if not callable(value):
+            return value
+        method = cast(Callable[..., Any], value)
+
+        def timed(*args: Any) -> Any:
+            began = time.monotonic()
+            try:
+                return method(*args)
+            finally:
+                ms = (time.monotonic() - began) * 1000.0
+                entry = self.calls.setdefault(name, [0, 0.0, 0.0])
+                entry[0] += 1
+                entry[1] += ms
+                entry[2] = max(entry[2], ms)
+
+        return timed
+
+    def summary(self) -> dict[str, dict[str, float]]:
+        return {
+            name: {"calls": int(n), "total_ms": round(total, 1), "max_ms": round(peak, 1)}
+            for name, (n, total, peak) in sorted(self.calls.items())
+        }
 
 
 class LoopClock:
@@ -628,13 +712,21 @@ class ZeosRun:
         if context.worker is None:
             raise ValueError("the zeos arm needs a worker: the model thread or the stub's")
         worker, bridge = channel(context.worker)
+        self.worker = TimedWorker(worker)
         self.context = context
-        self.machine = _TimedPilot(worker, bridge=bridge, **ZEOS_MACHINE_OPTIONS)
+        self.machine = _TimedPilot(
+            cast(AsyncModelWorker, self.worker), bridge=bridge, **ZEOS_MACHINE_OPTIONS
+        )
         self.machine.splices = []
         self.driver = build_driver(self.machine, context.spec)
+        kernel = self.driver.kernel
         if ZEOS_KERNEL_OPTIONS:
-            kernel = self.driver.kernel
             kernel.config = dataclasses.replace(kernel.config, **ZEOS_KERNEL_OPTIONS)
+        if PILOT_CONTEXT:
+            # Before `start`, which loads the descriptors and spawns the pilot from them.
+            pilot = kernel.descriptors[PILOT]
+            policy = dataclasses.replace(pilot.context, **PILOT_CONTEXT)
+            kernel.descriptors[PILOT] = dataclasses.replace(pilot, context=policy)
         self.runner = WallClockZeosRunner(
             self.driver,
             context.spec,
@@ -663,8 +755,10 @@ class ZeosRun:
     warm_s: float = 0.0
 
     def run(self) -> RunResult:
-        result = self.runner.run()
+        with GcPauses() as pauses:
+            result = self.runner.run()
         result.extras = self._extras()
+        result.extras["gc"] = pauses.summary()
         return result
 
     def close(self) -> None:
@@ -709,7 +803,9 @@ class ZeosRun:
         biggest = max(steps, key=lambda e: e["positions"], default=None)
         return {
             "machine": "stub" if self.context.stub else "model",
+            "worker_calls": self.worker.summary(),
             "kernel_options": dict(ZEOS_KERNEL_OPTIONS),
+            "pilot_context": dict(PILOT_CONTEXT),
             "warm_s": self.warm_s,
             "runner_warm_s": runner.warm_s,
             "prewarm_ms": self.prewarm_ms,
@@ -750,12 +846,38 @@ class PromptRun:
         if context.worker is None:
             raise ValueError("the prompt arm needs a worker: the model thread or the stub's")
         worker, bridge = channel(context.worker)
+        self.worker = TimedWorker(worker)
         spec = context.spec
         options: dict[str, Any] = {"history": spec.history, **PROMPT_OPTIONS}
         self.context = context
         self.player = BrowserPromptPlayer(
-            worker, view=VIEWS[spec.view](), rules=spec.rules, bridge=bridge, **options
+            cast(AsyncModelWorker, self.worker),
+            view=VIEWS[spec.view](),
+            rules=spec.rules,
+            bridge=bridge,
+            **options,
         )
+        #: The longest ``begin`` and the longest overshoot of a ``poll`` past its timeout,
+        #: in ms: the arm's own share of the loop's overrun.
+        self.begin_ms = 0.0
+        self.poll_over_ms = 0.0
+        player = self.player
+        real_begin, real_poll = player.begin, player.poll
+
+        def begin(obs: str, info: Mapping[str, object]) -> None:
+            began = time.monotonic()
+            real_begin(obs, info)
+            self.begin_ms = max(self.begin_ms, (time.monotonic() - began) * 1000.0)
+
+        def poll(timeout_s: float) -> PromptReply | None:
+            began = time.monotonic()
+            reply = real_poll(timeout_s)
+            over = (time.monotonic() - began - timeout_s) * 1000.0
+            self.poll_over_ms = max(self.poll_over_ms, over)
+            return reply
+
+        player.begin = begin  # type: ignore[method-assign]
+        player.poll = poll  # type: ignore[method-assign]
         self.runner = WallClockPromptRunner(
             self.player,
             spec,
@@ -771,7 +893,8 @@ class PromptRun:
             self.runner.warm()
 
     def run(self) -> RunResult:
-        result = self.runner.run()
+        with GcPauses() as pauses:
+            result = self.runner.run()
         replies = self.player.replies
         result.extras = {
             "machine": "stub" if self.context.stub else "model",
@@ -780,6 +903,10 @@ class PromptRun:
             "replies": len(replies),
             "reply_latency_s": _overruns([r.latency for r in replies]),
             "unparsed": [r.text for r in replies if not r.parsed][:20],
+            "worker_calls": self.worker.summary(),
+            "gc": pauses.summary(),
+            "begin_max_ms": round(self.begin_ms, 1),
+            "poll_over_max_ms": round(self.poll_over_ms, 1),
         }
         return result
 

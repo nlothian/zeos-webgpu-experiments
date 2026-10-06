@@ -18,7 +18,7 @@
 // project's node_modules/playwright). WebGPU is shared: run nothing else heavy on the GPU
 // at the same time.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -56,10 +56,42 @@ async function playwright() {
   return import("playwright");
 }
 
+/** Other GPU users: processes matching a browser GPU process, Playwright, a dev server or
+ * an e2e run, that are not this script or its descendants (its server and Chrome). WebGPU
+ * is shared, so a run measured beside one of these is not a quiet-GPU measurement. */
+const GPU_USERS = /playwright|chrome.*--type=gpu|vite|test:e2e/i;
+function otherGpuProcesses() {
+  const rows = execFileSync("ps", ["-axo", "pid=,ppid=,%cpu=,command="], { encoding: "utf-8" })
+    .split("\n")
+    .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/))
+    .filter(Boolean)
+    .map(([, pid, ppid, cpu, command]) => ({ pid: Number(pid), ppid: Number(ppid), cpu: Number(cpu), command }));
+  const mine = new Set([process.pid]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const row of rows) {
+      if (!mine.has(row.pid) && mine.has(row.ppid)) {
+        mine.add(row.pid);
+        grew = true;
+      }
+    }
+  }
+  return rows
+    .filter((row) => !mine.has(row.pid) && GPU_USERS.test(row.command) && !row.command.includes("ps -axo"))
+    .map((row) => ({
+      pid: row.pid,
+      cpu: row.cpu,
+      // An idle test server (VS Code's Playwright extension) starts no browser; a GPU
+      // process or anything busy counts.
+      active: /--type=gpu/.test(row.command) || row.cpu >= 1,
+      command: row.command.slice(0, 160),
+    }));
+}
+
 const round = (n, d = 2) => (n === null || n === undefined ? null : Math.round(n * 10 ** d) / 10 ** d);
 
 /** The handover table's row for one finished run. */
-function metrics(entry, warmWallS) {
+function metrics(entry, warmWallS, contention) {
   const { run, result: r, verdicts } = entry;
   const x = r.extras ?? {};
   const row = {
@@ -67,6 +99,8 @@ function metrics(entry, warmWallS) {
     board: run.board,
     seed: r.seed,
     stopped: entry.stopped,
+    contention,
+    quiet_gpu: ![...contention.before, ...contention.after].some((p) => p.active),
     lives: r.lives,
     kills: r.kills,
     ticks: r.ticks,
@@ -80,6 +114,8 @@ function metrics(entry, warmWallS) {
     warm_s: { page: round(warmWallS), python: x.warm_s ?? null, prewarm_ms: x.prewarm_ms ?? null },
     parse_rate: r.parse_rate,
     verdicts: verdicts.map((v) => `${v.id}:${v.passed}`),
+    worker_calls: x.worker_calls,
+    gc: x.gc,
   };
   if (run.arm === "zeos") {
     Object.assign(row, {
@@ -89,11 +125,21 @@ function metrics(entry, warmWallS) {
       step_totals: x.step_totals,
       biggest_step: x.biggest_step,
       splices: x.splices,
+      journal_splices: x.journal_splices,
+      context_ids: x.context_ids,
+      pilot_context: x.pilot_context,
+      kernel_options: x.kernel_options,
       longest_pilot_gap: x.longest_pilot_gap,
       faults: x.faults,
     });
   } else {
-    Object.assign(row, { replies: x.replies, reply_latency_s: x.reply_latency_s, unparsed: x.unparsed });
+    Object.assign(row, {
+      replies: x.replies,
+      reply_latency_s: x.reply_latency_s,
+      unparsed: x.unparsed,
+      begin_max_ms: x.begin_max_ms,
+      poll_over_max_ms: x.poll_over_max_ms,
+    });
   }
   return row;
 }
@@ -130,6 +176,7 @@ try {
   for (const spec of values.runs.split(",")) {
     const [arm, board] = spec.split(":");
     const before = await page.evaluate(() => window.siRuns.length);
+    const contentionBefore = otherGpuProcesses();
     await page.selectOption("#arm", arm);
     await page.selectOption("#board", board);
     await page.selectOption("#machine", "model");
@@ -163,7 +210,11 @@ try {
     const errs = await page.evaluate(() => window.siErrors);
     if (errs.length) throw Object.assign(new Error(`page error: ${errs.join(" | ")}`), { code: 2 });
     const entry = await page.evaluate((n) => window.siRuns[n], before);
-    const row = metrics(entry, warmWallS);
+    const contention = { before: contentionBefore, after: otherGpuProcesses() };
+    const row = metrics(entry, warmWallS, {
+      other_gpu_processes: [...contention.before, ...contention.after].filter((p) => p.active),
+      ...contention,
+    });
     rows.push(row);
     console.log(JSON.stringify(row));
   }

@@ -102,6 +102,8 @@ class BrowserPromptPlayer(PromptPlayer):
         flags[self._eos_id] = 1
         self._allowed = bytes(flags)
         self._options: object | None = None
+        #: The last turn rendered: ``(obs, info, text)``.
+        self._rendered: tuple[str, Mapping[str, object], str] | None = None
 
         self._context = False
         self._decision = False
@@ -121,6 +123,18 @@ class BrowserPromptPlayer(PromptPlayer):
         self.replies: list[PromptReply] = []
 
     # -- framing -------------------------------------------------------------
+
+    def render_turn(self, obs: str, info: Mapping[str, object]) -> str:
+        """The native turn, rendered once per request: ``begin`` renders it and the
+        native ``record`` renders it again for the log. The ``lead`` view's aim search
+        behind it can take several hundred milliseconds under Pyodide when no shot
+        lands within its depth, and the second rendering stalled the run loop."""
+        cached = self._rendered
+        if cached is not None and cached[0] == obs and cached[1] is info:
+            return cached[2]
+        text = cast("str", super().render_turn(obs, info))
+        self._rendered = (obs, info, text)
+        return text
 
     def _tokenize(self, text: str) -> list[int]:
         if not text:
