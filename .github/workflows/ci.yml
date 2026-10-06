@@ -104,16 +104,16 @@ jobs:
       - name: Run pyright (strict)
         run: uv run pyright
 
-  coop-count-web:
-    # The browser demo's own suite: the chat machine's security tests, the Pyodide
-    # determinism gate, and the JavaScript worker and channel tests. Tests that need the
-    # exported model skip without it; the rest need Node and the demo's npm packages.
+  browser-packages:
+    # The browser layer and the chat agent (packages/zeos-browser, packages/zeos-chat)
+    # and the coop-count-web demo built on them: the chat machine's security tests, the
+    # Pyodide determinism gate, and the JavaScript worker, channel and cache tests. No
+    # test here runs the model (it runs on WebGPU only) or downloads it; the tests that
+    # read the export's tokenizer skip without it. They need Node and zeos-browser's npm
+    # packages.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: demo/coop-count-web
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -123,16 +123,24 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: demo/coop-count-web/package-lock.json
+          cache-dependency-path: packages/zeos-browser/package-lock.json
       - name: Install dependencies
-        # --all-packages, or the demo workspace members are not installed.
+        # --all-packages, or the workspace members under packages/ and demo/ are not installed.
         run: uv sync --frozen --all-packages
-      - name: Install the demo's npm packages
+      - name: Install zeos-browser's npm packages
+        working-directory: packages/zeos-browser
         run: npm ci
-      - name: Run the demo's tests
+      - name: Run zeos-browser's tests
+        working-directory: packages/zeos-browser
+        run: uv run --frozen pytest --durations=15
+      - name: Run zeos-chat's tests
+        working-directory: packages/zeos-chat
+        run: uv run --frozen pytest --durations=15
+      - name: Run coop-count-web's tests
+        working-directory: demo/coop-count-web
         run: uv run --frozen pytest --durations=15
       - name: Run the JavaScript tests
-        run: node --test tests/js/*.test.mjs
+        run: node --test packages/zeos-browser/tests/js/*.test.mjs
 
   ci-gate:
     # The single check branch protection will require: green only when every
@@ -141,7 +149,7 @@ jobs:
     # matters -- without it, a failed or skipped lane would leave this job
     # skipped, and a skipped check does not block a merge.
     if: always()
-    needs: [test, determinism-gate, pre-commit, pyright, coop-count-web]
+    needs: [test, determinism-gate, pre-commit, pyright, browser-packages]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
