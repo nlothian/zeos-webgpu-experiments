@@ -243,6 +243,22 @@ class _Context:
         return sum(self.spans[:at])
 
 
+@dataclass(frozen=True)
+class _StepPlan:
+    """One decode step, worked out and not yet asked of the worker (``_plan_step``)."""
+
+    job: JobId
+    ctx: _Context
+    language: CommandLanguage
+    #: One byte per vocabulary id, 1 where the step may emit it.
+    allowed: bytes
+    #: The ``allowedBlocks`` the step is sent, in the worker's blocks.
+    blocks: bytes | None
+    allow_control: bool
+    #: ``allowedBlocks`` and ``allowedTokens`` as the bridge renders them for the worker.
+    options: object
+
+
 class JsMachine(SyscallSeat):
     """A machine backend with one worker context per job, whose decode emits one token."""
 
@@ -527,6 +543,24 @@ class JsMachine(SyscallSeat):
     # -- the five ops --------------------------------------------------------
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
+        plan = self._plan_step(job, allow_control=allow_control)
+        step = self._worker.decodeStep(plan.ctx.key, plan.options)
+        return self._accept_step(
+            plan,
+            step.tokenId,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+            step.attention,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        )
+
+    def _plan_step(self, job: JobId, *, allow_control: bool) -> _StepPlan:
+        """Everything before the worker is asked for a token: open the model's turn,
+        flush the pending ids, and work out the token and block masks.
+
+        Split from ``_accept_step`` so a subclass can put the worker call between them
+        on a channel that does not block (``decode`` is the two around ``decodeStep``).
+        Nothing here depends on the step's answer, so a plan whose step is abandoned
+        leaves nothing to undo: the framing and the flushed ids are the context's either
+        way.
+        """
         ctx = self._ctx_of(job)
         if self._chat_template == "chatml" and not ctx.turn_open and ctx.tokens:
             # Everything injected so far was the prompt, so close that turn and open the
@@ -546,8 +580,25 @@ class JsMachine(SyscallSeat):
             ctx.descriptor, language, ctx.round, allow_control=allow_control
         )
         blocks = self._allowed_blocks(ctx)
-        step = self._worker.decodeStep(ctx.key, self._bridge.options(blocks, allowed))
-        tid = int(step.tokenId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        return _StepPlan(
+            job=job,
+            ctx=ctx,
+            language=language,
+            allowed=allowed,
+            blocks=blocks,
+            allow_control=allow_control,
+            options=self._bridge.options(blocks, allowed),
+        )
+
+    def _accept_step(self, plan: _StepPlan, token_id: object, attention: object) -> DecodeResult:
+        """The step's answer, checked against the plan and joined to the context.
+
+        ``token_id`` and ``attention`` are the ``tokenId`` and ``attention`` the worker
+        returned; the context must be the one the plan was made against.
+        """
+        job, ctx, language, allowed = plan.job, plan.ctx, plan.language, plan.allowed
+        allow_control, blocks = plan.allow_control, plan.blocks
+        tid = int(token_id)  # pyright: ignore[reportArgumentType]
         if not (0 <= tid < len(allowed)) or not allowed[tid]:
             if tid in self._control and not allow_control:
                 raise ControlTokenViolation(
@@ -555,8 +606,8 @@ class JsMachine(SyscallSeat):
                 )
             raise WorkerViolation(f"job {job}: the worker chose id {tid}, which the mask refused")
         # Read against the context the step attended, before the chosen id joins it.
-        measured = self._bridge.floats(step.attention)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
-        attention = None if measured is None else self._kernel_attention(ctx, measured, blocks)
+        measured = self._bridge.floats(attention)
+        attention_mass = None if measured is None else self._kernel_attention(ctx, measured, blocks)
 
         piece = self._pieces[tid]
         token = Token(piece, TokenKind.CONTROL if tid in self._control else TokenKind.NORMAL)
@@ -576,7 +627,7 @@ class JsMachine(SyscallSeat):
         return DecodeResult(
             tokens=(token,),
             request=request,
-            attention=attention,
+            attention=attention_mass,
             # A worker that cannot measure leaves the kernel a guess, which it never
             # takes at its word: the hint is undeclared, so integrity demotes on
             # provenance alone.

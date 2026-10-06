@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from importlib import resources
@@ -72,9 +73,14 @@ FRAME_OFFSET: Final = 16
 #: wants the channel must ``cancelDecode()`` and drain ``pollDecode`` first.
 CHANNEL_BUSY: Final = "channel busy: decode in flight"
 
-#: Prefill chunk for a pilot step: small enough that a cancel lands within one chunk of
-#: a board being read. Warm-up and replay use the worker's own (larger) default.
-DEFAULT_MAX_CHUNK: Final = 64
+#: Prefill chunk for a pilot step: a cancel lands within one chunk of a board being
+#: read. 256, not smaller: below about 800 positions each run carries a fixed overhead
+#: that made chunk 64 read a board 1.65x slower (``bench/RESULTS.md``). Warm-up and
+#: replay use the worker's own (larger) default.
+DEFAULT_MAX_CHUNK: Final = 256
+
+#: How long ``decode`` polls a step in flight before handing the kernel a stall.
+DEFAULT_STALL_MS: Final = 5.0
 
 
 class DecodeOptions(TypedDict):
@@ -108,13 +114,15 @@ class DecodeDone(TypedDict):
     """A step that ran to the end: the token chosen and the attention it measured.
 
     ``attention`` is the per-block mass ``decodeStep`` reports (``None`` for a backend that
-    cannot measure it). Never delivered for a step that was cancelled, even when the
-    worker had finished it by the time the cancel arrived.
+    cannot measure it). ``resident`` is the context's positions in the KV cache after the
+    step, as the channel's reply carries it. Never delivered for a step that was
+    cancelled, even when the worker had finished it by the time the cancel arrived.
     """
 
     tokenId: int
     attention: object | None
     cancelled: Literal[False]
+    resident: int
     stats: DecodeStats
 
 
@@ -225,7 +233,8 @@ class PilotMachine(Protocol):
     cancellations: int
     #: Cancel-to-drained wall time of each cancellation, in milliseconds.
     cancel_ms: list[float]
-    step_log: list[StepLogEntry]
+    #: The most recent decodes, bounded; running totals live beside it.
+    step_log: deque[StepLogEntry]
 
     def register_behaviour(
         self, descriptor: str, behaviour: Callable[[Native], DecodeResult]
@@ -240,9 +249,11 @@ class PilotMachine(Protocol):
         (native ``partial="keep"``). A no-op if nothing is in flight."""
         ...
 
-    def prewarm(self) -> None:
-        """Fill the grammar's mask cache with ``PREWARM_COMMANDS``. Called before the
-        clock starts; synchronous."""
+    def prewarm(
+        self, descriptor: str = "pilot", commands: Sequence[str] = PREWARM_COMMANDS
+    ) -> float:
+        """Fill the grammar's mask cache for ``descriptor`` with ``commands``, and return
+        the milliseconds it took. Called before the clock starts; synchronous."""
         ...
 
     def close(self) -> None:
@@ -266,7 +277,7 @@ class PilotMachineFactory(Protocol):
         bridge: Bridge | None = None,
         descriptors: Mapping[str, Sequence[str]] | None = None,
         block_size: int = 16,
-        stall_ms: float = 1.0,
+        stall_ms: float = DEFAULT_STALL_MS,
         max_chunk: int = DEFAULT_MAX_CHUNK,
         turn_ends_at_call: bool = True,
         forbid_verbs: Sequence[str] = (),
@@ -297,8 +308,9 @@ class PromptReply:
 class PromptArm(Protocol):
     """``BrowserPromptPlayer``: the prompt loop over the same worker, without blocking.
 
-    Owns one worker context. ``warm`` prefills the system prompt before the clock starts;
-    each ``begin`` truncates back to it, appends the history and the board, and starts an
+    Owns two worker contexts. ``warm`` prefills the system prompt into one before the
+    clock starts; each ``begin`` forks the other from it, appends the history and the
+    board, and starts an
     unconstrained reply of at most ``max_new`` tokens through ``beginDecodeStep``.
     """
 
