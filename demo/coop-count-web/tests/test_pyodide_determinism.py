@@ -17,7 +17,7 @@ cases in both and compares the files byte for byte:
   ``FakeWorker`` in CPython -- which also holds the two workers to one behaviour.
 
 Pyodide runs in Node, from the ``pyodide`` npm package that ``npm install`` puts in
-this demo's ``node_modules`` (or wherever ``ZEOS_PYODIDE_DIR`` points). Its postinstall
+``packages/zeos-browser/node_modules`` (or wherever ``ZEOS_PYODIDE_DIR`` points). Its postinstall
 step caches PyYAML beside it, so the run needs no network. The test skips when Node, the
 package or that cache is missing. Both wheels are built fresh with ``uv build`` and
 installed by unpacking, as Pyodide installs any pure wheel; the case directories are
@@ -36,16 +36,16 @@ from zeos.cli import main as zeos_main
 from zeos.descriptor.loader import load_case
 from zeos.driver import load_schedule
 from zeos.machine.seat import CommandSeat, TapeSource, seat_maps
-
-from zeos_coop_count_web.fake_worker import FakeWorker, tapes_from_scripts
-from zeos_coop_count_web.js_machine import JsMachine
-from zeos_coop_count_web.live import LiveRun
+from zeos_browser.fake_worker import FakeWorker, tapes_from_scripts
+from zeos_browser.js_machine import JsMachine
+from zeos_browser.live import LiveRun
 
 WEB = Path(__file__).resolve().parents[1]
 REPO = WEB.parents[1]
+BROWSER = REPO / "packages" / "zeos-browser"
 SMOKE = REPO / "tests" / "fixtures" / "smoke"
 CASE = REPO / "demo" / "coop-count" / "cases" / "coop-count-scripted"
-PYODIDE = Path(os.environ.get("ZEOS_PYODIDE_DIR", WEB / "node_modules" / "pyodide"))
+PYODIDE = Path(os.environ.get("ZEOS_PYODIDE_DIR", BROWSER / "node_modules" / "pyodide"))
 NODE = shutil.which("node")
 UV = shutil.which("uv")
 
@@ -56,7 +56,7 @@ import sys
 
 import js
 from zeos.cli import main
-from zeos_coop_count_web import page
+from zeos_browser import page
 
 print("Pyodide", sys.version.split()[0], sys.platform)
 assert main([
@@ -82,9 +82,9 @@ def _skip_reason() -> str | None:
     if UV is None:
         return "uv is not on PATH, and the test builds the wheels with it"
     if not (PYODIDE / "pyodide.mjs").is_file():
-        return f"no pyodide npm package at {PYODIDE}; run 'npm install' in {WEB}"
+        return f"no pyodide npm package at {PYODIDE}; run 'npm install' in {BROWSER}"
     if not any(PYODIDE.glob("pyyaml-*.whl")):
-        return f"PyYAML is not cached in {PYODIDE}; run 'npm install' in {WEB}"
+        return f"PyYAML is not cached in {PYODIDE}; run 'npm install' in {BROWSER}"
     return None
 
 
@@ -98,7 +98,7 @@ pytestmark = [
 def pyodide_journals(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
     assert NODE is not None and UV is not None
     wheels = tmp_path_factory.mktemp("wheels")
-    for package in ("zeos", "zeos-coop-count-web"):
+    for package in ("zeos", "zeos-browser"):
         subprocess.run(
             [UV, "build", "--wheel", "--package", package, "--out-dir", str(wheels)],
             cwd=REPO,
@@ -113,7 +113,7 @@ def pyodide_journals(tmp_path_factory: pytest.TempPathFactory) -> dict[str, byte
     for wheel in sorted(wheels.glob("*.whl")):
         argv += ["--wheel", str(wheel)]
     argv += ["--copy", f"{SMOKE}:/cases/smoke", "--copy", f"{CASE}:/cases/coop-count-scripted"]
-    argv += ["--js", str(WEB / "web" / "stub_worker.js")]
+    argv += ["--js", str(BROWSER / "web" / "stub_worker.js")]
     for name in names:
         argv += ["--fetch", f"/out/{name}.jsonl:{out / name}.jsonl"]
     argv.append(str(script))

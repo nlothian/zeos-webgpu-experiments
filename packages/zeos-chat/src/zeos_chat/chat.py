@@ -101,8 +101,11 @@ from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.core.pcb import Job
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import CaseBundle, load_case
+from zeos_browser.js_machine import DEFAULT_BLOCK_SIZE, Bridge, PythonBridge, ZeosModelWorker
+from zeos_browser.live import LiveRun
+from zeos_browser.page import findings
 
-from zeos_coop_count_web.chat_machine import (
+from zeos_chat.chat_machine import (
     THINK_CLOSE,
     ChatPipes,
     ChatToolMachine,
@@ -110,9 +113,6 @@ from zeos_coop_count_web.chat_machine import (
     ToolCall,
     ToolClass,
 )
-from zeos_coop_count_web.js_machine import DEFAULT_BLOCK_SIZE, Bridge, PythonBridge, ZeosModelWorker
-from zeos_coop_count_web.live import LiveRun
-from zeos_coop_count_web.page import findings
 
 __all__ = [
     "ATTENTION",
@@ -125,7 +125,7 @@ __all__ = [
 ]
 
 #: The case this package ships: one pinned chat job and its five pipes.
-CHAT_CASE = Path(str(resources.files("zeos_coop_count_web") / "cases" / "chat-agent"))
+CHAT_CASE = Path(str(resources.files("zeos_chat") / "cases" / "chat-agent"))
 
 #: What the model reads when the user declines a tool call.
 DEFAULT_REFUSAL = "The user declined this tool call. It was not run."
@@ -147,7 +147,7 @@ _ABI_BODY_RULES = frozenset({"unknown-body-verb", "unbound-body-pipe"})
 
 def _default_bridge() -> Bridge:
     if sys.platform == "emscripten":
-        from zeos_coop_count_web.pyodide_bridge import PyodideBridge
+        from zeos_browser.pyodide_bridge import PyodideBridge
 
         return PyodideBridge()
     return PythonBridge()

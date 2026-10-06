@@ -12,7 +12,7 @@ import pytest
 from zeos.machine.abi import DEFAULT, SyscallABI, Verb
 from zeos.machine.base import OpKind
 
-from zeos_coop_count_web.token_mask import CommandLanguage, TokenMask
+from zeos_browser.token_mask import CommandLanguage, TokenMask
 
 #: counter-a's bindings: a stdin to sleep on, a stdout to wake its peer, an actuator.
 COUNTER = CommandLanguage(DEFAULT, ("stdin", "stdout", "tools"), valued=("tools",))

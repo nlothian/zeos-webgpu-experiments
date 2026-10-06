@@ -24,8 +24,8 @@ from zeos.core.ids import JobId, TokenKind
 from zeos.machine.base import MachineBackend, render, tokens_from_text
 from zeos.machine.scripted import Script, ScriptedMachine
 
-from zeos_coop_count_web.fake_worker import FakeWorker
-from zeos_coop_count_web.js_machine import JsMachine
+from zeos_browser.fake_worker import FakeWorker
+from zeos_browser.js_machine import JsMachine
 
 JOB = JobId(1)
 CHILD = JobId(2)

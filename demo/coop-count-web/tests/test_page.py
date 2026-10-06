@@ -16,12 +16,13 @@ import zipfile
 from pathlib import Path
 
 import pytest
-
-from zeos_coop_count_web import page
+from zeos_browser import page
 
 WEB = Path(__file__).resolve().parents[1]
 REPO = WEB.parents[1]
 CASES = REPO / "demo" / "coop-count" / "cases"
+#: Where the npm dependencies are pinned, Pyodide's among them.
+BROWSER = REPO / "packages" / "zeos-browser"
 
 
 def test_both_pyodides_are_the_same_release() -> None:
@@ -29,9 +30,9 @@ def test_both_pyodides_are_the_same_release() -> None:
     about one says nothing about the other unless they are the same release."""
     worker = (WEB / "web" / "pyodide_worker.js").read_text(encoding="utf-8")
     (cdn,) = re.findall(r"cdn\.jsdelivr\.net/pyodide/v([0-9.]+)/full/pyodide\.mjs", worker)
-    npm = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
+    npm = json.loads((BROWSER / "package.json").read_text(encoding="utf-8"))
     assert npm["devDependencies"]["pyodide"] == cdn
-    lock = json.loads((WEB / "package-lock.json").read_text(encoding="utf-8"))
+    lock = json.loads((BROWSER / "package-lock.json").read_text(encoding="utf-8"))
     assert lock["packages"]["node_modules/pyodide"]["version"] == cdn
 
 
@@ -138,9 +139,9 @@ def test_build_assembles_everything_the_page_fetches(tmp_path: Path) -> None:
     assert isinstance(names, list) and len(names) == 2
     for name in names:
         assert (dist / "wheels" / name).is_file()
-    (web_wheel,) = (dist / "wheels" / n for n in names if n.startswith("zeos_coop_count_web-"))
+    (web_wheel,) = (dist / "wheels" / n for n in names if n.startswith("zeos_browser-"))
     archive = zipfile.ZipFile(web_wheel)
-    assert all(n.startswith("zeos_coop_count_web") for n in archive.namelist())
+    assert all(n.startswith("zeos_browser") for n in archive.namelist())
     (metadata,) = (n for n in archive.namelist() if n.endswith("METADATA"))
     requires = [
         line

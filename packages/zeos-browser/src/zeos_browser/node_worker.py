@@ -47,15 +47,15 @@ from typing import IO, Any, cast
 
 __all__ = [
     "CHANNEL_BUSY",
-    "DEMO",
+    "PACKAGE",
     "ModelInfo",
     "NodeWorker",
     "Step",
     "node_available",
 ]
 
-DEMO = Path(__file__).resolve().parents[2]
-BRIDGE = DEMO / "web" / "node_bridge.mjs"
+PACKAGE = Path(__file__).resolve().parents[2]
+BRIDGE = PACKAGE / "web" / "node_bridge.mjs"
 
 _TYPECODES = {"Uint8Array": "B", "Int32Array": "i", "Float32Array": "f"}
 
@@ -94,7 +94,7 @@ class NodeWorker:
             raise RuntimeError("node is not on PATH")
         argv = [node, str(BRIDGE), "--stub", str(stub)]
         self._process = subprocess.Popen(
-            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=DEMO
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=PACKAGE
         )
         self._next = 0
         # Bytes read from the child and not yet parsed: frames are read off the raw pipe,
@@ -350,7 +350,7 @@ def _decode(value: object, blobs: list[bytes]) -> object:
     if isinstance(value, dict):
         fields = cast(dict[str, object], value)
         if "$blob" in fields:
-            out = array(_TYPECODES[str(fields["type"])])
+            out: array[Any] = array(_TYPECODES[str(fields["type"])])
             out.frombytes(blobs[int(cast(int, fields["$blob"]))])
             return out
         return {k: _decode(v, blobs) for k, v in fields.items()}

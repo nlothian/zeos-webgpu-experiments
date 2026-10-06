@@ -9,14 +9,16 @@
     uv run python demo/coop-count-web/build.py
     python -m http.server 8765 -d demo/coop-count-web/web/dist
 
-It builds the ``zeos`` and ``zeos-coop-count-web`` wheels with ``uv build``, copies in
-the coop-count cases, the debugger's static assets from ``src/zeos/debugger/static/``
-and the page itself, and writes ``manifest.json`` naming the wheels and every case file,
+It builds the ``zeos`` and ``zeos-browser`` wheels with ``uv build``, copies in the
+coop-count cases, the debugger's static assets from ``src/zeos/debugger/static/``, the
+page itself and the generic model-thread JavaScript from ``packages/zeos-browser/web``
+(copied at build time, so there is one source for it), and writes ``manifest.json`` naming the wheels and every case file,
 which is how the page finds them: a static host lists no directories. The directory is
 emptied first, so what is served is exactly what this run built.
 
-When ``npm install`` has been run it also copies ONNX Runtime Web and the tokenizer into
-``vendor/``, and when the model has been exported it links the export into ``models/``
+When ``npm install`` has been run in ``packages/zeos-browser`` it also copies ONNX Runtime
+Web and the tokenizer into ``vendor/``, and when the model has been exported (into
+``packages/zeos-browser/models/``) it links the export into ``models/``
 and names it in the manifest, which is what offers the model machine on the page. The
 export is linked rather than copied because it is gigabytes; a host that
 does not follow links needs ``--copy-model``.
@@ -35,16 +37,17 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 WEB = HERE / "web"
+BROWSER = REPO / "packages" / "zeos-browser"
+BROWSER_WEB = BROWSER / "web"
 DIST = WEB / "dist"
 CASES = REPO / "demo" / "coop-count" / "cases"
 DEBUGGER = REPO / "src" / "zeos" / "debugger" / "static"
-PACKAGES = ("zeos", "zeos-coop-count-web")
-PAGE = (
-    "index.html",
-    "app.js",
-    "pyodide_worker.js",
+PACKAGES = ("zeos", "zeos-browser")
+#: The page's own files, from ``web/``.
+PAGE = ("index.html", "app.js", "pyodide_worker.js", "style.css")
+#: The stub, the model thread and its channel, from ``packages/zeos-browser/web``.
+GENERIC = (
     "stub_worker.js",
-    "style.css",
     "coi_serviceworker.js",
     "transformers_worker.js",
     "opt_zeos_worker.js",
@@ -53,8 +56,8 @@ PAGE = (
     "model_thread.js",
     "frames.js",
 )
-NODE_MODULES = HERE / "node_modules"
-#: What the model thread imports, from the npm packages package.json pins.
+NODE_MODULES = BROWSER / "node_modules"
+#: What the model thread imports, from the npm packages zeos-browser's package.json pins.
 VENDOR = {
     "onnxruntime-web": (
         NODE_MODULES / "onnxruntime-web" / "dist",
@@ -67,7 +70,7 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = HERE / "models" / "Qwen3.5-4B-ZEOS-OPT"
+MODEL = BROWSER / "models" / "Qwen3.5-4B-ZEOS-OPT"
 
 
 def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -> dict[str, object]:
@@ -91,6 +94,8 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
     shutil.copytree(DEBUGGER, dist / "debugger")
     for name in PAGE:
         shutil.copy2(WEB / name, dist / name)
+    for name in GENERIC:
+        shutil.copy2(BROWSER_WEB / name, dist / name)
 
     manifest: dict[str, object] = {"wheels": names, "cases": cases}
     if all(source.is_dir() for source, _ in VENDOR.values()):
@@ -120,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = build(model=args.model, copy_model=args.copy_model)
     print(f"built {DIST}: {len(manifest['wheels'])} wheels, {len(manifest['cases'])} cases")  # pyright: ignore[reportArgumentType]
     print(
-        f"model: {manifest.get('model', 'none (run export/opt_zeos_surgery.py and npm install)')}"
+        f"model: {manifest.get('model', 'none (see packages/zeos-browser: npm install, then export/opt_zeos_surgery.py)')}"
     )
     print(f"serve it with: uv run python {os.path.relpath(HERE / 'serve.py')}")
     return 0

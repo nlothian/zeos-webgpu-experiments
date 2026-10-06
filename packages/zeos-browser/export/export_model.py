@@ -39,7 +39,7 @@ anything is exported.
 Run it with the export dependency group (see the demo README)::
 
     uv sync --all-packages --group export
-    uv run python demo/coop-count-web/export/export_model.py
+    uv run python packages/zeos-browser/export/export_model.py
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-DEMO = Path(__file__).resolve().parent.parent
+PACKAGE = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "Qwen/Qwen3.5-2B"
 #: The DeltaNet layers solve a unit lower-triangular system over each chunk: by repeated
 #: squaring within blocks of ``SOLVE_BLOCK`` positions (exact for ``2 ** SOLVE_STEPS``
@@ -659,7 +659,7 @@ def main(argv: list[str] | None = None) -> int:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     name = args.model.split("/")[-1]
-    source = DEMO / "models" / name
+    source = PACKAGE / "models" / name
     snapshot_download(
         args.model,
         local_dir=source,
@@ -672,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
             "*.jinja",
         ],
     )
-    out: Path = args.out or DEMO / "models" / f"{name}-zeos-{args.quant}"
+    out: Path = args.out or PACKAGE / "models" / f"{name}-zeos-{args.quant}"
 
     hf = AutoModelForCausalLM.from_pretrained(source, dtype=torch.float32)
     hf.eval()

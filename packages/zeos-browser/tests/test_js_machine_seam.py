@@ -17,8 +17,8 @@ from workers import ChoosingWorker, MeasuringWorker, RecordingWorker
 from zeos.core.ids import JobId
 from zeos.machine.base import ControlTokenViolation, MaskViolation, tokens_from_text
 
-from zeos_coop_count_web.fake_worker import CONTROL_IDS, PAD_ID, UNK_ID, FakeWorker, ModelInfo
-from zeos_coop_count_web.js_machine import JsMachine, WorkerViolation
+from zeos_browser.fake_worker import CONTROL_IDS, PAD_ID, UNK_ID, FakeWorker, ModelInfo
+from zeos_browser.js_machine import JsMachine, WorkerViolation
 
 JOB = JobId(1)
 CHILD = JobId(2)

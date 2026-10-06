@@ -75,7 +75,7 @@ async function boot() {
     }
   }
 
-  page = pyodide.pyimport("zeos_coop_count_web.page");
+  page = pyodide.pyimport("zeos_browser.page");
   const python = pyodide.runPython("import sys; sys.version.split()[0]");
   post("ready", {
     cases: Object.keys(manifest.cases),

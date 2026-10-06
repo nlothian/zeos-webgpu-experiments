@@ -6,7 +6,7 @@
 
 /**
  * The stub worker as a child process, for a CPython parent
- * (`zeos_coop_count_web.node_worker.NodeWorker`): `stub_worker.js` over a JSON file of
+ * (`zeos_browser.node_worker.NodeWorker`): `stub_worker.js` over a JSON file of
  * `{tapes, options}`. One request at a time on stdin, one reply per request on stdout, in
  * the frames of `frames.js`, so each of the parent's calls returns only when the worker
  * has finished.

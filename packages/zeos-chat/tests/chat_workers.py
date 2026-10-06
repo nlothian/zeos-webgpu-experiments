@@ -21,8 +21,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from zeos_coop_count_web.chat_machine import sample_index
-from zeos_coop_count_web.fake_worker import ModelInfo
+from zeos_browser.fake_worker import ModelInfo
+
+from zeos_chat.chat_machine import sample_index
 
 SPECIAL = (
     "<pad>",

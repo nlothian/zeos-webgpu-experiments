@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 // A ZeosModelWorker with no model: the JavaScript twin of
-// zeos_coop_count_web/fake_worker.py, and kept to the same behaviour -- the Pyodide
+// zeos_browser/fake_worker.py, and kept to the same behaviour -- the Pyodide
 // determinism test runs a case through JsMachine over each and requires the same
 // journal bytes.
 //

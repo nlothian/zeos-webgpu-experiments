@@ -40,4 +40,4 @@ context:
 ---
 
 This body is a placeholder. The host replaces it with the system prompt and the tool
-declarations before the run opens (`zeos_coop_count_web.chat.open_chat`, `system_prompt`).
+declarations before the run opens (`zeos_chat.chat.open_chat`, `system_prompt`).

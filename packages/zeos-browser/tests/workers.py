@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from zeos_coop_count_web.fake_worker import FakeWorker, Step
+from zeos_browser.fake_worker import FakeWorker, Step
 
 
 @dataclass(frozen=True, slots=True)

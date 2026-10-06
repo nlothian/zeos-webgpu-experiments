@@ -42,7 +42,7 @@ from zeos.journal.writer import Journal
 from zeos.machine.base import MachineBackend, TracesRaw
 from zeos.trace import RawTrace
 
-from zeos_coop_count_web.transcript import Transcript
+from zeos_browser.transcript import Transcript
 
 __all__ = ["LiveRun"]
 

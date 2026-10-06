@@ -27,7 +27,7 @@
 // PLAYWRIGHT_MODULE names a directory to import Playwright from (any project's
 // node_modules/playwright); Playwright is not a dependency here. ONNX Runtime Web is this
 // directory's npm install unless --ort names another build. grammar.html runs on the
-// zeos and zeos-coop-count-web wheels, which this builds into export/bench/wheels/ with
+// zeos and zeos-browser wheels, which this builds into export/bench/wheels/ with
 // `uv build` first. WebGPU is shared: run nothing else heavy on the GPU at the same time,
 // or the timings halve.
 
@@ -42,7 +42,7 @@ import { parseArgs } from "node:util";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const REPO = join(ROOT, "..", "..");
 const PAGES = ["checks.html", "grammar.html", "worker.html"];
-const WHEELS = ["zeos", "zeos-coop-count-web"];
+const WHEELS = ["zeos", "zeos-browser"];
 const { values } = parseArgs({
   options: {
     port: { type: "string", default: "8767" },

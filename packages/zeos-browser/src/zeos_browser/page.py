@@ -37,10 +37,10 @@ from zeos.driver import load_schedule
 from zeos.machine.base import MachineBackend
 from zeos.machine.seat import CommandSeat, TapeSource, seat_maps
 
-from zeos_coop_count_web.fake_worker import tapes_from_scripts
-from zeos_coop_count_web.js_machine import Bridge, JsMachine, ZeosModelWorker
-from zeos_coop_count_web.live import LiveRun
-from zeos_coop_count_web.transcript import Transcript
+from zeos_browser.fake_worker import tapes_from_scripts
+from zeos_browser.js_machine import Bridge, JsMachine, ZeosModelWorker
+from zeos_browser.live import LiveRun
+from zeos_browser.transcript import Transcript
 
 __all__ = ["MACHINES", "describe", "findings", "open_run", "payload_json", "tapes_json"]
 
@@ -144,7 +144,7 @@ def open_run(
         )
     bridge: Bridge | None = None
     if worker is not None:
-        from zeos_coop_count_web.pyodide_bridge import PyodideBridge
+        from zeos_browser.pyodide_bridge import PyodideBridge
 
         bridge = PyodideBridge()
     events = case / "events.jsonl"

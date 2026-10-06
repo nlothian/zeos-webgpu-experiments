@@ -21,8 +21,8 @@ from zeos.core.ids import JobId, TokenKind
 from zeos.machine.abi import DEFAULT
 from zeos.machine.base import OpKind, tokens_from_text
 
-from zeos_coop_count_web.js_machine import JsMachine
-from zeos_coop_count_web.pyodide_bridge import PyodideBridge
+from zeos_browser.js_machine import JsMachine
+from zeos_browser.pyodide_bridge import PyodideBridge
 
 JOB = JobId(1)
 ADVERSARIAL = (

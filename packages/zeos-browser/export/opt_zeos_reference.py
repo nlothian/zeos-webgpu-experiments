@@ -10,7 +10,7 @@
 """Write the reference logits ``export/bench/checks.html`` holds the OPT+ZEOS graph to.
 
     uv sync --all-packages --group export
-    uv run python demo/coop-count-web/export/opt_zeos_reference.py
+    uv run python packages/zeos-browser/export/opt_zeos_reference.py
 
 For the prompts in ``export/bench/reference_prompts.json``: ``transformers``' last-position
 logits of Qwen3.5-4B in float32 for ``short`` and ``long``, and ``export_model.ZeosQwen``'s
@@ -32,14 +32,14 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEMO = HERE.parent
+PACKAGE = HERE.parent
 PROMPTS = HERE / "bench" / "reference_prompts.json"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    parser.add_argument("--hf", type=Path, default=DEMO / "models" / "Qwen3.5-4B")
-    parser.add_argument("--out", type=Path, default=DEMO / "models" / ".reference")
+    parser.add_argument("--hf", type=Path, default=PACKAGE / "models" / "Qwen3.5-4B")
+    parser.add_argument("--out", type=Path, default=PACKAGE / "models" / ".reference")
     args = parser.parse_args(argv)
 
     import numpy as np

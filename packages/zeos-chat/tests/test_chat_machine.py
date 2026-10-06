@@ -31,9 +31,10 @@ from zeos.core.ids import JobId, TokenKind
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import load_case
 from zeos.machine.base import Token, tokens_from_text
+from zeos_browser.page import findings
 
-from zeos_coop_count_web.chat import CHAT_CASE, DEFAULT_REFUSAL, ChatRun, open_chat
-from zeos_coop_count_web.chat_machine import (
+from zeos_chat.chat import CHAT_CASE, DEFAULT_REFUSAL, ChatRun, open_chat
+from zeos_chat.chat_machine import (
     ChatToolMachine,
     FrameGuard,
     Sampling,
@@ -41,9 +42,8 @@ from zeos_coop_count_web.chat_machine import (
     parse_tool_call_body,
     sample_index,
 )
-from zeos_coop_count_web.page import findings
 
-WEB = Path(__file__).resolve().parents[1] / "web"
+WEB = Path(__file__).resolve().parents[2] / "zeos-browser" / "web"
 CLASSES = {"ReadLines": "read", "ListFiles": "read", "WriteLines": "effect"}
 PROMPT = "You are a data agent.\n\nTools:\n  ReadLines(path)\n  WriteLines(path, lines)"
 TABLE = "id,name\n1,ada\n  2,grace\n"

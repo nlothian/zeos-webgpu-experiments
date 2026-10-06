@@ -157,7 +157,7 @@ function appendLines(lines) {
 }
 
 // The user view: the lines `zeos-count run` prints, which the worker sends beside the
-// journal lines (zeos_coop_count_web.transcript).
+// journal lines (zeos_browser.transcript).
 function classifyTranscript(line) {
   if (line.includes("<RESUME>")) return "resume";
   if (line.includes(" \u25c0\u2500\u2500 ")) return "arrive";

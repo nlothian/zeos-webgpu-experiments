@@ -1,34 +1,24 @@
 [project]
 name = "zeos-coop-count-web"
 version = "0.1.0"
-description = "The coop-count demo in a static web page: the kernel under Pyodide, and a machine backend that hands token-level work to JavaScript"
+description = "The coop-count demo in a static web page: the kernel under Pyodide, with JsMachine handing token-level work to a JavaScript model worker"
 readme = "README.md"
 requires-python = ">=3.12"
-# Nothing native, so the wheel installs under Pyodide. The llama seat and the Claude seats
-# of demo/coop-count stay there; this package carries only what a browser can run.
+# The page runs on the zeos and zeos-browser wheels. This package holds what is the demo's
+# own beyond the page: the reader of its measured-attention evidence.
 dependencies = [
     "zeos",
+    "zeos-browser",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
 ]
-# export/export_model.py, which writes the ONNX graphs the model worker runs. Not a default
-# group, so `uv sync --all-packages` never installs PyTorch; install it on its own with
-#   uv sync --package zeos-coop-count-web --group export
-export = [
-    "torch>=2.9",
-    "transformers>=5.0",
-    "huggingface-hub>=1.0",
-    "onnx>=1.19",
-    "onnxscript>=0.5",
-    "onnxruntime>=1.30",
-    "numpy>=2.0",
-]
 
 [tool.uv.sources]
 zeos = { workspace = true }
+zeos-browser = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -51,8 +41,3 @@ line-length = 100
 [tool.ruff.lint]
 # Written down rather than inherited: ruff 0.16 changed its defaults.
 select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
-
-[tool.ruff.lint.per-file-ignores]
-# The machine contract requires a destroyed context to raise; which exception type is
-# the backend's business, so the blind pytest.raises is deliberate.
-"tests/test_js_machine_contract.py" = ["B017"]

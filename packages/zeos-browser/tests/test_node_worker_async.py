@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from zeos_coop_count_web.node_worker import CHANNEL_BUSY, NodeWorker, node_available
+from zeos_browser.node_worker import CHANNEL_BUSY, NodeWorker, node_available
 
 pytestmark = pytest.mark.skipif(not node_available(), reason="needs node")
 

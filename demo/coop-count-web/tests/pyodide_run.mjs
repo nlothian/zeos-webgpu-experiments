@@ -11,13 +11,13 @@
 //        --fetch PYPATH:HOST ... --js FILE.js ... SCRIPT.py
 //
 // --copy puts a host directory into MEMFS before the script runs; --fetch copies one
-// file back out afterwards; --js loads a classic script, such as web/stub_worker.js,
-// into the global scope the script reaches as Pyodide's `js` module. Nothing is
-// mounted: the script sees exactly the
-// filesystem the page builds, so a difference between the two runs is Pyodide's and
-// not the host's directory order.
+// file back out afterwards; --js loads a classic script, such as zeos-browser's
+// web/stub_worker.js, into the global scope the script reaches as Pyodide's `js` module.
+// Nothing is mounted: the script sees exactly the filesystem the page builds, so a
+// difference between the two runs is Pyodide's and not the host's directory order.
 //
-// ZEOS_PYODIDE_DIR overrides where the pyodide npm package is looked for.
+// ZEOS_PYODIDE_DIR overrides where the pyodide npm package is looked for
+// (packages/zeos-browser/node_modules/pyodide).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -51,7 +51,8 @@ if (!script) {
 }
 
 const here = path.dirname(new URL(import.meta.url).pathname);
-const pyodideDir = process.env.ZEOS_PYODIDE_DIR || path.join(here, "..", "node_modules", "pyodide");
+const pyodideDir =
+  process.env.ZEOS_PYODIDE_DIR || path.join(here, "..", "..", "..", "packages", "zeos-browser", "node_modules", "pyodide");
 const { loadPyodide } = await import(pathToFileURL(path.join(pyodideDir, "pyodide.mjs")).href);
 
 const pyodide = await loadPyodide({ indexURL: pyodideDir + path.sep });

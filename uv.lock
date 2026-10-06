@@ -11,6 +11,8 @@ resolution-markers = [
 members = [
     "counter-demo",
     "zeos",
+    "zeos-browser",
+    "zeos-chat",
     "zeos-coop-count",
     "zeos-coop-count-web",
     "zeos-space-invaders",
@@ -1747,36 +1749,9 @@ dev = [
 ]
 
 [[package]]
-name = "zeos-coop-count"
+name = "zeos-browser"
 version = "0.1.0"
-source = { editable = "demo/coop-count" }
-dependencies = [
-    { name = "anthropic" },
-    { name = "huggingface-hub" },
-    { name = "llama-cpp-python" },
-    { name = "zeos" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=1.0" },
-    { name = "huggingface-hub", specifier = ">=0.34" },
-    { name = "llama-cpp-python", specifier = ">=0.3.35" },
-    { name = "zeos", editable = "." },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
-
-[[package]]
-name = "zeos-coop-count-web"
-version = "0.1.0"
-source = { editable = "demo/coop-count-web" }
+source = { editable = "packages/zeos-browser" }
 dependencies = [
     { name = "zeos" },
 ]
@@ -1809,6 +1784,79 @@ export = [
     { name = "torch", specifier = ">=2.9" },
     { name = "transformers", specifier = ">=5.0" },
 ]
+
+[[package]]
+name = "zeos-chat"
+version = "0.1.0"
+source = { editable = "packages/zeos-chat" }
+dependencies = [
+    { name = "zeos" },
+    { name = "zeos-browser" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "zeos", editable = "." },
+    { name = "zeos-browser", editable = "packages/zeos-browser" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
+name = "zeos-coop-count"
+version = "0.1.0"
+source = { editable = "demo/coop-count" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "huggingface-hub" },
+    { name = "llama-cpp-python" },
+    { name = "zeos" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=1.0" },
+    { name = "huggingface-hub", specifier = ">=0.34" },
+    { name = "llama-cpp-python", specifier = ">=0.3.35" },
+    { name = "zeos", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
+name = "zeos-coop-count-web"
+version = "0.1.0"
+source = { editable = "demo/coop-count-web" }
+dependencies = [
+    { name = "zeos" },
+    { name = "zeos-browser" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "zeos", editable = "." },
+    { name = "zeos-browser", editable = "packages/zeos-browser" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "zeos-space-invaders"
@@ -1859,7 +1907,7 @@ version = "0.1.0"
 source = { editable = "demo/space-invaders-web" }
 dependencies = [
     { name = "zeos" },
-    { name = "zeos-coop-count-web" },
+    { name = "zeos-browser" },
     { name = "zeos-space-invaders" },
 ]
 
@@ -1871,7 +1919,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "zeos", editable = "." },
-    { name = "zeos-coop-count-web", editable = "demo/coop-count-web" },
+    { name = "zeos-browser", editable = "packages/zeos-browser" },
     { name = "zeos-space-invaders", editable = "demo/space-invaders" },
 ]
 

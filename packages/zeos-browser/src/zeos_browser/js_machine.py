@@ -12,7 +12,7 @@ token ids behind them and how many ids each word occupies, and lets the inherite
 turn decoded pieces into kernel requests one piece at a time. What it does not do is run
 a model. Every token-level operation goes to a *worker*: a JavaScript object reached
 through Pyodide's ``js`` module and passed in at construction, or under CPython a Python
-object with the same methods (``zeos_coop_count_web.fake_worker.FakeWorker``).
+object with the same methods (``zeos_browser.fake_worker.FakeWorker``).
 
 The worker implements exactly this interface::
 
@@ -123,7 +123,7 @@ from zeos.machine.base import (
 from zeos.machine.scripted import PAD_TOKEN
 from zeos.machine.seat import SyscallParser, SyscallSeat
 
-from zeos_coop_count_web.token_mask import CommandLanguage, RoundState, TokenMask
+from zeos_browser.token_mask import CommandLanguage, RoundState, TokenMask
 
 __all__ = [
     "Bridge",
@@ -171,7 +171,7 @@ class Bridge(Protocol):
     Under CPython the worker is a Python object and nothing needs converting
     (``PythonBridge``). Under Pyodide an id list must become an ``Int32Array``, a flag
     array a ``Uint8Array``, ``None`` a JavaScript ``null`` and the options a plain object
-    (``zeos_coop_count_web.pyodide_bridge.PyodideBridge``).
+    (``zeos_browser.pyodide_bridge.PyodideBridge``).
     """
 
     def ids(self, ids: Sequence[int]) -> object: ...

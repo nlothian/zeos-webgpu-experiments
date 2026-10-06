@@ -47,9 +47,9 @@ The weights are not loaded: the decoder's two external-data files are copied byt
 byte under the new graph's name, and the few inline constants the new nodes need sit in
 the graph. Run it with the export dependency group (see the demo README)::
 
-    uv run python demo/coop-count-web/export/opt_zeos_surgery.py \\
+    uv run python packages/zeos-browser/export/opt_zeos_surgery.py \\
         --src models/onnx-community/Qwen3.5-4B-ONNX-OPT \\
-        --out demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT
+        --out packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
 
-DEMO = Path(__file__).resolve().parent.parent
+PACKAGE = Path(__file__).resolve().parent.parent
 SRC_DECODER = "decoder_model_merged_q4f16"
 OUT_DECODER = "decoder_zeos_q4f16"
 EMBED = "embed_tokens_q4f16"
@@ -471,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=DEMO / "models" / "Qwen3.5-4B-ZEOS-OPT",
+        default=PACKAGE / "models" / "Qwen3.5-4B-ZEOS-OPT",
         help="output directory (default models/Qwen3.5-4B-ZEOS-OPT)",
     )
     args = parser.parse_args(argv)
@@ -514,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
     logits = next(o for o in model.graph.output if o.name == "logits")
     meta: dict[str, Any] = {
         "model": "onnx-community/Qwen3.5-4B-ONNX-OPT",
-        "derivedBy": "demo/coop-count-web/export/opt_zeos_surgery.py",
+        "derivedBy": "packages/zeos-browser/export/opt_zeos_surgery.py",
         "family": text["model_type"],
         "quant": "q4f16",
         "blockSize": 1,

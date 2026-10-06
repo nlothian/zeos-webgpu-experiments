@@ -16,7 +16,7 @@ twice, so the package metadata is the single source of truth and a licence chang
 is one edit, not a hunt.
 
 Third-party material is deliberately excluded: anything under a ``vendor``
-directory keeps the licence it arrived with, as does a demo's gitignored
+directory keeps the licence it arrived with, as does a gitignored
 ``node_modules``.
 """
 
@@ -30,7 +30,7 @@ import pytest
 import zeos
 
 REPO = Path(zeos.__file__).resolve().parents[2]
-ROOTS = ("src", "tests", "demo")
+ROOTS = ("src", "tests", "packages", "demo")
 SUFFIXES = (".py", ".js", ".css")
 
 

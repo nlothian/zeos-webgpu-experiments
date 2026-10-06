@@ -144,8 +144,7 @@ from zeos.machine.base import (
     Token,
     tokens_from_text,
 )
-
-from zeos_coop_count_web.js_machine import (
+from zeos_browser.js_machine import (
     DEFAULT_BLOCK_SIZE,
     IM_END,
     IM_START,

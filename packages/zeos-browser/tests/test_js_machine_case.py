@@ -29,11 +29,11 @@ from zeos.journal.writer import read_journal_lines
 from zeos.machine.base import MachineBackend
 from zeos.machine.seat import CommandSeat, TapeSource, seat_maps
 
-from zeos_coop_count_web.fake_worker import FakeWorker, tapes_from_scripts
-from zeos_coop_count_web.js_machine import JsMachine
-from zeos_coop_count_web.live import LiveRun
+from zeos_browser.fake_worker import FakeWorker, tapes_from_scripts
+from zeos_browser.js_machine import JsMachine
+from zeos_browser.live import LiveRun
 
-CASES = Path(__file__).resolve().parents[2] / "coop-count" / "cases"
+CASES = Path(__file__).resolve().parents[3] / "demo" / "coop-count" / "cases"
 CASE = CASES / "coop-count-scripted"
 #: The tape's interrupt, from the case's own schedule: the key at 39ms, the number at 40ms.
 INTERRUPT_NS, NUMBER_NS = 39_000_000, 40_000_000
