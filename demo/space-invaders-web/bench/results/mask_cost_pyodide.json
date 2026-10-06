@@ -1,0 +1,443 @@
+{
+  "vocab": 248077,
+  "language_build_ms": 0.07020800000012706,
+  "tokenmask_build_ms": 0.6688749999999022,
+  "start_state": {
+    "cold_ms": 769.8714169999998,
+    "warm_ms": 0.0002553334999999546,
+    "allowed_ids": 28
+  },
+  "walks": {
+    "write stdout left;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " left",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": false,
+            "ms": 579.6871670000004,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": false,
+            "ms": 581.002125,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " left",
+            "cached": false,
+            "ms": 1202.5825000000007,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 1805.2645829999997,
+            "allowed_ids": 242713,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 4,
+        "cold_ms": 4168.536375000001
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " left",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.010332999999640435,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.00837500000017144,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " left",
+            "cached": true,
+            "ms": 0.0024170000001433323,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.010915999999916437,
+            "allowed_ids": 242713,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "write stdout right;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " right",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": true,
+            "ms": 0.006165999999474536,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.003042000000341716,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " right",
+            "cached": true,
+            "ms": 0.005458000000402308,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 1716.9458750000003,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 1,
+        "cold_ms": 1716.9458750000003
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " right",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.007042000000012649,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.0029580000013851304,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " right",
+            "cached": true,
+            "ms": 0.0015829999995276012,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.0018330000006727687,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "write stdout shoot;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " shoot",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": true,
+            "ms": 0.0035000000000451337,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.0034170000002831102,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " shoot",
+            "cached": true,
+            "ms": 0.008665999999379892,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.0024589999991775358,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " shoot",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.010333000000528614,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.003832999999175968,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " shoot",
+            "cached": true,
+            "ms": 0.003082999999293179,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.011458999999547359,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "read stdin;": [
+      {
+        "pieces": [
+          "read",
+          " stdin",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "read",
+            "cached": true,
+            "ms": 0.006500000001352646,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdin",
+            "cached": false,
+            "ms": 528.363208,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 334.319292,
+            "allowed_ids": 1,
+            "token_allowed": true
+          }
+        ],
+        "states": 3,
+        "new_states": 2,
+        "cold_ms": 862.6825
+      },
+      {
+        "pieces": [
+          " read",
+          " stdin",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " read",
+            "cached": true,
+            "ms": 0.005707999999771118,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdin",
+            "cached": true,
+            "ms": 0.00233299999941039,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.009207999999816252,
+            "allowed_ids": 1,
+            "token_allowed": true
+          }
+        ],
+        "states": 3,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ]
+  },
+  "prewarm_distinct_states": 7,
+  "prewarm_cold_total_ms": 6748.164750000002,
+  "warm_hit_ms_max": 0.0008949999999998681,
+  "payload_states": [
+    {
+      "chars": 0,
+      "cached": false,
+      "ms": 2060.4785420000003,
+      "allowed_ids": 246460
+    },
+    {
+      "chars": 1,
+      "cached": false,
+      "ms": 1895.4809590000004,
+      "allowed_ids": 246247
+    },
+    {
+      "chars": 2,
+      "cached": false,
+      "ms": 2105.173707999999,
+      "allowed_ids": 245689
+    },
+    {
+      "chars": 3,
+      "cached": false,
+      "ms": 1786.6934169999986,
+      "allowed_ids": 244586
+    },
+    {
+      "chars": 4,
+      "cached": true,
+      "ms": 0.00900000000214618,
+      "allowed_ids": 242713
+    },
+    {
+      "chars": 5,
+      "cached": true,
+      "ms": 0.005292000000878261,
+      "allowed_ids": 239345
+    },
+    {
+      "chars": 6,
+      "cached": false,
+      "ms": 1592.412249999999,
+      "allowed_ids": 233894
+    },
+    {
+      "chars": 7,
+      "cached": false,
+      "ms": 1675.7595000000017,
+      "allowed_ids": 225761
+    },
+    {
+      "chars": 8,
+      "cached": false,
+      "ms": 2050.85025,
+      "allowed_ids": 213860
+    },
+    {
+      "chars": 9,
+      "cached": false,
+      "ms": 1611.7098749999989,
+      "allowed_ids": 197414
+    },
+    {
+      "chars": 10,
+      "cached": false,
+      "ms": 1634.454667,
+      "allowed_ids": 176161
+    },
+    {
+      "chars": 11,
+      "cached": false,
+      "ms": 1363.0013749999996,
+      "allowed_ids": 150272
+    },
+    {
+      "chars": 12,
+      "cached": false,
+      "ms": 1269.0657499999993,
+      "allowed_ids": 120562
+    },
+    {
+      "chars": 13,
+      "cached": false,
+      "ms": 1154.5647499999986,
+      "allowed_ids": 84978
+    },
+    {
+      "chars": 14,
+      "cached": false,
+      "ms": 963.7531250000002,
+      "allowed_ids": 49632
+    },
+    {
+      "chars": 15,
+      "cached": false,
+      "ms": 576.8981249999996,
+      "allowed_ids": 8896
+    },
+    {
+      "chars": 16,
+      "cached": false,
+      "ms": 286.07674999999944,
+      "allowed_ids": 1
+    }
+  ],
+  "payload_states_cold_total_ms": 22026.373042999996,
+  "bytes_from_bytearray_ms": 0.004670210000004005,
+  "copy_ms": 0.2164029149999891,
+  "runtime": "pyodide 3.14.2"
+}
