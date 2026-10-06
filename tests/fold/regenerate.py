@@ -73,6 +73,15 @@ The table keeps a character only when its fold differs from it and is empty or h
 ASCII character: everything the frame patterns can match is ASCII, so any other
 character may stand for itself. A look-alike missing from it is a gap in the advisory
 alarm, not in what a job may do.
+
+Two more sets tell ``framing`` where a reader sees a frame name end (its docstring,
+"Where a name ends"). ``ACCENTED`` are the **Latin letters with diacritics**: the
+characters whose canonical decomposition (NFD) is an ASCII letter then one or more
+combining marks, and whose fold is that letter, upper-cased (``é``, ``ĺ``, ``ü``, ``Å``;
+not the Kelvin sign, whose decomposition is a bare ``K``, nor ``ł`` or ``ø``, which have
+none). ``ACCENTS`` are the combining marks those decompositions hold (U+0300 grave,
+U+0301 acute, U+0308 diaeresis, ...): visible, so they belong to the letter they sit on,
+where the other characters the fold drops are invisible.
 """
 
 from __future__ import annotations
@@ -80,6 +89,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import unicodedata
+from collections.abc import Iterable
 from pathlib import Path
 
 TARGET = Path(__file__).resolve().parents[2] / "src" / "zeos" / "core" / "_fold_table.py"
@@ -275,8 +285,43 @@ def build() -> tuple[list[tuple[int, int]], dict[int, str]]:
     return dropped, mapped
 
 
+def accents_of(codepoint: int) -> str | None:
+    """The combining marks of a Latin letter with diacritics (``ACCENTED``), or ``None``
+    when the character is not one."""
+    decomposed = unicodedata.normalize("NFD", chr(codepoint))
+    base, marks = decomposed[:1], decomposed[1:]
+    if codepoint < 0x80 or not marks or not (base.isascii() and base.isalpha()):
+        return None
+    if not all(unicodedata.category(m) == "Mn" and _ignorable(ord(m)) for m in marks):
+        return None
+    return marks if fold_of(codepoint) == base.upper() else None
+
+
+def _ranges(codepoints: Iterable[int]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for codepoint in sorted(codepoints):
+        if ranges and ranges[-1][1] == codepoint - 1:
+            ranges[-1] = (ranges[-1][0], codepoint)
+        else:
+            ranges.append((codepoint, codepoint))
+    return ranges
+
+
+def accented() -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """``ACCENTED`` and ``ACCENTS``, as code-point ranges."""
+    letters: list[int] = []
+    accents: set[int] = set()
+    for codepoint in range(sys.maxunicode + 1):
+        marks = accents_of(codepoint)
+        if marks is not None:
+            letters.append(codepoint)
+            accents.update(map(ord, marks))
+    return _ranges(letters), _ranges(accents)
+
+
 def render() -> str:
     dropped, mapped = build()
+    letters, accents = accented()
     lines = [
         "# SPDX-License-Identifier: AGPL-3.0-only",
         "# Copyright (C) 2026 Metacognition AI",
@@ -294,7 +339,9 @@ def render() -> str:
         "ranges that fold to nothing. ``MAPPED`` holds every other character whose fold",
         "differs from it and holds an ASCII character, as ``code:fold`` entries separated by",
         "``;``, the code point and the fold's code points in hexadecimal, the latter",
-        "separated by ``,``.",
+        "separated by ``,``. ``ACCENTED`` are the ranges of the Latin letters with",
+        "diacritics, and ``ACCENTS`` those of the combining marks they decompose to, which",
+        "tell ``framing`` where a reader sees a name end.",
         '"""',
         "",
         f'UNICODE_VERSION = "{unicodedata.unidata_version}"',
@@ -314,6 +361,10 @@ def render() -> str:
         row += entry + ";"
     lines.append(f'    "{row.rstrip(";")}"')
     lines += [")", ""]
+    for name, ranges in (("ACCENTED", letters), ("ACCENTS", accents)):
+        lines += [f"{name}: tuple[tuple[int, int], ...] = ("]
+        lines += [f"    (0x{lo:X}, 0x{hi:X})," for lo, hi in ranges]
+        lines += [")", ""]
     return "\n".join(lines)
 
 

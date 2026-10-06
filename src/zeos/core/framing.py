@@ -21,17 +21,28 @@ is text ending in ``<FAULT``, whose attributes follow; ``<KERNELS>``, ``<STUBBOR
 
 **Where a name ends** is where a reader sees it end, which is not always where the
 ``strip`` or the ``fold`` would put it. Both matches below match a name across the
-characters they drop, but the name's follower is read from the text as it is: a
-character the track drops ends the name, and so does a non-ASCII character after a name
-whose last letter is ASCII, even when it folds to a name character. A look-alike of a
-name character continues a name that also ends in a look-alike, and a plain ASCII name
-character continues any name. So ``<KER\\u200bNEL\\u200bS>``, ``<STA\\u200bTUS\\u200bx>``,
-``<fault\\u2010x>`` with a hyphen look-alike and ``<kernel\\uff11>`` with a fullwidth
-digit are imitations, although they strip or fold to ``<KERNELS>``, ``<STATUSx>``,
-``<FAULT-X>`` and ``<KERNEL1>``; ``<ｋｅｒｎｅｌｓ>`` in fullwidth, ``<КERNELS>`` with a
-Cyrillic ``К`` and ``<kerne\\u013as>`` are not. A combining accent is dropped, so it ends
-the name it follows: ``<kernel\\u0301s>`` alarms, where the precomposed ``<kerne\\u013as>``
-does not.
+characters they drop, but the name's follower is read from the text as it is. A
+combining accent that a Latin letter decomposes to (U+0301 and the like, the generated
+table's ``ACCENTS``) belongs to the letter it sits on, so the follower is the first
+character after the last letter's accents, and then:
+
+- a plain ASCII name character continues any name (``<kernels>``, ``<КERNELS>`` with a
+  Cyrillic ``К``, ``<kerne\\u013as>``);
+- so does a Latin letter with diacritics, one that decomposes to an ASCII letter and
+  accents (``ACCENTED``: ``é``, ``ü``, ``ĺ``), precomposed or decomposed:
+  ``<Kernelübersicht>``, ``<kernelé>`` and ``<kernel\\u0301s>`` are no imitations;
+- a look-alike of a name character from another script or block (Cyrillic, Greek,
+  fullwidth, the Kelvin sign) continues a name whose last letter is a look-alike too
+  (``<ｋｅｒｎｅｌｓ>``), and ends one whose last letter is ASCII or accented
+  (``<fault\\u2010x>`` with a hyphen look-alike, ``<kernel\\uff11>`` with a fullwidth
+  digit);
+- anything else ends the name, including every character a reader does not see (a
+  zero-width space, a soft hyphen, a variation selector, a direction mark, a tag
+  character) and every combining mark outside ``ACCENTS``.
+
+So ``<KER\\u200bNEL\\u200bS>``, ``<STA\\u200bTUS\\u200bx>``, ``<fault\\u2010x>``,
+``<kernel\\uff11>`` and ``<kernel\\u0301\\u200bs>`` are imitations, although they strip or
+fold to ``<KERNELS>``, ``<STATUSx>``, ``<FAULT-X>``, ``<KERNEL1>`` and ``<KERNELS>``.
 
 The names are matched in two ways, because they are not equally rare in real data.
 
@@ -73,7 +84,10 @@ before a token that does not begin with its own, so ``<KER`` then ``NEL>`` reach
 model as ``<KER NEL>``. But ``str.split`` also splits at characters a reader does not
 see (U+001C-U+001F, NEL), which a token keeping its whitespace carries in front of it,
 so a run of ordinary tokens is matched as the text a machine writes for it
-(``zeos.machine.base.render``), and every token an imitation touches is escaped.
+(``zeos.machine.base.render``), and every token an imitation touches is escaped
+(``shown_words``). The escape rewrites the opening as the match read it, gaps and
+look-alikes and all (``\\u00`` then a zero-width space then ``3c`` becomes ``&lt;``), so
+what is escaped is never alarmed on again.
 """
 
 from __future__ import annotations
@@ -123,24 +137,43 @@ def _load() -> dict[int, str]:
     return table
 
 
+def _codepoints(ranges: Iterable[tuple[int, int]]) -> frozenset[int]:
+    return frozenset(c for low, high in ranges for c in range(low, high + 1))
+
+
 _FOLD: dict[int, str] = _load()
 _STRIP: dict[int, str] = {c: "" for c, folded in _FOLD.items() if not folded}
 
-#: What a match reads in place of a character it drops, and in front of each character a
-#: non-ASCII character folds to. Both are C0 controls the fold drops, so neither survives
+#: The Latin letters with diacritics (``é``, ``ĺ``), and the combining marks they
+#: decompose to (U+0301 and the like): what a reader sees continue a name.
+_ACCENTED: frozenset[int] = _codepoints(_fold_table.ACCENTED)
+_ACCENTS: frozenset[int] = _codepoints(_fold_table.ACCENTS)
+
+#: What a match reads for a character it drops, and in front of what other characters
+#: map to. All four are C0 controls the fold drops (as ``_DROPPED``), so none survives
 #: from the text itself.
+#:
+#: - ``_DROPPED``: a character a reader does not see.
+#: - ``_ACCENT``: a combining mark of ``_ACCENTS``, which the fold drops but a reader
+#:   sees as part of the letter it sits on.
+#: - ``_LATIN``: in front of what a Latin letter with diacritics maps to.
+#: - ``_LOOKALIKE``: in front of each character any other non-ASCII character maps to.
 _DROPPED = "\x01"
 _LOOKALIKE = "\x02"
+_LATIN = "\x03"
+_ACCENT = "\x04"
 
 
 def _marked(table: dict[int, str]) -> dict[int, str]:
-    """``table`` as a match reads it: a dropped character as ``_DROPPED``, and every
-    character a non-ASCII one maps to behind a ``_LOOKALIKE``, so a match can tell where
-    a name ends in the text a reader sees (``_tag``)."""
-    marked: dict[int, str] = {}
+    """``table`` as a match reads it, with the marks above, so a match can tell where a
+    name ends in the text a reader sees (``_tag``). A Latin letter with diacritics is
+    marked even where ``table`` leaves it as it is."""
+    marked: dict[int, str] = {c: _LATIN + table.get(c, chr(c)) for c in _ACCENTED}
     for code, mapped in table.items():
+        if code in _ACCENTED:
+            continue
         if not mapped:
-            marked[code] = _DROPPED
+            marked[code] = _ACCENT if code in _ACCENTS else _DROPPED
         elif code < 0x80:
             marked[code] = mapped
         else:
@@ -156,22 +189,29 @@ _NAME = "(?:" + "|".join(FRAMES) + ")"
 #: The kernel's own frame, which begins its text.
 _OPENER = re.compile(r"^</?" + _NAME + r"(?=[\s>]|$)")
 
-#: Before each character of an opening or a name after its first: any characters
-#: dropped, then the mark of a look-alike, if it is one.
-_GAP = f"{_DROPPED}*{_LOOKALIKE}?"
+#: What a match skips: characters dropped and accents.
+_SKIPPED = f"[{_DROPPED}{_ACCENT}]*"
+
+#: Before each character of an opening or a name after its first: anything skipped,
+#: then the mark of a non-ASCII character, if it is one.
+_GAP = f"{_SKIPPED}[{_LOOKALIKE}{_LATIN}]?"
 
 
 def _tag(openings: Sequence[str], names: Sequence[str], continues: str) -> re.Pattern[str]:
-    """A frame tag anywhere in marked text: an opening, an optional ``/`` and a name,
-    matched across dropped characters, and not continued as a longer tag name.
+    """A frame tag anywhere in marked text: an opening (group ``opening``), an optional
+    ``/`` and a name, matched across what is skipped, and not continued as a longer tag
+    name.
 
-    ``continues`` is the class of a character a tag name may hold. What follows the name
-    continues it when a reader would see the name run on: a plain ASCII character of
-    ``continues``, or, after a name whose last letter is a look-alike, a look-alike of
-    one (``<ｋｅｒｎｅｌｓ>``). A dropped character ends the name (``<KER\\u200bNEL\\u200bS>``),
-    and so does a look-alike after an ASCII letter (``<fault\\u2010x>``,
-    ``<kernel\\uff11>``).
-    Each gap is a run of one character then an optional other, so the scan stays linear.
+    ``continues`` is the class of an ASCII character a tag name may hold. What follows
+    the name, after any accents on its last letter, continues it when a reader would see
+    the name run on: a plain ASCII character of ``continues`` or a Latin letter with
+    diacritics after any name (``<kernels>``, ``<Kernelübersicht>``), and a look-alike of
+    a character of ``continues`` after a name whose last letter is a look-alike too
+    (``<ｋｅｒｎｅｌｓ>``). Anything else ends the name: a character dropped
+    (``<KER\\u200bNEL\\u200bS>``), and a look-alike after an ASCII or accented last letter
+    (``<fault\\u2010x>``, ``<kernel\\uff11>``).
+    Each gap is a run of one class of character then an optional other, and each
+    lookahead follows a distinct opening, so the scan stays linear.
     """
 
     def spelled(literal: str) -> str:
@@ -179,12 +219,14 @@ def _tag(openings: Sequence[str], names: Sequence[str], continues: str) -> re.Pa
 
     def name(text: str) -> str:
         last = re.escape(text[-1])
+        latin = f"(?!{_ACCENT}*(?:{_LATIN}|{continues}))"
+        lookalike = f"(?!{_ACCENT}*(?:{_LATIN}|{_LOOKALIKE}?{continues}))"
         return (
             "".join(_GAP + re.escape(c) for c in text[:-1])
-            + f"{_DROPPED}*(?:{_LOOKALIKE}{last}(?!{_LOOKALIKE}?{continues})|{last}(?!{continues}))"
+            + f"{_SKIPPED}(?:{_LOOKALIKE}{last}{lookalike}|{_LATIN}?{last}{latin})"
         )
 
-    opening = "(?:" + "|".join(spelled(o) for o in openings) + ")"
+    opening = "(?P<opening>" + "|".join(spelled(o) for o in openings) + ")"
     return re.compile(opening + f"(?:{_GAP}/)?" + "(?:" + "|".join(name(n) for n in names) + ")")
 
 
@@ -273,18 +315,10 @@ def imitates_frame(tokens: Iterable[Token]) -> bool:
     return any(spells_frame(render(words[run.start : run.stop])) for run in _runs(words))
 
 
-def _touched(run: Sequence[Token]) -> set[int]:
-    """The tokens of a run that an imitation in its text touches."""
-    starts: list[int] = []
-    pieces: list[str] = []
-    at = 0
-    for k, token in enumerate(run):
-        piece = token.text if k == 0 or token.text[:1].isspace() else " " + token.text
-        starts.append(at + len(piece) - len(token.text))
-        pieces.append(piece)
-        at += len(piece)
-    text = "".join(pieces)
-    spans: list[tuple[int, int]] = []
+def _imitations(text: str) -> list[tuple[int, int, int]]:
+    """Every imitation ``spells_frame`` finds in ``text``, as offsets into it: where it
+    begins, where its opening ends and where it ends."""
+    found: list[tuple[int, int, int]] = []
     for table, pattern in ((_STRIP_MARKED, _TAG), (_FOLD_MARKED, _FOLDED_TAG)):
         origin: list[int] = []
         out: list[str] = []
@@ -293,31 +327,41 @@ def _touched(run: Sequence[Token]) -> set[int]:
             out.append(mapped)
             origin.extend([index] * len(mapped))
         for match in pattern.finditer("".join(out)):
-            spans.append((origin[match.start()], origin[match.end() - 1] + 1))
-    touched: set[int] = set()
-    for k, token in enumerate(run):
-        begin, end = starts[k], starts[k] + len(token.text)
-        if any(s < end and begin < e for s, e in spans):
-            touched.add(k)
-    return touched
+            opened = origin[match.end("opening") - 1] + 1
+            found.append((origin[match.start()], opened, origin[match.end() - 1] + 1))
+    return found
 
 
 def shown_words(tokens: Sequence[Token]) -> tuple[str, ...]:
     """Tokens as a text-only source sees them: a frame as it is, an imitation escaped.
 
     An ordinary token is escaped exactly when an imitation that ``imitates_frame``
-    alarms on touches it, and then every character in it that folds to ``<`` or ``>``
-    (``＜`` and ``‹`` as well as ``<``) and every JSON escape of one is written as the
-    entity, so nothing alarmed on reaches the source as a tag, and its escaped form is
-    not alarmed on again.
+    alarms on touches it. The imitation's opening, however it is spelled (``<``, ``＜``,
+    ``\\u003c``, ``\\u00`` and a zero-width space then ``3c``), is written as the entity
+    ``&lt;``, keeping only the characters in it a reader does not see; and every other
+    character in the token that folds to ``<`` or ``>`` and every JSON escape of one is
+    written as the entity too. So no alarmed imitation reaches the source as a tag, and
+    its escaped form is not alarmed on again.
     """
     out = [token.text for token in tokens]
     for run in _runs(tokens):
         words = tokens[run.start : run.stop]
         if not spells_frame(render(words)):
             continue
-        for k in _touched(words):
-            out[run.start + k] = _escaped(words[k].text)
+        starts: list[int] = []
+        pieces: list[str] = []
+        at = 0
+        for k, token in enumerate(words):
+            piece = token.text if k == 0 or token.text[:1].isspace() else " " + token.text
+            starts.append(at + len(piece) - len(token.text))
+            pieces.append(piece)
+            at += len(piece)
+        found = _imitations("".join(pieces))
+        for k, token in enumerate(words):
+            begin, end = starts[k], starts[k] + len(token.text)
+            if any(s < end and begin < e for s, _, e in found):
+                openings = [(s - begin, o - begin) for s, o, _ in found if s < end and begin < o]
+                out[run.start + k] = _escaped(token.text, openings)
     return tuple(out)
 
 
@@ -326,7 +370,22 @@ def shown(token: Token) -> str:
     return shown_words((token,))[0]
 
 
-def _escaped(text: str) -> str:
+def _escaped(text: str, openings: Iterable[tuple[int, int]]) -> str:
+    """A token escaped (``shown_words``), with the openings of the imitations in it at
+    these offsets, which may run past either end of it."""
+    pieces: list[str] = []
+    at = 0
+    for begin, end in sorted(openings):
+        if begin >= at:
+            pieces += (_escaped_brackets(text[at:begin]), "&lt;")
+        hidden = text[max(begin, at) : end]
+        pieces += (c for c in hidden if _STRIP_MARKED.get(ord(c)) == _DROPPED)
+        at = max(at, end)
+    pieces.append(_escaped_brackets(text[at:]))
+    return "".join(pieces)
+
+
+def _escaped_brackets(text: str) -> str:
     text = _ESCAPED_BRACKET.sub(lambda m: "&lt;" if m.group(0)[-1] in "cC" else "&gt;", text)
     return "".join(map(_escaped_char, text))
 

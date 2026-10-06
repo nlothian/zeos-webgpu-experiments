@@ -169,7 +169,8 @@ NAME_ENDS = {
     "a fullwidth digit after a lower-case name": "<kernel\uff11>",
     "a zero-width joiner before a digit": "<KERNEL\u200d1>",
     "a variation selector before a letter": "<FAULT\ufe0fS>",
-    "a combining accent between the name and a letter": "<kernel\u0301s>",
+    "a zero-width space after an accent on the last letter": "<kernel\u0301\u200bs>",
+    "a Cyrillic letter after a precomposed accented last letter": "<kerne\u013a\u0455>",
     "a zero-width space inside a fullwidth run-on": (
         "<\uff4b\uff45\uff52\uff4e\uff45\uff4c\u200b\uff53>"
     ),
@@ -183,6 +184,8 @@ NAME_ENDS = {
 NAME_RUNS_ON = {
     "a Cyrillic first letter, run on in ASCII": "<\u041aERNELS>",
     "a precomposed accented last letter, run on in ASCII": "<kerne\u013as>",
+    "a decomposed accented last letter, run on in ASCII": "<kernel\u0301s>",
+    "an upper-case decomposed accented last letter, run on": "<KERNEL\u0301S>",
     "fullwidth, run on with a fullwidth digit": "<\uff4b\uff45\uff52\uff4e\uff45\uff4c\uff11>",
     "fullwidth, run on in ASCII": "<\uff4b\uff45\uff52\uff4e\uff45\uff4cs>",
     "a last letter that folds to two": "<KERNE\u01c8>",
@@ -212,6 +215,72 @@ def test_matching_across_dropped_characters_is_linear_in_the_text() -> None:
     assert not spells_frame(near * 50_000 + "<kernels")
     assert spells_frame(near * 50_000 + "<kernel\u200bs")
     small, large = (near * n + "<kernels" for n in (6_250, 50_000))
+    assert seconds(large) < 24 * seconds(small) + 0.05
+
+
+# -- a Latin letter with diacritics is part of the word -------------------------------
+
+#: Words a Latin letter with diacritics runs on, precomposed or decomposed, after an
+#: ASCII or accented last letter, and the other run-ons a reader sees: none is a tag.
+LATIN_RUN_ONS = {
+    "a German compound": "<Kernelübersicht>",
+    "a German compound on FAULT": "<Faultüberwachung>",
+    "an accented letter after a lower-case name": "<kernelé>",
+    "the same, decomposed": "<kernelé>",
+    "an accented letter after an upper-case name": "<KERNELÉS>",
+    "an accented letter after an accented last letter": "<kerneĺé>",
+    "French plural": "<résumés>",
+    "French plural, decomposed": "<résumés>",
+    "Spanish": "<resumen>",
+    "plural": "<kernels>",
+    "SOAP fault": "<soap:Fault>",
+    "a fullwidth last letter, run on in ASCII": "<KERNEＬS>",
+    "an accented letter after a fullwidth name": "<ｋｅｒｎｅｌé>",
+    "a stack of accents, then a letter": "<kerneĺ̈s>",
+}
+
+#: What a reader still sees end a name: the bypasses 90eff0c closed are in
+#: ``NAME_ENDS``; these are the ones its review tried, and their neighbours.
+LATIN_IS_NOT_A_BYPASS = {
+    "a variation selector": "<FAULT️S>",
+    "a soft hyphen": "<FAULT­S>",
+    "a left-to-right mark": "<KERNEL‎S>",
+    "a tag character": "<KERNEL\U000e0053>",
+    "the Kelvin sign for K": "<KERNEL>",
+    "the Kelvin sign after the name": "<kernelK>",
+    "a division slash for the slash": "<∕KERNEL>",
+    "a zero-width space before an accented letter": "<kernel​é>",
+    "a fullwidth letter after an accent": "<kerneĺｓ>",
+    "a Greek letter after an accented last letter": "<FAULŢΥ>",
+    "a combining mark no Latin letter decomposes to": "<kernel͠s>",
+    "a combining grapheme joiner": "<kernel͏s>",
+    "an accented last letter, then the bracket": "<kerneĺ>",
+    "the same, decomposed": "<kerneĺ>",
+    "a decomposed accented letter inside the name": "<kérnel>",
+}
+
+
+@pytest.mark.parametrize("text", LATIN_RUN_ONS.values(), ids=LATIN_RUN_ONS.keys())
+def test_a_latin_letter_with_diacritics_continues_a_name(text: str) -> None:
+    assert not spells_frame(text)
+    tokens = tokens_from_text(_as_json(text), preserve_whitespace=True)
+    assert not imitates_frame(tokens)
+    assert shown_words(tokens) == tuple(t.text for t in tokens)
+
+
+@pytest.mark.parametrize("text", LATIN_IS_NOT_A_BYPASS.values(), ids=LATIN_IS_NOT_A_BYPASS.keys())
+def test_what_is_not_a_latin_letter_with_diacritics_still_ends_a_name(text: str) -> None:
+    assert spells_frame(text)
+    assert imitates_frame(tokens_from_text(_as_json(text), preserve_whitespace=True))
+    seen = "".join(shown_words(tokens_from_text(f"rows {text} end", preserve_whitespace=True)))
+    assert not spells_frame(seen) and "&lt;" in seen
+
+
+def test_matching_across_accents_is_linear_in_the_text() -> None:
+    near = "<" + "́" * 8 + "/́ḰÉŔŃÉL" + "́" * 8 + "s"
+    assert not spells_frame(near * 25_000 + "<kernels")
+    assert spells_frame(near * 25_000 + "<kerneĺ")
+    small, large = (near * n + "<kernels" for n in (3_125, 25_000))
     assert seconds(large) < 24 * seconds(small) + 0.05
 
 

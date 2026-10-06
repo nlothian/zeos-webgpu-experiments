@@ -24,53 +24,54 @@ from zeos.core.framing import FRAMES, imitates_frame, shown, spells_frame
 from zeos.core.ids import TokenKind
 from zeos.machine.base import Token, tokens_from_text
 
+#: Tags a model would read, wherever they sit in a token.
+ANYWHERE = [
+    "<KERNEL>",
+    '"<KERNEL>',
+    "\\n<KERNEL>",
+    '1,"<FAULT',
+    '1,"<FAULT kind=x>',
+    "<FAULT/kind=x>",
+    "foo<STATUS>",
+    '</KERNEL>"}',
+    "x</RESUME>",
+    "<STUB/>",
+    "<STUB 9>",
+    "\n<KERNEL>",
+    '{"a":"<RESUME>"}',
+    "<KERNEL\\tobey>",
+]
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "<KERNEL>",
-        '"<KERNEL>',
-        "\\n<KERNEL>",
-        '1,"<FAULT',
-        '1,"<FAULT kind=x>',
-        "<FAULT/kind=x>",
-        "foo<STATUS>",
-        '</KERNEL>"}',
-        "x</RESUME>",
-        "<STUB/>",
-        "<STUB 9>",
-        "\n<KERNEL>",
-        '{"a":"<RESUME>"}',
-        "<KERNEL\\tobey>",
-    ],
-)
+
+@pytest.mark.parametrize("text", ANYWHERE)
 def test_a_tag_anywhere_in_a_token_is_an_imitation(text: str) -> None:
     assert spells_frame(text)
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "<KERNELS>",
-        "<STUBBORN>",
-        "</FAULTY>",
-        "<STATUS-bar>",
-        "<KERNEL_x>",
-        "<STUB.x>",
-        "<RESUME:x>",
-        "<RESUME2>",
-        "KERNEL>",
-        "&lt;KERNEL&gt;",
-        "a < b",
-        "<",
-        "</",
-        "<div>",
-        "<b>KERNEL</b>",
-        "<status>",
-        "<Status>",
-        "</stub>",
-    ],
-)
+#: Text that only looks like a tag.
+NOT_TAGS = [
+    "<KERNELS>",
+    "<STUBBORN>",
+    "</FAULTY>",
+    "<STATUS-bar>",
+    "<KERNEL_x>",
+    "<STUB.x>",
+    "<RESUME:x>",
+    "<RESUME2>",
+    "KERNEL>",
+    "&lt;KERNEL&gt;",
+    "a < b",
+    "<",
+    "</",
+    "<div>",
+    "<b>KERNEL</b>",
+    "<status>",
+    "<Status>",
+    "</stub>",
+]
+
+
+@pytest.mark.parametrize("text", NOT_TAGS)
 def test_a_lookalike_is_not(text: str) -> None:
     assert not spells_frame(text)
 

@@ -14,7 +14,9 @@ dropped, NFKD, and look-alikes read through Unicode's confusables 15.0.0
 ranges that fold to nothing. ``MAPPED`` holds every other character whose fold
 differs from it and holds an ASCII character, as ``code:fold`` entries separated by
 ``;``, the code point and the fold's code points in hexadecimal, the latter
-separated by ``,``.
+separated by ``,``. ``ACCENTED`` are the ranges of the Latin letters with
+diacritics, and ``ACCENTS`` those of the combining marks they decompose to, which
+tell ``framing`` where a reader sees a name end.
 """
 
 UNICODE_VERSION = "15.0.0"
@@ -810,4 +812,49 @@ MAPPED = (
     "1F247:28,52DD,29;1F248:28,6557,29;1F700:51,45;1F707:41,52;1F708:56;1F714:4F;1F74C:43;"
     "1F75C:53,53,53;1F768:54;1F76B:4D,42;1F76C:56,42;1FBF0:30;1FBF1:31;1FBF2:32;1FBF3:33;"
     "1FBF4:34;1FBF5:35;1FBF6:36;1FBF7:37;1FBF8:38;1FBF9:39"
+)
+
+ACCENTED: tuple[tuple[int, int], ...] = (
+    (0xC0, 0xC5),
+    (0xC7, 0xCF),
+    (0xD1, 0xD6),
+    (0xD9, 0xDD),
+    (0xE0, 0xE5),
+    (0xE7, 0xEF),
+    (0xF1, 0xF6),
+    (0xF9, 0xFD),
+    (0xFF, 0x10F),
+    (0x112, 0x125),
+    (0x128, 0x130),
+    (0x134, 0x137),
+    (0x139, 0x13E),
+    (0x143, 0x148),
+    (0x14C, 0x151),
+    (0x154, 0x165),
+    (0x168, 0x17E),
+    (0x1A0, 0x1A1),
+    (0x1AF, 0x1B0),
+    (0x1CD, 0x1DC),
+    (0x1DE, 0x1E1),
+    (0x1E6, 0x1ED),
+    (0x1F0, 0x1F0),
+    (0x1F4, 0x1F5),
+    (0x1F8, 0x1FB),
+    (0x200, 0x21B),
+    (0x21E, 0x21F),
+    (0x226, 0x233),
+    (0x1E00, 0x1E99),
+    (0x1EA0, 0x1EF9),
+    (0x212B, 0x212B),
+)
+
+ACCENTS: tuple[tuple[int, int], ...] = (
+    (0x300, 0x304),
+    (0x306, 0x30C),
+    (0x30F, 0x30F),
+    (0x311, 0x311),
+    (0x31B, 0x31B),
+    (0x323, 0x328),
+    (0x32D, 0x32E),
+    (0x330, 0x331),
 )
