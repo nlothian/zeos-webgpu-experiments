@@ -668,9 +668,12 @@ class ZeosRun:
         tick_s = self.context.spec.tick_seconds
         faults: list[dict[str, object]] = []
         pilot_exits = 0
+        journal_splices = 0
         for event in self.driver.kernel.events:
             kind = getattr(type(event), "KIND", "")
-            if kind == "fault.raised":
+            if kind == "machine.splice":
+                journal_splices += 1
+            elif kind == "fault.raised":
                 faults.append(
                     {
                         "job": str(getattr(event, "job", "")),
@@ -711,6 +714,12 @@ class ZeosRun:
             "pilot_exits": pilot_exits,
             "faults": faults,
             "splices": len(splices),
+            "journal_splices": journal_splices,
+            # Model ids per served context at the end: what the pager's window is against.
+            "context_ids": {
+                str(job): len(ctx.ids)
+                for job, ctx in machine._contexts.items()  # pyright: ignore[reportPrivateUsage]
+            },
             "longest_pilot_gap": {
                 "ticks": gap,
                 "seconds": round(gap * tick_s, 3),
