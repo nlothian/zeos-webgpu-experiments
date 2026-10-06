@@ -60,14 +60,18 @@
  *
  * **Hidden runs** (`skipHidden`, on by default). A hidden position leaves the DeltaNet
  * state as it was (beta and the log decay are zero) and enters the convolution as zeros,
- * and no later query can attend its keys. So a run of at least `convShape[2]` (3) hidden
- * positions, not including the last one, is not run through the graph: the recurrent
+ * and no later query can attend its keys. So a run of at least `minSkip` (16, and never
+ * fewer than `convShape[2]`, 3) hidden positions, not including the last one, is not run
+ * through the graph: the recurrent
  * state is carried as it is, the convolution window becomes zeros, and the softmax cache
  * grows by zeros there in one copy, which the key mask hides. Chunks are also cut where
  * such a run starts. A fresh prefill and a replay under the same mask cut and skip at the
  * same positions, so they still agree bit for bit; and a skipped run aligned with the
  * chunks is bit for bit the run it stands in for, since a hidden position adds exact
- * zeros and multiplies by exact ones.
+ * zeros and multiplies by exact ones. A shorter hidden run -- the note the chat machine
+ * hides on every step but the ones that choose a tool's name, say -- runs inside its
+ * chunk under the key mask: skipping it would cut the chunk there, and at a few thousand
+ * positions a run of the graph costs more than the positions it saves.
  *
  * **A step that can stop.** `decodeStep` also takes `maxChunk`, a smaller run length for
  * this step (chunks are still cut at the snapshot positions and hidden runs), and
@@ -91,6 +95,8 @@ export const SNAPSHOT_EVERY = 256;
 export const MAX_SNAPSHOTS = 16;
 /** The most caches one context keeps, one per mask history. */
 export const MAX_TRACKS = 2;
+/** The shortest hidden run carried past rather than run (`skipHidden`). */
+export const MIN_SKIP = 16;
 
 /** Throw for a backend other than WebGPU, or for options `load` does not know: a caller
  * passing one expects it to do something. */
@@ -268,6 +274,7 @@ export class OptZeosWorker {
    * @param {number} [deps.maxSnapshots]
    * @param {number} [deps.maxTracks] caches per context, 1 or 2.
    * @param {boolean} [deps.skipHidden] carry the state past runs of hidden positions.
+   * @param {number} [deps.minSkip] the shortest such run, at least `convShape[2]`.
    */
   constructor({
     ort,
@@ -282,6 +289,7 @@ export class OptZeosWorker {
     maxSnapshots = MAX_SNAPSHOTS,
     maxTracks = MAX_TRACKS,
     skipHidden = true,
+    minSkip = MIN_SKIP,
   }) {
     if (meta.blockSize !== 1) throw new Error(`export has blockSize ${meta.blockSize}; expected 1`);
     if (!(maxSnapshots >= 1)) throw new RangeError("maxSnapshots must be at least 1");
@@ -302,6 +310,7 @@ export class OptZeosWorker {
     this.chunk = meta.maxChunk;
     /** The convolution's carried inputs: a hidden run this long leaves none of them. */
     this.convWindow = meta.convShape[2];
+    this.minSkip = Math.max(minSkip, this.convWindow);
     const [, heads, , headDim] = meta.kvShape;
     this.kvHeads = heads;
     this.headDim = headDim;
@@ -373,6 +382,7 @@ export class OptZeosWorker {
     maxSnapshots,
     maxTracks,
     skipHidden,
+    minSkip,
     ...unknown
   }) {
     refuseOptions("OptZeosWorker.load", backend, unknown);
@@ -423,6 +433,7 @@ export class OptZeosWorker {
       maxSnapshots,
       maxTracks,
       skipHidden,
+      minSkip,
     });
   }
 
@@ -723,11 +734,12 @@ export class OptZeosWorker {
 
   /** Where a hidden run from `start` that can be carried past without a run ends, or
    * `start` if it cannot. It never takes the last position, whose logits are the step's,
-   * and it needs `convWindow` hidden positions before the first snapshot position it
-   * crosses, so the state there is the one it carries. */
+   * it is at least `minSkip` long, and it needs `convWindow` hidden positions before the
+   * first snapshot position it crosses, so the state there is the one it carries. */
   skippable(allowed, start, n) {
     let end = start;
     while (end < n - 1 && !allowed[end]) end++;
+    if (end - start < this.minSkip) return start;
     return Math.min(end, this.nextBoundary(start)) - start >= this.convWindow ? end : start;
   }
 

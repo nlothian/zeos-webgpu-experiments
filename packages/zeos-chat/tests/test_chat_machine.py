@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 import shutil
@@ -38,6 +39,8 @@ from zeos_browser.page import findings
 from zeos_chat.chat import CHAT_CASE, DEFAULT_REFUSAL, NO_OUTPUT, ChatRun, open_chat
 from zeos_chat.chat_machine import (
     GUARD_START,
+    HIDDEN_RESULT_NOTE,
+    HIDDEN_TURN_NOTE,
     ChatToolMachine,
     FrameGuard,
     Sampling,
@@ -1091,16 +1094,16 @@ class RecordingWorker(ScriptedChatWorker):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.steps: list[tuple[str, str]] = []
+        #: What each step could attend, as text: the context less what it hid.
+        self.visible: list[str] = []
 
     def decodeStep(self, jobId: str, opts: Any) -> Any:
         ids = self.contexts[jobId].ids
         blocks = opts["allowedBlocks"]
-        hidden = (
-            ""
-            if blocks is None
-            else "".join(self.vocab[i] for i, b in zip(ids, blocks, strict=True) if not b)
-        )
+        shown = [True] * len(ids) if blocks is None else [bool(b) for b in blocks]
+        hidden = "".join(self.vocab[i] for i, b in zip(ids, shown, strict=True) if not b)
         self.steps.append((self.text(jobId), hidden))
+        self.visible.append("".join(self.vocab[i] for i, b in zip(ids, shown, strict=True) if b))
         return super().decodeStep(jobId, opts)
 
 
@@ -1154,15 +1157,16 @@ def test_the_name_is_chosen_with_the_tool_results_hidden_and_only_the_name() -> 
     refused = next(e for e in events if e["type"] == "approval_required")
     (result,) = [s for s in run.state()["segments"] if s["pipe"] == "tools.results"]
     assert refused["name_masked"] is True and refused["name_hidden"] == [result["segment"]]
-    masked = [turn_text(context) for context, hidden in worker.steps if hidden]
+    masked = [turn_text(context) for context, hidden in worker.steps if hidden == TABLE]
     # From the step after <tool_call> to the step that closes the name, exactly.
     assert masked == [turn_text(c) for c, _ in worker.steps if in_name_span(turn_text(c))]
     assert (
         masked[0] == "Now b.\n<tool_call>"
         and masked[-1] == "Now b.\n<tool_call>\n<function=WriteLines"
     )
-    # Only the result's own text; the framing around it stays in view.
-    assert {hidden for _, hidden in worker.steps if hidden} == {TABLE}
+    # Only the result's own text; the framing around it stays in view. Every other step
+    # hides the note that stands in for it while the name is chosen, and nothing else.
+    assert {hidden for _, hidden in worker.steps if hidden} == {TABLE, HIDDEN_RESULT_NOTE}
 
 
 def test_a_hidden_result_gets_no_attention_and_no_denial_while_the_name_is_chosen() -> None:
@@ -1242,7 +1246,8 @@ def test_replayed_untrusted_turns_are_hidden_too_and_trusted_ones_are_not() -> N
     worker.steps.clear()
     until_waiting(run)
     hidden = {h for _, h in worker.steps if h}
-    assert hidden == {str(HISTORY[1]["text"]) + TABLE}
+    notes = HIDDEN_TURN_NOTE + HIDDEN_RESULT_NOTE
+    assert hidden == {str(HISTORY[1]["text"]) + TABLE, notes}
 
 
 def test_a_trusted_result_is_not_hidden() -> None:
@@ -1295,11 +1300,14 @@ def test_a_splice_or_trunc_moves_the_hidden_ranges_with_the_words() -> None:
     first = machine.inject(job, tokens_from_text("a b c", preserve_whitespace=True))
     state.awaiting = machine.pipes.results
     second = machine.inject(job, tokens_from_text("d e", preserve_whitespace=True))
-    assert state.hidden == [first, second]
+    note = len(worker.tokenize(HIDDEN_RESULT_NOTE))
+    assert state.hidden == [(*first, note), (*second, note)]
+    # A stub over a hidden result stands where it was, and is as hidden, behind its note.
     machine.splice(job, first[0], first[1], (Token("<STUB 1>", TokenKind.CONTROL),))
-    assert state.hidden == [(second[0] - 2, second[1] - 2)]
+    stub = (first[0], first[0] + 1, note)
+    assert state.hidden == [stub, (second[0] - 2, second[1] - 2, note)]
     machine.trunc(job, second[0] - 1)
-    assert state.hidden == [(second[0] - 2, second[0] - 1)]
+    assert state.hidden == [stub, (second[0] - 2, second[0] - 1, note)]
 
 
 @pytest.mark.determinism
@@ -1559,3 +1567,79 @@ def test_a_zero_width_space_in_bytes_cannot_open_a_kernel_tag() -> None:
     run.send_user("hi")
     with pytest.raises(ValueError, match="mask refuses the script's next piece 'L'"):
         until_waiting(run)
+
+
+# -- the note in place of a hidden delivery ----------------------------------------------
+
+
+def test_while_the_name_is_chosen_the_model_reads_a_note_in_place_of_each_hidden_delivery() -> None:
+    run, worker = masked_chat(
+        [call("ReadLines", path="a"), call("ReadLines", path="b"), call("ListFiles"), "Done."]
+    )
+    run.send_user("read a and b, then list")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    until_waiting(run)
+    run.deliver_tool_result("SECRET")
+    worker.steps.clear()
+    worker.visible.clear()
+    until_waiting(run)
+    steps = list(zip(worker.steps, worker.visible, strict=True))
+    masked = [seen for (context, _), seen in steps if in_name_span(turn_text(context))]
+    plain = [seen for (context, _), seen in steps if not in_name_span(turn_text(context))]
+    assert masked and plain
+    for seen in masked:
+        # One note per hidden delivery, where its text was, and none of the text.
+        assert seen.count(HIDDEN_RESULT_NOTE) == 2
+        assert f"<tool_response>\n{HIDDEN_RESULT_NOTE}\n</tool_response>" in seen
+        assert TABLE not in seen and "SECRET" not in seen
+    for seen in plain:
+        assert HIDDEN_RESULT_NOTE not in seen
+        assert f"<tool_response>\n{TABLE}\n</tool_response>" in seen and "SECRET" in seen
+
+
+def test_a_note_is_never_credited_attention() -> None:
+    # Every step attends uniformly what it may: the note's mass on a masked step lies in
+    # the hidden segment's kernel block and is dropped, and no other step can see it.
+    run, _ = masked_chat([call("ReadLines", path="a"), call("ListFiles"), "Done."])
+    run.send_user("list")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    until_waiting(run)
+    assert not [e for e in run.run.events if isinstance(e, AttentionDenied)]
+
+
+def test_an_eviction_stub_over_a_hidden_result_stays_hidden_behind_its_note() -> None:
+    worker = ScriptedChatWorker([])
+    machine = ChatToolMachine(worker, tool_classes={}, mask_tool_choice=True)
+    job = JobId(1)
+    machine.create_context(job, "d")
+    machine.inject(job, tokens_from_text("system words", preserve_whitespace=True))
+    state = machine._chat_of(job)  # pyright: ignore[reportPrivateUsage]
+    state.awaiting = machine.pipes.results
+    start, end = machine.inject(job, tokens_from_text(TABLE, preserve_whitespace=True))
+    stub = tokens_from_text("<STUB 3> id,name 1,ada </STUB>", preserve_whitespace=True)
+    framed = (
+        Token(stub[0].text, TokenKind.CONTROL),
+        *stub[1:-1],
+        Token(stub[-1].text, TokenKind.CONTROL),
+    )
+    machine.splice(job, start, end, framed)
+    ctx = machine._ctx_of(job)  # pyright: ignore[reportPrivateUsage]
+    blocks, _ = machine._narrowed_blocks(ctx, state, None)  # pyright: ignore[reportPrivateUsage]
+    seen = "".join(worker.vocab[i] for i, b in zip(ctx.ids, blocks, strict=True) if b)
+    assert HIDDEN_RESULT_NOTE in seen
+    assert "ada" not in seen and "STUB" not in seen
+    plain = machine._without_notes(ctx, state, None)  # pyright: ignore[reportPrivateUsage]
+    assert plain is not None
+    seen = "".join(worker.vocab[i] for i, b in zip(ctx.ids, plain, strict=True) if b)
+    assert HIDDEN_RESULT_NOTE not in seen and "<STUB 3> id,name 1,ada </STUB>" in seen
+
+
+def test_masking_needs_a_worker_whose_blocks_are_positions() -> None:
+    class Wide(ScriptedChatWorker):
+        def info(self) -> Any:
+            return dataclasses.replace(super().info(), blockSize=4)
+
+    with pytest.raises(ValueError, match="one position"):
+        ChatToolMachine(Wide([]), tool_classes={}, mask_tool_choice=True)

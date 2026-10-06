@@ -137,6 +137,7 @@ logits. ``sample_index`` is the rule a worker applies, written once here.
 from __future__ import annotations
 
 import codecs
+import dataclasses
 import json
 import math
 import random
@@ -178,12 +179,16 @@ __all__ = [
     "FrameGuard",
     "GUARD_START",
     "GuardState",
+    "HIDDEN_RESULT_NOTE",
+    "HIDDEN_TURN_NOTE",
+    "HiddenRange",
     "Sampling",
     "ToolCall",
     "format_tool_call",
     "parse_tool_call_body",
     "sample_index",
     "thinking_prefix",
+    "utf8_step",
 ]
 
 TOOL_CALL_OPEN = "<tool_call>"
@@ -363,6 +368,16 @@ class _Track:
                 return text[-length:]
         return ""
 
+
+#: A delivery hidden while a tool's name is chosen: its kernel offsets ``[start, end)``,
+#: and how many ids of the note that stands in for it end the framing in front of
+#: ``start`` (0 once the note is gone with the framing it was in).
+HiddenRange = tuple[int, int, int]
+
+#: What the model reads in place of a hidden delivery while it writes a tool's name: a
+#: tool result's, and a replayed turn's.
+HIDDEN_RESULT_NOTE = "[result hidden while choosing the tool]"
+HIDDEN_TURN_NOTE = "[earlier turn hidden while choosing the tool]"
 
 #: A ``FrameGuard`` state: the exact track's, then the folded track's.
 GuardState = tuple[str, str]
@@ -606,8 +621,6 @@ class _Chat:
     awaiting: PipeName | None = None
     #: Whether content arrived on ``awaiting``.
     arrived: bool = False
-    #: Whether the context ends in a tool response, so the next joins its turn.
-    in_tool_response: bool = False
     #: What the model has decoded in the open assistant turn.
     text: str = ""
     #: Where in ``text`` the search for the next tool call starts.
@@ -622,8 +635,9 @@ class _Chat:
     replay: list[PipeName] = field(default_factory=list[PipeName])
     #: Whether a replay has yet to hand over to ``chat.user`` once its pipes are read.
     replay_tail: bool = False
-    #: Kernel offsets ``[start, end)`` of deliveries on the hidden pipes, in order.
-    hidden: list[tuple[int, int]] = field(default_factory=list[tuple[int, int]])
+    #: Deliveries on the hidden pipes, in order: kernel offsets ``[start, end)`` and how
+    #: many ids of note end the framing in front of ``start`` (``HiddenRange``).
+    hidden: list[HiddenRange] = field(default_factory=list[HiddenRange])
     #: Kernel blocks the latest step hid, which ``visible_blocks`` leaves out.
     narrowed: frozenset[int] = frozenset()
     #: Where in ``text`` the ``<tool_call>`` whose name was chosen masked opens, and what
@@ -636,7 +650,6 @@ class _Chat:
             role=self.role,
             awaiting=self.awaiting,
             arrived=self.arrived,
-            in_tool_response=self.in_tool_response,
             text=self.text,
             scan=self.scan,
             guard=self.guard,
@@ -705,6 +718,13 @@ class ChatToolMachine(JsMachine):
         self._hidden_pipes = frozenset(
             (self.pipes.results, self.pipes.history) if hidden_pipes is None else hidden_pipes
         )
+        if mask_tool_choice and self._worker_block != 1:
+            # A note is hidden on every other step; in a block wider than a position that
+            # would hide the words around it too.
+            raise ValueError(
+                f"mask_tool_choice needs a worker whose blocks are one position; this one's "
+                f"are {self._worker_block}"
+            )
 
         pieces = self._pieces
         # The markers JsMachine found among the control ids, and the rest of the
@@ -879,30 +899,37 @@ class ChatToolMachine(JsMachine):
             head = f"{close}\n" if chat.role == _ASSISTANT else "\n"
             if chat.role == _ASSISTANT:
                 chat.role = _USER
-            chat.in_tool_response = False
         elif chat.awaiting in self.pipes.history_pipes:
             head = f"{IM_END}\n{IM_START}{_ASSISTANT}\n"
             chat.role = _ASSISTANT
-            chat.in_tool_response = False
             chat.arrived = True
         elif chat.awaiting in self.pipes.result_pipes:
             head = ("" if chat.role == _USER else close) + f"\n{TOOL_RESPONSE_OPEN}\n"
             tail = f"\n{TOOL_RESPONSE_CLOSE}"
             chat.role = _USER
-            chat.in_tool_response = True
             chat.arrived = True
         else:
             head = "\n" if chat.role == _USER else f"{close}\n"
             chat.role = _USER
-            chat.in_tool_response = False
             chat.arrived = chat.awaiting is not None
 
+        note = 0
         if (
             self._mask_tool_choice
             and tokens[0].kind is not TokenKind.CONTROL
             and chat.awaiting in self._hidden_pipes
         ):
-            chat.hidden.append((start, end))
+            # The note goes last in the framing in front of the delivery, where the
+            # delivery's own text begins, so a masked step reads it in that text's place.
+            text = (
+                HIDDEN_TURN_NOTE
+                if chat.awaiting in self.pipes.history_pipes
+                else HIDDEN_RESULT_NOTE
+            )
+            before = ctx.framing[start][0]
+            self._frame_into(ctx, text, start, before=True)
+            note = ctx.framing[start][0] - before
+            chat.hidden.append((start, end, note))
         self._frame_into(ctx, head, start, before=True)
         if tail:
             self._frame_into(ctx, tail, end - 1, before=False)
@@ -921,15 +948,24 @@ class ChatToolMachine(JsMachine):
 
     def trunc(self, job: JobId, at: int) -> int:
         chat = self._chat_of(job)
-        chat.hidden = [(s, min(e, at)) for s, e in chat.hidden if s < at]
+        chat.hidden = [(s, min(e, at), n) for s, e, n in chat.hidden if s < at]
+        chat.calls = [_with_hidden(c, _truncated(c.name_hidden, at)) for c in chat.calls]
+        chat.masked_hidden = _truncated(chat.masked_hidden, at)
         return super().trunc(job, at)
 
     def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
         """``JsMachine.splice``, keeping the framing on the edges of the range: a stub in
-        place of a tool result still sits in its turn."""
-        self._splice_hidden(self._chat_of(job), start, end, len(tokens))
+        place of a tool result still sits in its turn, behind the same note."""
+        chat = self._chat_of(job)
+        keeps_head = bool(tokens) and start != end
+        chat.hidden = _spliced(chat.hidden, start, end, len(tokens), keeps_head=keeps_head)
+        chat.calls = [
+            _with_hidden(c, _spliced_offsets(c.name_hidden, start, end, len(tokens)))
+            for c in chat.calls
+        ]
+        chat.masked_hidden = _spliced_offsets(chat.masked_hidden, start, end, len(tokens))
         ctx = self._ctx_of(job)
-        if not tokens or start == end:
+        if not keeps_head:
             return super().splice(job, start, end, tokens)
         head_ids: list[int] = []
         tail_ids: list[int] = []
@@ -954,18 +990,6 @@ class ChatToolMachine(JsMachine):
             ctx.framing[last] = (0, len(tail_ids))
         return result
 
-    def _splice_hidden(self, chat: _Chat, start: int, end: int, count: int) -> None:
-        """Move the hidden ranges as a splice of ``count`` tokens over ``[start, end)``
-        moves the words: what it replaces is the kernel's text, and is not hidden."""
-        shift = count - (end - start)
-        moved: list[tuple[int, int]] = []
-        for s, e in chat.hidden:
-            if s < start:
-                moved.append((s, min(e, start)))
-            if e > end:
-                moved.append((max(s, end) + shift, e + shift))
-        chat.hidden = [(s, e) for s, e in moved if e > s]
-
     def _in_name_span(self, chat: _Chat) -> bool:
         """Whether the turn so far ends inside an open call before its name is closed:
         after ``<tool_call>``, on the way to ``<function=NAME>``."""
@@ -983,25 +1007,31 @@ class ChatToolMachine(JsMachine):
     def _narrowed_blocks(
         self, ctx: _Context, chat: _Chat, blocks: bytes | None
     ) -> tuple[bytes, frozenset[int]]:
-        """``blocks`` with the ids of every hidden word hidden too, failing closed on a
-        worker block that holds one, and the kernel blocks those words are in."""
-        size = self._worker_block
-        count = (len(ctx.ids) + size - 1) // size
-        flags = bytearray(b"\x01") * count if blocks is None else bytearray(blocks)
-        offsets = [0]
-        for span in ctx.spans:
-            offsets.append(offsets[-1] + span)
+        """``blocks`` with the ids of every hidden word hidden too, and the kernel blocks
+        those words are in. The notes in front of them stay as ``blocks`` has them."""
+        flags = bytearray(b"\x01") * len(ctx.ids) if blocks is None else bytearray(blocks)
+        offsets = _offsets(ctx)
         kernel_blocks: set[int] = set()
-        for start, end in chat.hidden:
+        for start, end, _ in chat.hidden:
             for index in range(start, end):
                 head, tail = ctx.framing[index]
                 first, last = offsets[index] + head, offsets[index + 1] - tail
-                if last > first:
-                    flags[first // size : (last - 1) // size + 1] = bytes(
-                        (last - 1) // size + 1 - first // size
-                    )
+                flags[first:last] = bytes(max(last - first, 0))
                 kernel_blocks.add(index // self._block_size)
         return bytes(flags), frozenset(kernel_blocks)
+
+    def _without_notes(self, ctx: _Context, chat: _Chat, blocks: bytes | None) -> bytes | None:
+        """``blocks`` with every hidden delivery's note hidden: it is read only while a
+        tool's name is chosen."""
+        if not any(n for _, _, n in chat.hidden):
+            return blocks
+        flags = bytearray(b"\x01") * len(ctx.ids) if blocks is None else bytearray(blocks)
+        offsets = _offsets(ctx)
+        for start, _, note in chat.hidden:
+            if note:
+                stop = offsets[start] + ctx.framing[start][0]
+                flags[stop - note : stop] = bytes(note)
+        return bytes(flags)
 
     def _quiet(self, request: MachineRequest) -> DecodeResult:
         """A step that runs no forward pass, so attends nothing."""
@@ -1016,7 +1046,6 @@ class ChatToolMachine(JsMachine):
             before=False,
         )
         chat.role = _ASSISTANT
-        chat.in_tool_response = False
         chat.text = ""
         chat.scan = 0
         chat.guard = GUARD_START
@@ -1058,7 +1087,9 @@ class ChatToolMachine(JsMachine):
         if self._mask_tool_choice and chat.hidden and self._in_name_span(chat):
             blocks, chat.narrowed = self._narrowed_blocks(ctx, chat, blocks)
             chat.masked_call = chat.text.find(TOOL_CALL_OPEN, chat.scan)
-            chat.masked_hidden = tuple(chat.hidden)
+            chat.masked_hidden = tuple((s, e) for s, e, _ in chat.hidden)
+        else:
+            blocks = self._without_notes(ctx, chat, blocks)
         sample: dict[str, float] | None = None
         if self._sampling is not None:
             assert chat.rng is not None
@@ -1199,3 +1230,58 @@ def _exact_matches(rule: Mapping[str, frozenset[str]], arguments: Mapping[str, A
     if arguments is None or set(arguments) != set(rule):
         return False
     return all(isinstance(arguments[p], str) and arguments[p] in v for p, v in rule.items())
+
+
+def _offsets(ctx: _Context) -> list[int]:
+    """Each kernel word's first model position, and the context's length last."""
+    offsets = [0]
+    for span in ctx.spans:
+        offsets.append(offsets[-1] + span)
+    return offsets
+
+
+def _spliced(
+    ranges: Sequence[HiddenRange], start: int, end: int, count: int, *, keeps_head: bool
+) -> list[HiddenRange]:
+    """Hidden ranges after ``count`` words replace ``[start, end)``.
+
+    A replacement that touches a hidden word is hidden whole, with every hidden range it
+    touches: an eviction stub summarises the result it replaces, and must stay as hidden
+    as the result was. A range keeps its note while the framing in front of its first
+    word survives -- ``splice`` keeps the framing in front of ``start`` unless it deletes
+    or only inserts -- and loses it otherwise.
+    """
+    shift = count - (end - start)
+    out: list[HiddenRange] = []
+    touched: list[HiddenRange] = []
+    for s, e, n in ranges:
+        if e <= start:
+            out.append((s, e, n))
+        elif s >= end:
+            out.append((s + shift, e + shift, n))
+        else:
+            # Overlapping the replaced words, or, for an insertion, around it.
+            touched.append((s, e, n))
+    if touched:
+        first, _, note = touched[0]
+        merged_start = min(first, start)
+        merged_end = max(max(e for _, e, _ in touched), end) + shift
+        kept = first < start or (first == start and keeps_head)
+        if merged_end > merged_start:
+            out.append((merged_start, merged_end, note if kept else 0))
+    return sorted(out)
+
+
+def _spliced_offsets(
+    ranges: Sequence[tuple[int, int]], start: int, end: int, count: int
+) -> tuple[tuple[int, int], ...]:
+    moved = _spliced([(s, e, 0) for s, e in ranges], start, end, count, keeps_head=False)
+    return tuple((s, e) for s, e, _ in moved)
+
+
+def _truncated(ranges: Sequence[tuple[int, int]], at: int) -> tuple[tuple[int, int], ...]:
+    return tuple((s, min(e, at)) for s, e in ranges if s < at)
+
+
+def _with_hidden(call: ToolCall, hidden: tuple[tuple[int, int], ...]) -> ToolCall:
+    return call if hidden == call.name_hidden else dataclasses.replace(call, name_hidden=hidden)
