@@ -29,10 +29,10 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
 from zeos.machine.base import DecodeResult
-from zeos_space_invaders.game import (  # pyright: ignore[reportUnknownVariableType]
+from zeos_space_invaders.game import (
     Controls,
     Game,
-    snapshot,
+    snapshot,  # pyright: ignore[reportUnknownVariableType]
 )
 from zeos_space_invaders.players.base import FALLBACK_ACTION
 from zeos_space_invaders.players.zeos.api_machine import Native
