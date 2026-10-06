@@ -25,6 +25,8 @@ export { clearModelCache };
  * @param {string} options.ortWebgpuUrl onnxruntime-web's `ort.webgpu.min.mjs`.
  * @param {string} options.tokenizersUrl `@huggingface/tokenizers`' `tokenizers.min.mjs`.
  * @param {(progress: object) => void} [options.onProgress] download and session progress.
+ * @param {(granted: boolean) => void} [options.onPersisted] whether the browser will keep
+ *   the model cache under storage pressure, once it answers (cached sources only).
  * @param {(activity: object) => void} [options.onActivity] every run of the graph, before
  *   and after, as `TransformersWorker`'s `onActivity` reports it.
  */
@@ -35,8 +37,15 @@ export async function startBrowserModel(options) {
         "with COOP/COEP headers (serve.py does) or let coi.js install its service worker",
     );
   }
-  // Asked before the download, so the browser counts what is stored as persistent.
-  const persisted = options.model.cache !== null ? await persistModelCache() : false;
+  // Asked as the load starts, and not waited for: a browser may take its time (or ask the
+  // user), and the download need not wait on the answer. `onPersisted` gets it.
+  const persisted =
+    options.model.cache !== null
+      ? persistModelCache().then(
+          (granted) => (options.onPersisted?.(granted), granted),
+          () => false,
+        )
+      : Promise.resolve(false);
   const buffer = new SharedArrayBuffer(CHANNEL_BYTES);
   const channel = new MessageChannel();
   const thread = new Worker(new URL("./model_thread.js", import.meta.url), { type: "module" });
@@ -78,11 +87,11 @@ export function modelSource(manifest, search = self.location.search) {
   const sources = manifest.model_sources ?? {};
   const chosen = new URLSearchParams(search).get("model") ?? manifest.model_source ?? null;
   if (chosen === null) return null;
-  const source = sources[chosen];
-  if (source === undefined) {
+  if (!Object.hasOwn(sources, chosen)) {
     const offered = Object.keys(sources);
     throw new Error(`?model=${chosen}: this build offers ${offered.length ? offered.join(" and ") : "no model"}`);
   }
+  const source = sources[chosen];
   if (chosen === "huggingface") {
     const { endpoint, repo, revision } = source;
     return {

@@ -29,8 +29,7 @@ const PART = ".part";
 
 const notFound = (error) => error?.name === "NotFoundError" || error?.name === "TypeMismatchError";
 
-async function directory(names, create) {
-  let dir = await navigator.storage.getDirectory();
+async function descend(dir, names, create) {
   try {
     for (const name of names) dir = await dir.getDirectoryHandle(name, { create });
   } catch (error) {
@@ -39,6 +38,8 @@ async function directory(names, create) {
   }
   return dir;
 }
+
+const directory = async (names, create) => descend(await navigator.storage.getDirectory(), names, create);
 
 const dirNames = ([repo, revision]) => [ROOT, encodeURIComponent(repo), encodeURIComponent(revision)];
 const fileName = (key) => encodeURIComponent(key[2]);
@@ -122,14 +123,59 @@ export const opfsStore = {
   },
 };
 
-/** Remove every revision of `repo` but `revision`: once a load has the new one, the old
- * one is never read again. */
-export async function dropOtherRevisions({ repo, revision }) {
-  const dir = await directory([ROOT, encodeURIComponent(repo)], false);
-  if (dir === null) return;
-  for await (const [name] of dir.entries()) {
-    if (name !== encodeURIComponent(revision)) await remove(dir, name, { recursive: true });
+const USED = ".used-";
+/** How long a revision must have gone unused before another revision's load removes it:
+ * longer than any load takes, so no tab is still reading it. */
+export const UNUSED_FOR_MS = 24 * 60 * 60 * 1000;
+
+const root = () => navigator.storage.getDirectory();
+
+/** Record that a load is using `revision` now: an empty file named `.used-<ms>` in its
+ * directory (the previous one removed), which `dropOtherRevisions` reads. */
+export async function markUsed({ repo, revision }, { top = root(), now = Date.now() } = {}) {
+  const dir = await descend(await top, [ROOT, encodeURIComponent(repo), encodeURIComponent(revision)], true);
+  for await (const [name] of dir.entries()) if (name.startsWith(USED)) await remove(dir, name);
+  await dir.getFileHandle(`${USED}${now}`, { create: true });
+}
+
+/**
+ * Remove other revisions of `repo` that no load has used for `UNUSED_FOR_MS` and that
+ * were last used before `revision` was: once a load has the newer revision, the older
+ * one is never read again. Best-effort, and it skips whatever it is unsure of: a revision
+ * with a `.part` (a download in progress, perhaps in another tab), one with no record of
+ * its use, and one whose removal fails (a file another tab holds open); each failure is
+ * logged and the rest go on. Returns the revisions removed.
+ */
+export async function dropOtherRevisions(
+  { repo, revision },
+  { top = root(), now = Date.now(), log = console.warn } = {},
+) {
+  const repoDir = await descend(await top, [ROOT, encodeURIComponent(repo)], false);
+  if (repoDir === null) return [];
+  const lastUsed = async (dir) => {
+    let used = null;
+    for await (const [name] of dir.entries()) {
+      if (name.endsWith(PART)) return { busy: true };
+      if (name.startsWith(USED)) used = Math.max(used ?? 0, Number(name.slice(USED.length)));
+    }
+    return { busy: false, used };
+  };
+  const current = await descend(repoDir, [encodeURIComponent(revision)], false);
+  const currentUsed = current === null ? null : (await lastUsed(current)).used;
+  const removed = [];
+  for await (const [name, dir] of repoDir.entries()) {
+    if (name === encodeURIComponent(revision) || dir.kind !== "directory") continue;
+    try {
+      const { busy, used } = await lastUsed(dir);
+      if (busy || used === null || now - used < UNUSED_FOR_MS) continue;
+      if (currentUsed !== null && used >= currentUsed) continue;
+      await repoDir.removeEntry(name, { recursive: true });
+      removed.push(decodeURIComponent(name));
+    } catch (error) {
+      log(`model cache: left revision ${decodeURIComponent(name)} in place: ${error?.name ?? error}`);
+    }
   }
+  return removed;
 }
 
 /** What the cache holds: one entry per repo and revision, with its files' sizes. */
@@ -143,7 +189,7 @@ export async function cachedModels() {
       if (revDir.kind !== "directory") continue;
       const files = [];
       for await (const [name, file] of revDir.entries()) {
-        if (file.kind !== "file") continue;
+        if (file.kind !== "file" || name.startsWith(USED)) continue;
         const partial = name.endsWith(PART);
         files.push({
           path: decodeURIComponent(partial ? name.slice(0, -PART.length) : name),

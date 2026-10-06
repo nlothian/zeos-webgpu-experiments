@@ -26,10 +26,10 @@
  * `{ready: false, error}` and loads nothing.
  */
 
-import { modelFiles } from "./model_cache.js";
+import { modelReader } from "./model_cache.js";
 import { serveChannel } from "./model_channel.js";
 import { OptZeosWorker, isOptZeosMeta } from "./opt_zeos_worker.js";
-import { dropOtherRevisions, opfsStore } from "./opfs_store.js";
+import { dropOtherRevisions, markUsed, opfsStore } from "./opfs_store.js";
 import { TransformersWorker } from "./transformers_worker.js";
 
 /** Fail with a message the page can show when the browser has no WebGPU adapter. */
@@ -54,73 +54,38 @@ self.onmessage = async (event) => {
     // worker pool is started and those kernels run as they always have.
     ort.env.wasm.numThreads = 1;
     const { Tokenizer } = await import(tokenizersUrl);
-    const files = modelFiles({
+    const reader = modelReader({
       url: new URL(model.url, self.location.href).href,
       cache: model.cache,
       fetch: self.fetch.bind(self),
       store: model.cache === null ? null : opfsStore,
+      onProgress: (progress) => self.postMessage({ progress }),
     });
-    // meta.json lists every file's size, so the download can be reported as a whole.
-    // It is read first by `load`, and the figures below are empty until then.
-    let sizes = {};
-    let meta = null;
-    let metaBytes = null;
-    let bytesBefore = 0;
-    let fileIndex = 0;
-    // Files with the same hash are read once (the OPT+ZEOS embedding and the decoder's
-    // second shard), so they count once.
-    const unique = () => {
-      const seen = new Map();
-      for (const [name, f] of Object.entries(sizes)) if (!seen.has(f.sha256 ?? name)) seen.set(f.sha256 ?? name, f);
-      return [...seen.values()];
-    };
     // The last file a load reads; ONNX Runtime builds the session after it.
-    const lastFile = () => (meta !== null && isOptZeosMeta(meta) ? meta.decoder.file : "model.onnx");
+    const lastFile = () => (isOptZeosMeta(reader.meta()) ? reader.meta().decoder.file : "model.onnx");
     const read = async (name) => {
-      if (name === "meta.json" && metaBytes !== null) return metaBytes;
-      const names = unique();
-      const sum = names.reduce((a, f) => a + f.bytes, 0);
-      const bytes = await files.read(name, sizes[name], ({ phase, loaded, total }) =>
-        self.postMessage({
-          progress: {
-            phase,
-            file: name,
-            loaded,
-            total,
-            files: names.length + 1, // meta.json itself is not in its own list
-            file_index: fileIndex,
-            bytes: bytesBefore + loaded,
-            bytes_total: sum,
-          },
-        }),
-      );
-      if (name === "meta.json") {
-        metaBytes = bytes;
-        meta = JSON.parse(new TextDecoder().decode(bytes));
-        sizes = meta.files ?? {};
-        // Fail now, not 2 GB in, when the browser cannot store what is left to download.
-        await files.checkSpace(await files.missing(Object.entries(sizes)));
-      }
-      bytesBefore += bytes.byteLength;
-      fileIndex += 1;
+      const bytes = await reader.read(name);
       if (name === lastFile()) {
-        // The graph is the last file `load` reads; what follows is ONNX Runtime
-        // building the session, which has no progress to report.
-        self.postMessage({ progress: { phase: "session", bytes: bytesBefore, bytes_total: sum } });
+        // What follows is ONNX Runtime building the session, which has no progress to report.
+        self.postMessage({ progress: { phase: "session", bytes: reader.bytesRead(), bytes_total: reader.bytesTotal() } });
       }
       return bytes;
     };
     const onActivity = (activity) => self.postMessage({ activity });
     await read("meta.json");
-    const worker = isOptZeosMeta(meta)
+    if (model.cache !== null) await markUsed(model.cache).catch((error) => console.warn(`model cache: ${error}`));
+    const worker = isOptZeosMeta(reader.meta())
       ? await OptZeosWorker.load({ ort, Tokenizer, read, onActivity })
       : await TransformersWorker.load({ ort, Tokenizer, read, onActivity });
-    // Every file of this revision is stored now; an older revision's never will be read.
-    if (model.cache !== null) await dropOtherRevisions(model.cache);
     serveChannel(worker, buffer, (handle) => {
       port.onmessage = (message) => handle(message.data);
     });
     self.postMessage({ ready: true, backend: worker.backend });
+    // Every file of this revision is stored now. Revisions no load has used for a while
+    // are removed, best-effort: a failure here never touches the load that finished.
+    if (model.cache !== null) {
+      dropOtherRevisions(model.cache).catch((error) => console.warn(`model cache cleanup: ${error}`));
+    }
   } catch (error) {
     self.postMessage({ ready: false, error: String(error?.stack ?? error) });
   }

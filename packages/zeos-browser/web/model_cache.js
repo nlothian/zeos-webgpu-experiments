@@ -151,7 +151,9 @@ export function modelFiles({ url, cache, fetch, store }) {
         hash = fresh();
       }
     }
-    const resumed = from > 0;
+    // Whether this download continues a stored part; a server that answers the Range
+    // request with the whole file makes it a fresh one.
+    let resumed = from > 0;
     // A part that already holds every byte (a load stopped between download and commit)
     // needs only its check.
     if (resumed && from === out.byteLength) return finish(from, null);
@@ -161,14 +163,19 @@ export function modelFiles({ url, cache, fetch, store }) {
       headers: from > 0 ? { Range: `bytes=${from}-` } : {},
     });
     if (!response.ok) throw new Error(`${new URL(name, url)}: HTTP ${response.status}`);
-    if (from > 0 && !(response.status === 206 && response.headers.get("content-range")?.startsWith(`bytes ${from}-`))) {
-      // The server sent the whole file rather than the rest: take it from the start.
-      if (response.status !== 200) {
+    if (from > 0) {
+      if (response.status === 200) {
+        // The whole file rather than the rest: take it from the start.
+        from = 0;
+        hash = fresh();
+        resumed = false;
+      } else if (!(response.status === 206 && contentRangeFrom(response) === from)) {
+        // A partial answer that does not say it starts where the part ends cannot be
+        // appended to it: drop the part and ask for the whole file.
         await response.body?.cancel();
-        throw new Error(`${new URL(name, url)}: HTTP ${response.status} to a range request`);
+        await store.discard(key);
+        return download(name, expected, onProgress, { resume: false });
       }
-      from = 0;
-      hash = fresh();
     }
     let writer;
     try {
@@ -259,6 +266,67 @@ export function modelFiles({ url, cache, fetch, store }) {
   }
 
   return { read, missing, checkSpace };
+}
+
+/**
+ * The `read(name)` a worker's `load` takes, over `modelFiles`, as the model thread uses it:
+ * `meta.json` is read first and kept, every later file is checked against its entry in
+ * `meta.files` (size and SHA-256), and before the first of them is read the store's room
+ * is checked against what is still missing. `onProgress` gets the model thread's progress
+ * message, `{phase, file, loaded, total, files, file_index, bytes, bytes_total}`, with the
+ * bytes counted over the whole export (files with the same hash once). `meta()` is the
+ * parsed `meta.json`, `bytesRead()` and `bytesTotal()` the running figures.
+ */
+export function modelReader({ url, cache, fetch, store, onProgress = () => {} }) {
+  const files = modelFiles({ url, cache, fetch, store });
+  let meta = null;
+  let metaBytes = null;
+  let sizes = {};
+  let bytesBefore = 0;
+  let fileIndex = 0;
+  const unique = () => {
+    const seen = new Map();
+    for (const [name, f] of Object.entries(sizes)) if (!seen.has(f.sha256 ?? name)) seen.set(f.sha256 ?? name, f);
+    return [...seen.values()];
+  };
+  const bytesTotal = () => unique().reduce((a, f) => a + f.bytes, 0);
+
+  async function read(name) {
+    if (name === "meta.json" && metaBytes !== null) return metaBytes;
+    if (name !== "meta.json" && meta === null) await read("meta.json");
+    const count = unique().length + 1; // meta.json itself is not in its own list
+    const sum = bytesTotal();
+    const bytes = await files.read(name, sizes[name], ({ phase, loaded, total }) =>
+      onProgress({
+        phase,
+        file: name,
+        loaded,
+        total,
+        files: count,
+        file_index: fileIndex,
+        bytes: bytesBefore + loaded,
+        bytes_total: sum,
+      }),
+    );
+    if (name === "meta.json") {
+      metaBytes = bytes;
+      meta = JSON.parse(new TextDecoder().decode(bytes));
+      sizes = meta.files ?? {};
+      // Fail now, not 2 GB in, when the browser cannot store what is left to download.
+      await files.checkSpace(await files.missing(Object.entries(sizes)));
+    }
+    bytesBefore += bytes.byteLength;
+    fileIndex += 1;
+    return bytes;
+  }
+
+  return { read, meta: () => meta, bytesRead: () => bytesBefore, bytesTotal };
+}
+
+/** Where a 206's `Content-Range: bytes <first>-<last>/<size>` starts, or null. */
+function contentRangeFrom(response) {
+  const match = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(response.headers.get("content-range") ?? "");
+  return match ? Number(match[1]) : null;
 }
 
 async function* streamOf(response) {

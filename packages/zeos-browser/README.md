@@ -68,7 +68,12 @@ publish a new export, upload it to the repo and set `HF_REVISION` to the new com
 `https://huggingface.co/api/models/<repo>`). In the page, `model_host.js`'s
 `modelSource(manifest)` picks the source (a `?model=` query parameter overrides the
 default) and `startBrowserModel({model})` hands it to the model thread, whose `read`
-callback is `model_cache.js`'s `modelFiles(...).read`, for either worker.
+callback is `model_cache.js`'s `modelReader({url, cache, fetch, store, onProgress}).read`,
+for either worker: it reads `meta.json` first, checks every later file against its entry
+in `meta.files`, checks the store's room against what is missing before the first of
+them, and reports progress over the whole export. Another loader (a site's own model
+worker) should use it the same way, not `modelFiles(...).read` directly, which knows
+nothing of `meta.json`.
 
 **Cross-origin isolation.** The pages are served with `Cross-Origin-Embedder-Policy:
 require-corp` (serve.py, or `coi_serviceworker.js`). Under it a cross-origin `fetch` must
@@ -93,8 +98,12 @@ a 2.2 GB OPFS file did not return in ten minutes, so files are read as a stream 
 preallocated `Uint8Array`. An OPFS file can also be resumed (a `.part` file plus a
 `Range` request), where a cache entry is all or nothing. Files live at
 `zeos-model-cache/<repo>/<revision>/<path>` (each part URI-encoded): the key is repo,
-revision and path, so a new commit never reads a file an older one stored. Once a load
-has every file of its revision, other revisions of the same repo are removed.
+revision and path, so a new commit never reads a file an older one stored. Each load
+records its use of a revision (an empty `.used-<ms>` file); after a load has finished,
+other revisions of the same repo that no load has used for a day, and last used before
+this one, are removed, best-effort: a revision with a `.part` (perhaps another tab's
+download), one with no record of use, or one whose removal fails (a file another tab
+holds) is left, the failure logged, and the finished load is never affected.
 
 **Memory.** A file is downloaded straight into the one `Uint8Array` the worker gets
 (sized from `meta.json`), and written to the `.part` and hashed chunk by chunk as it
@@ -113,7 +122,10 @@ load fails with the reason ("nothing was stored, reload to try again"). A load t
 stops part-way (a network error, the tab closed) leaves the `.part`; the next load hashes
 what it holds ("verifying"), asks for the rest with a `Range` request, and if the
 finished file does not match, downloads it once more from the start. A server that
-answers the `Range` request with the whole file restarts it. The tokenizer and the
+answers the `Range` request with the whole file (200) restarts it, as a fresh download
+(so a mismatch then fails rather than downloading a third time); a 206 whose
+`Content-Range` is missing, unreadable or starts elsewhere drops the part and asks once
+for the whole file. The tokenizer and the
 OPT+ZEOS embedding share their bytes with nothing, but the embedding's data and the
 decoder's second data file are the same matrix (the same SHA-256): `OptZeosWorker.load`
 reads it once, so only the embedding's copy is downloaded and stored.
@@ -123,8 +135,9 @@ missing with `navigator.storage.estimate()` and fails with a message naming both
 if the origin cannot hold it; a `QuotaExceededError` mid-download deletes the `.part` and
 fails the same way. Chrome allows an origin a share of the disk's free space (10.7 GB on
 a disk with 18 GB free when this was measured; enough for the 2.4 GB). `startBrowserModel`
-asks `navigator.storage.persist()` first, so a granted origin is not evicted under storage
-pressure; Chrome decides without a prompt, by how much the site is used, and refused it
+asks `navigator.storage.persist()` as the load starts, so a granted origin is not evicted
+under storage pressure, without waiting for the answer (the page's cache line is redrawn when it comes,
+through `onPersisted`); Chrome decides without a prompt, by how much the site is used, and refused it
 to a fresh profile on localhost, so there the cache is "best effort" and the page says so.
 Two tabs downloading at once: the second cannot open the `.part` (an access handle is
 exclusive) and says another tab is downloading.
@@ -928,8 +941,13 @@ node --test packages/zeos-browser/tests/js/*.test.mjs
   with `opfs_store.js`'s interface: a cache hit fetches nothing; the key holds the
   revision, so another revision downloads its own file; an interrupted download is never
   complete and resumes with a `Range` request (and restarts when the server ignores it);
-  a corrupt part, a wrong hash or a wrong length stores nothing; quota is checked before
-  downloading and a `QuotaExceededError` leaves no part; `sha256.js` against node:crypto.
+  a corrupt part, a wrong hash or a wrong length stores nothing; a 206 with a bad
+  `Content-Range` drops the part and fetches the whole file once; a 200 to a Range request
+  is a fresh download; quota is checked before downloading and a `QuotaExceededError`
+  leaves no part; `modelReader` reads `meta.json` first and checks files against it;
+  revision clean-up over a fake OPFS tree leaves a downloading, recent, unrecorded or
+  locked revision (NoModificationAllowedError) and never throws; `sha256.js` against
+  node:crypto.
   `test_model_source.py` — the manifest fields `build.py` writes.
 
 No test in these suites runs the model, so none needs a GPU or the export. The model runs

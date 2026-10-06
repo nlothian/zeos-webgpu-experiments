@@ -14,7 +14,8 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { test } from "node:test";
 
-import { IntegrityError, QuotaError, hubUrl, modelFiles } from "../../web/model_cache.js";
+import { IntegrityError, QuotaError, hubUrl, modelFiles, modelReader } from "../../web/model_cache.js";
+import { UNUSED_FOR_MS, dropOtherRevisions, markUsed } from "../../web/opfs_store.js";
 import { Sha256 } from "../../web/sha256.js";
 
 const REPO = "someone/Model-ZEOS-OPT";
@@ -78,7 +79,7 @@ function memoryStore({ quota = Infinity } = {}) {
  * honours `Range: bytes=N-` unless `ranges` is false, and `cutAfter` (name -> bytes)
  * makes the next response for that name fail after that many bytes.
  */
-function hub(files, { revision = REV_A, ranges = true } = {}) {
+function hub(files, { revision = REV_A, ranges = true, contentRange = null } = {}) {
   const calls = [];
   const cutAfter = new Map();
   const fetch = async (url, init = {}) => {
@@ -107,6 +108,11 @@ function hub(files, { revision = REV_A, ranges = true } = {}) {
     });
     const headers = { "content-length": String(body.byteLength) };
     if (range) headers["content-range"] = `bytes ${from}-${all.byteLength - 1}/${all.byteLength}`;
+    // `contentRange` overrides it on a 206: a string, or "" to leave it out.
+    if (range && contentRange !== null) {
+      if (contentRange === "") delete headers["content-range"];
+      else headers["content-range"] = contentRange;
+    }
     return new Response(stream, { status: range ? 206 : 200, headers });
   };
   return { fetch, calls, cutAfter };
@@ -297,4 +303,172 @@ test("a part that already holds the whole file is checked and stored without a r
   assert.deepEqual(Buffer.from(got), weights);
   assert.equal(server.calls.length, 0);
   assert.equal(await store.complete([REPO, REV_A, "w"]), weights.byteLength);
+});
+
+for (const [what, contentRange] of [
+  ["no Content-Range", ""],
+  ["a Content-Range that starts elsewhere", "bytes 0-29999/30000"],
+  ["an unreadable Content-Range", "bytes */30000"],
+]) {
+  test(`a 206 with ${what} drops the part and fetches the whole file once`, async () => {
+    const weights = randomBytes(30_000);
+    const server = hub(new Map([["w", weights]]), { contentRange });
+    const store = memoryStore();
+    store.parts.set(JSON.stringify([REPO, REV_A, "w"]), Uint8Array.from(weights.subarray(0, 12_000)));
+    const got = await source(REV_A, server.fetch, store).read("w", expect(weights));
+    assert.deepEqual(Buffer.from(got), weights);
+    assert.deepEqual(
+      server.calls.map((c) => c.range),
+      ["bytes=12000-", null],
+    );
+    assert.equal(await store.complete([REPO, REV_A, "w"]), weights.byteLength);
+  });
+}
+
+test("a 200 to a Range request is a fresh download: a mismatch then fails without a second one", async () => {
+  const weights = randomBytes(20_000);
+  const server = hub(new Map([["w", weights]]), { ranges: false });
+  const store = memoryStore();
+  store.parts.set(JSON.stringify([REPO, REV_A, "w"]), Uint8Array.from(weights.subarray(0, 5000)));
+  const wrong = { bytes: weights.byteLength, sha256: sha(Buffer.from("not these bytes")) };
+  await assert.rejects(source(REV_A, server.fetch, store).read("w", wrong), IntegrityError);
+  assert.deepEqual(
+    server.calls.map((c) => c.range),
+    ["bytes=5000-"],
+    "one request: the 200 was the whole file, not a resumption to retry",
+  );
+  assert.equal(await store.partial([REPO, REV_A, "w"]), 0);
+});
+
+// -- modelReader: what model_thread.js hands a worker's load ---------------------
+
+function export_(files) {
+  const entries = Object.fromEntries([...files].map(([name, bytes]) => [name, expect(bytes)]));
+  return new Map([["meta.json", Buffer.from(JSON.stringify({ files: entries }))], ...files]);
+}
+
+test("modelReader reads meta.json first and checks each file against its entry", async () => {
+  const weights = randomBytes(8000);
+  const files = export_(new Map([["onnx/w", weights]]));
+  const server = hub(files);
+  const store = memoryStore();
+  const progress = [];
+  const reader = modelReader({
+    url: hubUrl({ repo: REPO, revision: REV_A }),
+    cache: { repo: REPO, revision: REV_A },
+    fetch: server.fetch,
+    store,
+    onProgress: (p) => progress.push(p),
+  });
+  assert.deepEqual(Buffer.from(await reader.read("onnx/w")), weights);
+  assert.deepEqual(
+    server.calls.map((c) => c.url.split("/").pop()),
+    ["meta.json", "w"],
+  );
+  assert.equal(reader.meta().files["onnx/w"].bytes, 8000);
+  await reader.read("meta.json");
+  assert.equal(server.calls.length, 2, "meta.json is kept, not read again");
+  const last = progress.at(-1);
+  assert.equal(last.file, "onnx/w");
+  assert.equal(last.bytes_total, 8000);
+  assert.equal(last.files, 2);
+});
+
+test("modelReader rejects a file that does not match meta.json, and stores nothing of it", async () => {
+  const weights = randomBytes(8000);
+  const files = export_(new Map([["onnx/w", weights]]));
+  files.set("onnx/w", randomBytes(8000)); // the server's copy differs from what meta.json says
+  const store = memoryStore();
+  const reader = modelReader({
+    url: hubUrl({ repo: REPO, revision: REV_A }),
+    cache: { repo: REPO, revision: REV_A },
+    fetch: hub(files).fetch,
+    store,
+  });
+  await assert.rejects(reader.read("onnx/w"), IntegrityError);
+  assert.equal(await store.complete([REPO, REV_A, "onnx/w"]), null);
+});
+
+test("modelReader checks the store's room before the first file after meta.json", async () => {
+  const files = export_(new Map([["onnx/w", randomBytes(50_000)]]));
+  const server = hub(files);
+  const reader = modelReader({
+    url: hubUrl({ repo: REPO, revision: REV_A }),
+    cache: { repo: REPO, revision: REV_A },
+    fetch: server.fetch,
+    store: memoryStore({ quota: 20_000 }),
+  });
+  await assert.rejects(reader.read("onnx/w"), QuotaError);
+  assert.deepEqual(
+    server.calls.map((c) => c.url.split("/").pop()),
+    ["meta.json"],
+  );
+});
+
+// -- revision clean-up, over a fake OPFS directory tree --------------------------
+
+/** A FileSystemDirectoryHandle with what opfs_store.js uses; `locked` names entries whose
+ * removal throws NoModificationAllowedError, as one another tab holds open does. */
+function fakeDir(locked = new Set()) {
+  const entries = new Map();
+  const dir = {
+    kind: "directory",
+    entries: async function* () {
+      yield* [...entries];
+    },
+    async getDirectoryHandle(name, { create = false } = {}) {
+      if (!entries.has(name)) {
+        if (!create) throw Object.assign(new Error(name), { name: "NotFoundError" });
+        entries.set(name, fakeDir(locked));
+      }
+      return entries.get(name);
+    },
+    async getFileHandle(name, { create = false } = {}) {
+      if (!entries.has(name)) {
+        if (!create) throw Object.assign(new Error(name), { name: "NotFoundError" });
+        entries.set(name, { kind: "file", getFile: async () => ({ size: 0 }) });
+      }
+      return entries.get(name);
+    },
+    async removeEntry(name) {
+      if (locked.has(name)) throw Object.assign(new Error("locked"), { name: "NoModificationAllowedError" });
+      if (!entries.delete(name)) throw Object.assign(new Error(name), { name: "NotFoundError" });
+    },
+    names: () => [...entries.keys()],
+  };
+  return dir;
+}
+
+const NOW = 1_800_000_000_000;
+const revisionDir = async (top, revision) =>
+  (await (await top.getDirectoryHandle("zeos-model-cache")).getDirectoryHandle(encodeURIComponent(REPO))).getDirectoryHandle(
+    revision,
+  );
+
+test("old revisions go; a downloading, recent, unrecorded or locked one stays, and nothing throws", async () => {
+  const [OLD, PARTIAL, RECENT, UNRECORDED, LOCKED] = ["1", "2", "3", "4", "5"].map((c) => c.repeat(40));
+  const top = fakeDir(new Set([encodeURIComponent(LOCKED)]));
+  const long = NOW - UNUSED_FOR_MS - 1000;
+  for (const rev of [OLD, PARTIAL, LOCKED]) await markUsed({ repo: REPO, revision: rev }, { top, now: long });
+  await markUsed({ repo: REPO, revision: RECENT }, { top, now: NOW - 60_000 });
+  const unrecorded = await (await (await top.getDirectoryHandle("zeos-model-cache", { create: true }))
+    .getDirectoryHandle(encodeURIComponent(REPO))).getDirectoryHandle(UNRECORDED, { create: true });
+  await unrecorded.getFileHandle("config.json", { create: true });
+  await (await revisionDir(top, PARTIAL)).getFileHandle("onnx%2Fw.part", { create: true });
+  await markUsed({ repo: REPO, revision: REV_A }, { top, now: NOW });
+
+  const logged = [];
+  const removed = await dropOtherRevisions({ repo: REPO, revision: REV_A }, { top, now: NOW, log: (m) => logged.push(m) });
+  assert.deepEqual(removed, [OLD]);
+  const left = (await (await top.getDirectoryHandle("zeos-model-cache")).getDirectoryHandle(encodeURIComponent(REPO))).names();
+  assert.deepEqual(left.sort(), [PARTIAL, RECENT, UNRECORDED, LOCKED, REV_A].sort());
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /NoModificationAllowedError/);
+});
+
+test("markUsed keeps one record per revision, the latest", async () => {
+  const top = fakeDir();
+  await markUsed({ repo: REPO, revision: REV_A }, { top, now: 1 });
+  await markUsed({ repo: REPO, revision: REV_A }, { top, now: 2 });
+  assert.deepEqual((await revisionDir(top, REV_A)).names(), [".used-2"]);
 });

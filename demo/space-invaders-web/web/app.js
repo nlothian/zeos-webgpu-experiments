@@ -177,6 +177,7 @@ async function ensureModel() {
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     onProgress: onModelProgress,
+    onPersisted: () => state.refreshCache(),
   });
   modelThread = model;
   setModelStatus(`loaded on ${model.backend} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
