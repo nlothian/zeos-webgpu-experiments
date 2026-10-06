@@ -248,13 +248,13 @@ class Context {
 export class OptZeosWorker {
   /**
    * @param {object} deps
-   * @param {object} deps.ort ONNX Runtime (`onnxruntime-web` or `onnxruntime-node`).
+   * @param {object} deps.ort ONNX Runtime Web's WebGPU build.
    * @param {object} deps.tokenizer a `Tokenizer` from `@huggingface/tokenizers`.
    * @param {object} deps.meta the export's `meta.json`.
    * @param {object} deps.embed an `InferenceSession` over the embedding graph.
    * @param {object} deps.decoder an `InferenceSession` over the decoder.
    * @param {string} deps.backend the execution provider both run on.
-   * @param {object} [deps.device] the `GPUDevice` ONNX Runtime runs on, for WebGPU.
+   * @param {object} deps.device the `GPUDevice` ONNX Runtime runs on.
    * @param {(activity: object) => void} [deps.onActivity] as `TransformersWorker`'s.
    * @param {number} [deps.snapshotEvery]
    * @param {number} [deps.maxSnapshots]
@@ -268,7 +268,7 @@ export class OptZeosWorker {
     embed,
     decoder,
     backend,
-    device = null,
+    device,
     onActivity = null,
     snapshotEvery = SNAPSHOT_EVERY,
     maxSnapshots = MAX_SNAPSHOTS,
@@ -340,32 +340,27 @@ export class OptZeosWorker {
   }
 
   /**
-   * Build a worker from an export's files.
+   * Build a worker from an export's files, on WebGPU.
    *
    * @param {object} options
    * @param {(name: string) => Uint8Array | Promise<Uint8Array>} options.read a file's bytes.
    * @param {(name: string) => Uint8Array | string | Promise<Uint8Array | string>} [options.source]
-   *   a graph or weights file as bytes, or as a path or URL ONNX Runtime reads itself.
-   *   `read` by default. Files with the same SHA-256 in `meta.files` are read once.
-   * @param {string} [options.backend] `webgpu`, `wasm`, or `cpu` (onnxruntime-node).
-   * @param {number} [options.numThreads] WebAssembly threads; 1 by default, so the CPU
-   *   fallback never needs a cross-origin isolated worker pool.
+   *   a graph or weights file as bytes, or as a URL ONNX Runtime reads itself. `read` by
+   *   default. Files with the same SHA-256 in `meta.files` are read once.
    */
   static async load({
     ort,
     Tokenizer,
     read,
     source = read,
-    backend = "wasm",
     sessionOptions = {},
-    numThreads = 1,
     onActivity = null,
     snapshotEvery,
     maxSnapshots,
     maxTracks,
     skipHidden,
   }) {
-    if (ort.env?.wasm && backend !== "cpu") ort.env.wasm.numThreads = numThreads;
+    const backend = "webgpu";
     const decoder = new TextDecoder();
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");
@@ -381,7 +376,6 @@ export class OptZeosWorker {
       return value;
     };
     const base = (path) => path.replace(/^.*\//, "");
-    const webgpu = backend === "webgpu";
     const create = async (graph, outputs) => {
       const options = {
         executionProviders: [backend],
@@ -389,20 +383,17 @@ export class OptZeosWorker {
         ...sessionOptions,
       };
       const model = await file(graph.file);
-      // onnxruntime-node finds the data files beside a model it is given by path.
-      if (!(backend === "cpu" && typeof model === "string")) {
-        options.externalData = [];
-        for (const path of graph.externalData) {
-          options.externalData.push({ path: base(path), data: await file(path) });
-        }
+      options.externalData = [];
+      for (const path of graph.externalData) {
+        options.externalData.push({ path: base(path), data: await file(path) });
       }
-      if (webgpu) options.preferredOutputLocation = Object.fromEntries(outputs.map((n) => [n, "gpu-buffer"]));
+      options.preferredOutputLocation = Object.fromEntries(outputs.map((n) => [n, "gpu-buffer"]));
       return ort.InferenceSession.create(model, options);
     };
     const embed = await create(meta.embedTokens, ["inputs_embeds"]);
     const session = await create(meta.decoder, [...OptZeosWorker.presentNames(meta), "logits", "attention"]);
     bySha.clear();
-    const device = webgpu ? await ort.env.webgpu.device : null;
+    const device = await ort.env.webgpu.device;
     return new OptZeosWorker({
       ort,
       tokenizer,
@@ -635,40 +626,28 @@ export class OptZeosWorker {
     const { ort } = this;
     const dims = [1, this.kvHeads, n, this.headDim];
     const tensors = {};
-    if (this.device !== null) {
-      const row = this.headDim * 2; // bytes of one position of one head
-      const encoder = this.device.createCommandEncoder();
-      for (const [name] of this.kvNames) {
-        const dst = this.device.createBuffer({
-          // WebGPU zeroes a new buffer.
-          size: this.kvHeads * n * row,
-          // As ONNX Runtime's own storage buffers.
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-        });
-        if (keep > 0) {
-          const src = kv.tensors[name].gpuBuffer;
-          for (let h = 0; h < this.kvHeads; h++) {
-            encoder.copyBufferToBuffer(src, h * length * row, dst, h * n * row, keep * row);
-          }
-        }
-        tensors[name] = ort.Tensor.fromGpuBuffer(dst, {
-          dataType: "float16",
-          dims,
-          dispose: () => dst.destroy(),
-        });
-      }
-      this.device.queue.submit([encoder.finish()]);
-    } else {
-      const row = this.headDim;
-      for (const [name] of this.kvNames) {
-        const src = kv.tensors[name].data;
-        const dst = new src.constructor(this.kvHeads * n * row);
+    const row = this.headDim * 2; // bytes of one position of one head
+    const encoder = this.device.createCommandEncoder();
+    for (const [name] of this.kvNames) {
+      const dst = this.device.createBuffer({
+        // WebGPU zeroes a new buffer.
+        size: this.kvHeads * n * row,
+        // As ONNX Runtime's own storage buffers.
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      if (keep > 0) {
+        const src = kv.tensors[name].gpuBuffer;
         for (let h = 0; h < this.kvHeads; h++) {
-          dst.set(src.subarray(h * length * row, h * length * row + keep * row), h * n * row);
+          encoder.copyBufferToBuffer(src, h * length * row, dst, h * n * row, keep * row);
         }
-        tensors[name] = new ort.Tensor("float16", dst, dims);
       }
+      tensors[name] = ort.Tensor.fromGpuBuffer(dst, {
+        dataType: "float16",
+        dims,
+        dispose: () => dst.destroy(),
+      });
     }
+    this.device.queue.submit([encoder.finish()]);
     return new Shared(tensors);
   }
 

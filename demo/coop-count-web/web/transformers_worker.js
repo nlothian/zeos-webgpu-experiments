@@ -11,8 +11,7 @@
  *
  * This module owns token ids and caches and nothing else. Words, segments, rings and the
  * syscall grammar belong to the Python side (`JsMachine`), which calls the methods below.
- * It imports nothing: ONNX Runtime and the tokenizer class are handed in, so the same file
- * runs in a browser worker and under Node.
+ * It imports nothing: ONNX Runtime and the tokenizer class are handed in.
  *
  * `append` and `decodeStep` return promises, because `InferenceSession.run` does. The
  * synchronous `ZeosModelWorker` interface the Python side calls is `SyncModelWorker` in
@@ -163,7 +162,7 @@ class Context {
 export class TransformersWorker {
   /**
    * @param {object} deps
-   * @param {object} deps.ort ONNX Runtime (`onnxruntime-web` or `onnxruntime-node`).
+   * @param {object} deps.ort ONNX Runtime Web's WebGPU build.
    * @param {object} deps.tokenizer a `Tokenizer` from `@huggingface/tokenizers`.
    * @param {object} deps.meta the export's `meta.json`.
    * @param {object} deps.session an `InferenceSession` over `model.onnx`.
@@ -194,9 +193,10 @@ export class TransformersWorker {
     this.stats = { reruns: 0, rerunPositions: 0 };
   }
 
-  /** Build a worker from the files an export wrote. `read(name)` returns a file's bytes
-   * as a Uint8Array (or a promise of them); `backend` is an execution provider name. */
-  static async load({ ort, Tokenizer, read, backend = "wasm", sessionOptions = {}, onActivity = null }) {
+  /** Build a worker from the files an export wrote, on WebGPU. `read(name)` returns a
+   * file's bytes as a Uint8Array (or a promise of them). */
+  static async load({ ort, Tokenizer, read, sessionOptions = {}, onActivity = null }) {
+    const backend = "webgpu";
     const decoder = new TextDecoder();
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");

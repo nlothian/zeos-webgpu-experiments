@@ -76,7 +76,6 @@ function refreshControls() {
   }
   $("case").disabled = !idle;
   $("machine").disabled = !idle;
-  $("backend").disabled = !idle || !model;
   $("schedule").disabled = !idle || !(state.info && state.info.schedule);
   $("run").disabled = !idle || !runnable;
   $("stop").disabled = idle;
@@ -350,7 +349,9 @@ const handlers = {
   },
   ready: ({ cases, pyodide, python, model, isolated }) => {
     const option = $("model-option");
-    option.disabled = !(model && isolated);
+    // The model runs on WebGPU only.
+    const gpu = Boolean(navigator.gpu);
+    option.disabled = !(model && isolated && gpu);
     if (model) {
       // The export's directory name, less the `-zeos-<quant>` (or `-ZEOS-OPT`) suffix.
       MACHINE_NAMES.transformers = model.replace(/-zeos-[^-]+$/i, "");
@@ -358,17 +359,13 @@ const handlers = {
     }
     if (!model) option.textContent += " (not in this build)";
     else if (!isolated) option.textContent += " (needs a cross-origin isolated page)";
+    else if (!gpu) option.textContent += " (needs WebGPU, which this browser does not have)";
     const select = $("case");
     for (const name of cases) {
       select.add(new Option(CASE_NAMES[name] || name, name));
     }
-    // The model is the default when this page can run it; WebGPU when the browser has it.
+    // The model is the default when this page can run it.
     $("machine").value = option.disabled ? "scripted" : "transformers";
-    if (!navigator.gpu) {
-      $("backend").value = "wasm";
-      $("backend").options[0].textContent += " (not available in this browser)";
-      $("backend").options[0].disabled = true;
-    }
     if (cases.includes("coop-count-scripted")) select.value = "coop-count-scripted";
     setStatus(`ready — Python ${python} (Pyodide ${pyodide}) loaded; press run`);
     send("describe", { name: select.value });
@@ -446,28 +443,26 @@ $("speed").addEventListener("input", () => {
   send("speed", { ms });
 });
 
-/** Model threads already handed to the Pyodide worker, by backend. */
-const modelThreads = new Map();
+/** The model thread once handed to the Pyodide worker; it stays loaded across runs. */
+let modelThread = null;
 
-/** Start the model thread for a backend here, on the page's thread, and hand its buffer
- * and port to the Pyodide worker, which calls it synchronously from then on. */
-async function ensureModel(backend) {
-  if (modelThreads.has(backend)) return;
+/** Start the model thread here, on the page's thread, and hand its buffer and port to the
+ * Pyodide worker, which calls it synchronously from then on. */
+async function ensureModel() {
+  if (modelThread !== null) return;
   const { startBrowserModel } = await import("./model_host.js");
   const manifest = await (await fetch("manifest.json")).json();
-  setStatus(`loading ${manifest.model} on ${backend === "webgpu" ? "the GPU" : "the CPU"}`);
+  setStatus(`loading ${manifest.model} on the GPU`);
   const model = await startBrowserModel({
     modelUrl: `models/${manifest.model}/`,
-    ortWasmUrl: "vendor/onnxruntime-web/ort.wasm.min.mjs",
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
-    backend,
     onProgress: onModelProgress,
     onActivity: onModelActivity,
   });
-  modelThreads.set(backend, model);
+  modelThread = model;
   worker.postMessage(
-    { type: "attachModel", backend, buffer: model.buffer, port: model.port, name: manifest.model },
+    { type: "attachModel", backend: model.backend, buffer: model.buffer, port: model.port, name: manifest.model },
     [model.port],
   );
 }
@@ -477,7 +472,6 @@ $("run").addEventListener("click", async () => {
     name: $("case").value,
     machine: $("machine").value,
     schedule: $("schedule").checked,
-    backend: $("backend").value,
   };
   state.running = true;
   clearOutput();
@@ -487,7 +481,7 @@ $("run").addEventListener("click", async () => {
     modelActivity.decodeMs = 0;
     modelActivity.prefillMsPerToken = null;
     try {
-      await ensureModel(state.started.backend);
+      await ensureModel();
     } catch (err) {
       state.running = false;
       refreshControls();

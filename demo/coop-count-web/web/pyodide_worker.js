@@ -33,8 +33,8 @@ let page = null;
 let run = null;
 let delay = 120;
 let presses = 0;
-/** One model thread per backend, kept across runs: loading it is the slow part. */
-const models = new Map();
+/** The model thread, kept across runs: loading it is the slow part. */
+let model = null;
 /** A live model seat counts for ever, so a run of it stops here, as run_all.py stops one. */
 const MODEL_MAX_TICKS = 400;
 
@@ -99,16 +99,16 @@ function linesOf(proxy) {
 
 /** Wrap the model thread the page started, whose buffer and port it has handed over. */
 function attachModel({ backend, buffer, port, name }) {
-  models.set(backend, new SyncModelWorker(buffer, (m) => port.postMessage(m)));
+  model = new SyncModelWorker(buffer, (m) => port.postMessage(m));
   post("model", { name, backend });
 }
 
-function start({ name, machine, schedule, backend = "wasm" }) {
+function start({ name, machine, schedule }) {
   if (run !== null) stop("replaced by a new run");
   const dir = caseDir(name);
   if (machine === "transformers") {
-    const worker = models.get(backend);
-    if (worker === undefined) throw new Error(`no model thread for ${backend}; the page starts one`);
+    const worker = model;
+    if (worker === null) throw new Error("no model thread; the page starts one");
     run = page.open_run.callKwargs(dir, "js", { schedule, worker, max_ticks: MODEL_MAX_TICKS });
   } else if (machine === "stub") {
     const worker = self.createStubWorker(JSON.parse(page.tapes_json(dir)));

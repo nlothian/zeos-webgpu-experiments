@@ -6,19 +6,17 @@
 
 // Run one Python file under Pyodide in Node, with wheels installed and host
 // directories copied into the in-memory filesystem, the way si_worker.js does it.
-// coop-count-web's harness, for this page: Pyodide and the model thread come from
-// coop-count-web, whose npm install is the one this demo uses.
+// coop-count-web's harness, for this page: Pyodide comes from coop-count-web, whose npm
+// install is the one this demo uses.
 //
 //   node pyodide_run.mjs --wheel W.whl ... --copy HOST:PYPATH ... \
 //        --fetch PYPATH:HOST ... --js FILE.js ... SCRIPT.py
 //
 // --copy puts a host directory into MEMFS before the script runs; --fetch copies one
 // file back out afterwards; --js loads a classic script, such as web/stub_worker.js,
-// into the global scope the script reaches as Pyodide's `js` module; --model starts the
-// model worker on a thread of its own (web/node_model_thread.mjs), as the page does, and
-// puts its synchronous face in that scope as `zeosModelWorker`; --pilot-stub OPTS_JSON does
-// the same for web/stub/pilot_stub_worker.js (tests/pilot_stub_thread.mjs), as
-// `zeosPilotStub`. The scope also has `zeosControl`, an Int32Array over a control
+// into the global scope the script reaches as Pyodide's `js` module; --pilot-stub OPTS_JSON
+// starts web/stub/pilot_stub_worker.js on a thread of its own (tests/pilot_stub_thread.mjs),
+// as the page does, and puts its synchronous face in that scope as `zeosPilotStub`. The scope also has `zeosControl`, an Int32Array over a control
 // SharedArrayBuffer like the page's (slot 0 is Stop), and `zeosStopAfter(ms)`, which sets
 // Stop from another thread `ms` later -- the run loop never yields, so a timer on this
 // thread could not -- and records Date.now() at that moment in `zeosStoppedAt()`. Nothing is mounted: the script sees exactly the
@@ -41,7 +39,6 @@ const wheels = [];
 const copies = [];
 const fetches = [];
 const scripts = [];
-let model = null;
 let pilotStub = null;
 let script = null;
 for (let i = 0; i < args.length; i++) {
@@ -52,7 +49,6 @@ for (let i = 0; i < args.length; i++) {
   else if (flag === "--copy") copies.push(splitAt(args[++i], args[i].lastIndexOf(":")));
   else if (flag === "--fetch") fetches.push(splitAt(args[++i], args[i].indexOf(":")));
   else if (flag === "--js") scripts.push(args[++i]);
-  else if (flag === "--model") model = args[++i];
   else if (flag === "--pilot-stub") pilotStub = JSON.parse(args[++i]);
   else script = flag;
 }
@@ -115,10 +111,6 @@ globalThis.zeosWorkerThreads = await import("node:worker_threads");
 if (pilotStub !== null) {
   const { startPilotStub } = await import(pathToFileURL(path.join(here, "pilot_stub_thread.mjs")).href);
   globalThis.zeosPilotStub = await startPilotStub(pilotStub);
-}
-if (model !== null) {
-  const { startNodeModel } = await import(path.join(coop, "web", "node_model_thread.mjs"));
-  globalThis.zeosModelWorker = await startNodeModel({ modelDir: path.resolve(model) });
 }
 
 let status = 0;

@@ -18,7 +18,8 @@
  *
  * The export's `meta.json` picks the worker: `OptZeosWorker` for an OPT+ZEOS export
  * (`export/opt_zeos_surgery.py`), `TransformersWorker` for an `export_model.py` one.
- * WebAssembly is pinned to one thread either way (`threads` overrides it).
+ * Either runs on WebGPU, the only backend: without a WebGPU adapter the thread reports
+ * `{ready: false, error}` and loads nothing.
  */
 
 import { serveChannel } from "./model_channel.js";
@@ -43,27 +44,24 @@ async function fetchBytes(url, onProgress) {
   return out;
 }
 
-/** Which execution provider to run: WebGPU when asked for and an adapter exists,
- * otherwise WebAssembly. */
-async function chooseBackend(wanted) {
-  if (wanted === "wasm") return "wasm";
+/** Fail with a message the page can show when the browser has no WebGPU adapter. */
+async function requireWebGpu() {
   const adapter = self.navigator.gpu ? await self.navigator.gpu.requestAdapter() : null;
-  if (adapter) return "webgpu";
-  if (wanted === "webgpu") throw new Error("WebGPU was asked for, but this browser has no adapter");
-  return "wasm";
+  if (adapter === null) {
+    throw new Error(
+      "this browser has no WebGPU adapter, and the model runs on WebGPU only; " +
+        "use a browser with WebGPU (Chrome or Edge 113+, Safari 26+), or the recorded answers",
+    );
+  }
 }
 
 self.onmessage = async (event) => {
-  const { buffer, port, modelUrl, ortWasmUrl, ortWebgpuUrl, tokenizersUrl, backend, threads } =
-    event.data;
+  const { buffer, port, modelUrl, ortWebgpuUrl, tokenizersUrl } = event.data;
   self.onmessage = null;
   try {
-    const chosen = await chooseBackend(backend ?? "wasm");
-    // The plain WebAssembly build for the WebAssembly backend, so the kernels are the same
-    // binary Node's onnxruntime-web runs and a journal can be compared across the two.
-    const ort = await import(chosen === "webgpu" ? ortWebgpuUrl : ortWasmUrl);
-    ort.env.wasm.numThreads = threads ?? 1;
-    ort.env.wasm.wasmPaths = new URL(".", chosen === "webgpu" ? ortWebgpuUrl : ortWasmUrl).href;
+    await requireWebGpu();
+    const ort = await import(ortWebgpuUrl);
+    ort.env.wasm.wasmPaths = new URL(".", ortWebgpuUrl).href;
     const { Tokenizer } = await import(tokenizersUrl);
     const base = new URL(modelUrl, self.location.href);
     // meta.json lists every file's size, so the download can be reported as a whole.
@@ -118,12 +116,12 @@ self.onmessage = async (event) => {
     const onActivity = (activity) => self.postMessage({ activity });
     await read("meta.json");
     const worker = isOptZeosMeta(meta)
-      ? await OptZeosWorker.load({ ort, Tokenizer, read, backend: chosen, numThreads: threads ?? 1, onActivity })
-      : await TransformersWorker.load({ ort, Tokenizer, read, backend: chosen, onActivity });
+      ? await OptZeosWorker.load({ ort, Tokenizer, read, onActivity })
+      : await TransformersWorker.load({ ort, Tokenizer, read, onActivity });
     serveChannel(worker, buffer, (handle) => {
       port.onmessage = (message) => handle(message.data);
     });
-    self.postMessage({ ready: true, backend: chosen });
+    self.postMessage({ ready: true, backend: worker.backend });
   } catch (error) {
     self.postMessage({ ready: false, error: String(error?.stack ?? error) });
   }

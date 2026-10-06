@@ -71,10 +71,8 @@ VENDOR = {
     "onnxruntime-web": (
         NODE_MODULES / "onnxruntime-web" / "dist",
         (
-            "ort.wasm.min.mjs",
+            # The WebGPU build and the WebAssembly module it loads; nothing else runs.
             "ort.webgpu.min.mjs",
-            "ort-wasm-simd-threaded.mjs",
-            "ort-wasm-simd-threaded.wasm",
             "ort-wasm-simd-threaded.asyncify.mjs",
             "ort-wasm-simd-threaded.asyncify.wasm",
         ),

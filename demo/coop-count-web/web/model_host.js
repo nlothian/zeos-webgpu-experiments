@@ -16,11 +16,8 @@ import { CHANNEL_BYTES } from "./model_channel.js";
 /**
  * @param {object} options
  * @param {string} options.modelUrl the export directory, relative to the page.
- * @param {string} options.ortWasmUrl onnxruntime-web's `ort.wasm.min.mjs`.
  * @param {string} options.ortWebgpuUrl onnxruntime-web's `ort.webgpu.min.mjs`.
  * @param {string} options.tokenizersUrl `@huggingface/tokenizers`' `tokenizers.min.mjs`.
- * @param {"wasm"|"webgpu"|"auto"} [options.backend] `auto` takes WebGPU when present.
- * @param {number} [options.threads] WebAssembly threads; one keeps a run reproducible.
  * @param {(progress: object) => void} [options.onProgress] download and session progress.
  * @param {(activity: object) => void} [options.onActivity] every run of the graph, before
  *   and after, as `TransformersWorker`'s `onActivity` reports it.
@@ -52,11 +49,8 @@ export async function startBrowserModel(options) {
       buffer,
       port: channel.port1,
       modelUrl: absolute(options.modelUrl),
-      ortWasmUrl: absolute(options.ortWasmUrl),
       ortWebgpuUrl: absolute(options.ortWebgpuUrl),
       tokenizersUrl: absolute(options.tokenizersUrl),
-      backend: options.backend ?? "wasm",
-      threads: options.threads ?? 1,
     },
     [channel.port1],
   );

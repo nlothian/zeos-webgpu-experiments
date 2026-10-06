@@ -4,13 +4,13 @@
 # This source code is licensed under the AGPL-3.0-only licence found in the
 # LICENSE file in the root directory of this source tree.
 
-"""The Transformers.js worker, run by Node in a child process, as a CPython object.
+"""The stub model worker, run by Node in a child process, as a CPython object.
 
 ``NodeWorker`` has the ``ZeosModelWorker`` methods, so ``JsMachine`` drives it exactly as
-it drives the worker in the page: the same JavaScript (``web/transformers_worker.js``)
-over the same exported graphs, and by default the same ONNX Runtime WebAssembly kernels.
-That is what lets the machine contract, the kernel cases and the attention evidence run
-from pytest and a shell rather than only in a browser.
+it drives the worker in the page: ``web/stub_worker.js`` over a JSON file of
+``{tapes, options}``, behind the same frames (``web/frames.js``) the page's channel
+encodes. That is what lets the decode step that does not block, and its cancel, be
+tested from pytest rather than only in a browser.
 
 Each call writes one frame to the child and reads one back, so a call returns only when
 the worker has finished, which is the synchronous interface ``JsMachine`` expects.
@@ -47,7 +47,6 @@ from typing import IO, Any, cast
 
 __all__ = [
     "CHANNEL_BUSY",
-    "DEFAULT_MODEL",
     "DEMO",
     "ModelInfo",
     "NodeWorker",
@@ -57,7 +56,6 @@ __all__ = [
 
 DEMO = Path(__file__).resolve().parents[2]
 BRIDGE = DEMO / "web" / "node_bridge.mjs"
-DEFAULT_MODEL = DEMO / "models" / "Qwen3.5-2B-zeos-int8"
 
 _TYPECODES = {"Uint8Array": "B", "Int32Array": "i", "Float32Array": "f"}
 
@@ -81,30 +79,20 @@ class Step:
 
 
 def node_available() -> bool:
-    """Whether Node and this demo's npm dependencies are installed."""
-    return shutil.which("node") is not None and (DEMO / "node_modules" / "onnxruntime-web").is_dir()
+    """Whether Node is installed."""
+    return shutil.which("node") is not None
 
 
 class NodeWorker:
     """A ``ZeosModelWorker`` whose methods are answered by ``web/node_bridge.mjs``."""
 
-    def __init__(
-        self,
-        model: Path = DEFAULT_MODEL,
-        *,
-        runtime: str = "web",
-        threads: int = 1,
-        stub: Path | None = None,
-    ) -> None:
+    def __init__(self, *, stub: Path) -> None:
         """``stub``: a JSON file of ``{tapes, options}`` to serve ``web/stub_worker.js``
-        over instead of a model."""
+        over."""
         node = shutil.which("node")
         if node is None:
             raise RuntimeError("node is not on PATH")
-        argv = [node, str(BRIDGE), "--model", str(model), "--runtime", runtime]
-        argv += ["--threads", str(threads)]
-        if stub is not None:
-            argv += ["--stub", str(stub)]
+        argv = [node, str(BRIDGE), "--stub", str(stub)]
         self._process = subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=DEMO
         )

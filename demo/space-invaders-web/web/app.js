@@ -82,8 +82,8 @@ function renderChecks() {
   $("checks").innerHTML = parts.join(" · ");
 }
 
-/** Why the model machine cannot run here, or null when it can. WebGPU only: the 4B
- * does not fit the WebAssembly backend, so there is no fallback. */
+/** Why the model machine cannot run here, or null when it can. The model runs on
+ * WebGPU only. */
 function modelBlocker() {
   if (!state.isolated) return "the page is not cross-origin isolated (serve it with serve.py)";
   if (state.model === null) return "this build has no model (see the README: npm install, then build.py)";
@@ -180,10 +180,8 @@ async function ensureModel() {
   const started = performance.now();
   const model = await startBrowserModel({
     modelUrl: `models/${state.model}/`,
-    ortWasmUrl: "vendor/onnxruntime-web/ort.wasm.min.mjs",
     ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
-    backend: "webgpu",
     onProgress: onModelProgress,
   });
   modelThread = model;
