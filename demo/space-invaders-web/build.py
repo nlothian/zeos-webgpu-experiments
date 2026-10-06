@@ -23,8 +23,8 @@ comes from Pyodide's own package index: micropip resolves it when it installs th
 
 ONNX Runtime Web and the tokenizer come from coop-count-web's ``npm install`` and go
 into ``vendor/``; with them present and the model exported, the export is linked into
-``models/`` (``--copy-model`` copies it, for a host that does not follow links) and
-named in the manifest, which is what offers the model machine on the page.
+``models/`` and named in the manifest, which is what offers the model machine on the page. A host
+that does not follow symbolic links -- most static hosts -- needs ``--copy-model``.
 ``--link-node-modules`` links ``node_modules`` here to coop-count-web's, which is
 where ``tests/pyodide_run.mjs`` looks for Pyodide.
 """
@@ -49,7 +49,7 @@ CASE = REPO / "demo" / "space-invaders" / "src" / "zeos_space_invaders" / "cases
 DEBUGGER = REPO / "src" / "zeos" / "debugger" / "static"
 PACKAGES = ("zeos", "zeos-space-invaders", "zeos-coop-count-web", "zeos-space-invaders-web")
 #: The page's own files, from ``web/``.
-PAGE = ("index.html", "app.js", "board.js", "si_worker.js", "style.css")
+PAGE = ("index.html", "app.js", "board.js", "si_worker.js", "stub_thread.js", "style.css")
 #: The model thread and its channel, unchanged from coop-count-web.
 GENERIC = (
     "model_host.js",
@@ -61,8 +61,10 @@ GENERIC = (
     "stub_worker.js",
     "coi_serviceworker.js",
 )
-#: The Space Invaders stub served over the channel, when it exists.
+#: The Space Invaders stub, served over the channel from its own thread (stub_thread.js)
+#: when ``web/stub/pilot_stub_worker.js`` exists; ``manifest.json`` says whether it does.
 STUB = WEB / "stub"
+STUB_WORKER = STUB / "pilot_stub_worker.js"
 NODE_MODULES = COOP / "node_modules"
 #: What the model thread imports, from the npm packages coop-count-web's package.json pins.
 VENDOR = {
@@ -111,10 +113,11 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
         shutil.copy2(WEB / name, dist / name)
     for name in GENERIC:
         shutil.copy2(COOP_WEB / name, dist / name)
-    if STUB.is_dir():
+    stub = STUB_WORKER.is_file()
+    if stub:
         shutil.copytree(STUB, dist / "stub")
 
-    manifest: dict[str, object] = {"wheels": names, "cases": cases, "model": None}
+    manifest: dict[str, object] = {"wheels": names, "cases": cases, "model": None, "stub": stub}
     if all(source.is_dir() for source, _ in VENDOR.values()):
         for name, (source, files) in VENDOR.items():
             (dist / "vendor" / name).mkdir(parents=True)

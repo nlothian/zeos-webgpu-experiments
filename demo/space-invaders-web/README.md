@@ -29,9 +29,11 @@ beside coop-count-web's page on 8765. `serve.py --port` and `--dir` change both.
 
 `build.py` links the model export (by default
 `../coop-count-web/models/Qwen3.5-4B-ZEOS-OPT`) into `web/dist/models/` and names it in
-`manifest.json`; `--model DIR` offers another export, and `--copy-model` copies it for a
-host that does not follow links. Without the npm install or the export the build still
-works, and the page offers only the stub. `--link-node-modules` links `node_modules`
+`manifest.json`; `--model DIR` offers another export. The link works with `serve.py`;
+**to put `web/dist` on a static host, build with `--copy-model`**, which copies the
+export (gigabytes) instead, because a static host does not follow symbolic links.
+Without the npm install or the export the build still works, and the page offers only
+the stub. `--link-node-modules` links `node_modules`
 here to coop-count-web's.
 
 ## What you'll see
@@ -39,7 +41,10 @@ here to coop-count-web's.
 - **Controls:** the player (the ZEOS kernel, with its `pilot` and `evade` reflex, or the
   prompt loop), the board (default 12×16 at 0.5 s a tick, or the ablation board, 9×8 at
   0.2 s), the seed, and the machine. *Language model on WebGPU* needs a WebGPU adapter;
-  there is no WebAssembly fallback, because the 4B does not fit it. *Stub* needs no GPU.
+  there is no WebAssembly fallback, because the 4B does not fit it. *Stub* needs no GPU:
+  when the build has `web/stub/pilot_stub_worker.js` it runs on a thread of its own
+  (`stub_thread.js`) and answers through the same channel as the model, with simulated
+  latency; without it the stub machine runs on no worker, which only a `FakeRun` accepts.
   The header shows whether the page is cross-origin isolated, whether WebGPU offered an
   adapter, and whether the build has the model.
 - **Phases:** *loading model* (with a download bar, model machine only), *warming* (the

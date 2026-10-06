@@ -14,9 +14,11 @@
 // Stop also wakes a sleeping loop. Frames go out with postMessage, which works from a
 // busy worker: only receiving needs the event loop.
 //
-// The model thread is started by the page (a worker started from inside a worker failed
-// in the Chromium coop-count-web was tested in) and handed over in `attachModel`, as in
-// coop-count-web's pyodide_worker.js. Message shapes are CONTRACTS.md section 3.
+// The model thread, and the stub's thread (stub_thread.js) for the stub machine, are
+// started by the page (a worker started from inside a worker failed in the Chromium
+// coop-count-web was tested in) and handed over in `attachModel` as backends "webgpu"
+// and "stub", as in coop-count-web's pyodide_worker.js. Either is reached through a
+// SyncModelWorker, so the run loop begins, polls and cancels decode steps the same way. Message shapes are CONTRACTS.md section 3.
 
 import { loadPyodide, version as PYODIDE_VERSION } from "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs";
 import { SyncModelWorker } from "./model_channel.js";
@@ -30,6 +32,8 @@ const CASE_ROOT = "/cases/space-invaders";
 let pyodide = null;
 let page = null;
 let control = null;
+/** Whether the build has the Space Invaders stub (manifest.stub). */
+let stubBuilt = false;
 /** Model threads the page has handed over, by backend. */
 const models = new Map();
 
@@ -67,6 +71,7 @@ async function boot({ controlSab }) {
       pyodide.FS.writeFile(target, await fetchBytes(`cases/${name}/${file}`));
     }
   }
+  stubBuilt = manifest.stub === true;
   page = pyodide.pyimport("zeos_space_invaders_web.page");
   const python = pyodide.runPython("import sys; sys.version.split()[0]");
   post("ready", {
@@ -74,6 +79,7 @@ async function boot({ controlSab }) {
     python,
     isolated: self.crossOriginIsolated,
     model: manifest.model ?? null,
+    stub: manifest.stub === true,
     describe: JSON.parse(page.describe_json(CASE_ROOT)),
   });
 }
@@ -82,20 +88,6 @@ async function boot({ controlSab }) {
 function attachModel({ backend, buffer, port, name }) {
   models.set(backend, new SyncModelWorker(buffer, (m) => port.postMessage(m)));
   post("model", { name, backend });
-}
-
-/** The worker the stub machine runs on: the Space Invaders stub when the build has one
- * (web/stub/pilot_stub_worker.js defining self.createPilotStubWorker), else none, which
- * a FakeRun does not need. */
-async function stubWorker() {
-  if (typeof self.createPilotStubWorker !== "function") {
-    try {
-      await import("./stub/pilot_stub_worker.js");
-    } catch {
-      return null;
-    }
-  }
-  return typeof self.createPilotStubWorker === "function" ? self.createPilotStubWorker({}) : null;
 }
 
 const stop = { is_set: () => Atomics.load(control, CONTROL_STOP) !== 0 };
@@ -107,15 +99,20 @@ const clock = {
   },
 };
 
-async function start({ arm, board, seed, machine }) {
-  Atomics.store(control, CONTROL_STOP, 0);
-  let worker = null;
-  if (machine === "model") {
-    worker = models.get("webgpu") ?? null;
-    if (worker === null) throw new Error("no model thread attached; the page starts one first");
-  } else {
-    worker = await stubWorker();
-  }
+/** The channel for `machine`: the model thread or the stub thread the page attached.
+ * Only a build without the stub runs the stub machine on no worker (a FakeRun). */
+function workerFor(machine) {
+  const backend = machine === "model" ? "webgpu" : "stub";
+  const worker = models.get(backend);
+  if (worker !== undefined) return worker;
+  if (machine === "stub" && !stubBuilt) return null;
+  throw new Error(`no ${backend} thread attached; the page starts one before "start"`);
+}
+
+// The page clears control[CONTROL_STOP] before posting `start`, so a Stop pressed while
+// the model was loading is not lost.
+function start({ arm, board, seed, machine }) {
+  const worker = workerFor(machine);
   const onFrame = page.json_sink((text) => {
     const frame = JSON.parse(text);
     post("frame", frame);

@@ -179,17 +179,25 @@ Written by the page workstream; each is the smallest change the page needed.
   `{now: performance.now() / 1000, sleep: Atomics.wait(control, CONTROL_STOP, 0, ms)}`,
   so a sleeping loop wakes the moment Stop is written; `None` is `MonotonicClock`.
   `stop` is `{is_set: Atomics.load(control, CONTROL_STOP) !== 0}`.
-- **`worker` may be `None`.** The stub machine hands over `self.createPilotStubWorker({})`
-  when the build has `web/stub/pilot_stub_worker.js` defining it (imported by
-  `si_worker.js`; `build.py` copies `web/stub/` when present), else `None`. The model
-  machine hands over the `SyncModelWorker` attached for backend `webgpu`.
+- **The stub machine gets a channel like the model's.** The page starts
+  `stub_thread.js`, which imports `web/stub/pilot_stub_worker.js`, calls
+  `self.createPilotStubWorker({stepMs, positionMs})` and serves it with `serveChannel`;
+  the page attaches it as backend `stub` (`attachModel`), and `si_worker.js` hands
+  `open_run` that `SyncModelWorker`. The model machine hands over the one attached for
+  backend `webgpu`. `manifest.json` says whether the build has the stub (`stub`); without
+  it `worker` is `None`, which only a `FakeRun` accepts.
+- **Stop is cleared by the page**, just before it starts loading a thread for a run, not
+  by `start`; a Stop pressed while a thread loads cancels the run before `start` is sent.
 - **`frame` and `decision` bodies are spread.** `{type: "frame", ...Frame}` and
   `{type: "decision", ...DecisionRecord}`, the `{type, ...body}` convention; neither
   shape has a `type` field. `started` and `finished` also carry `stopped` (whether Stop
   was set).
-- **`ready`** carries `{pyodide, python, isolated, model, describe}`: `model` is the
-  manifest's export name or `null`, `describe` is `page.describe_json()` (boards, arms,
-  criteria ids, the registered builders, and the debugger's wiring-only payload).
+- **`ready`** carries `{pyodide, python, isolated, model, stub, describe}`: `model` is the
+  manifest's export name or `null`, `stub` whether the build has the stub, `describe` is
+  `page.describe_json()` (boards, arms, criteria ids, the registered builders, and the
+  debugger's wiring-only payload).
+- **`finished.result`** is `RunResult.to_json()` less `journal` and `verdicts`, which ride
+  beside it once each.
 - **The integration seam is `page.RUN_BUILDERS: dict[Arm, RunBuilder]`**, where a
   `RunBuilder` takes a `page.RunContext(arm, spec, worker, stub, on_frame, stop, clock)`
   and returns a `Run`. An arm with no builder runs as `page.FakeRun`.

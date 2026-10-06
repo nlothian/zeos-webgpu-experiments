@@ -10,14 +10,12 @@ Every function takes and returns plain values -- names, numbers, JSON text -- or
 ``Run``, so the JavaScript side needs no knowledge of the kernel's types.
 
 ``open_run`` is the ``OpenRun`` of ``contracts.py``. It looks the arm up in
-``RUN_BUILDERS``, the integration seam: the integrator registers a builder per arm
-that assembles the real pieces (``PilotJsMachine`` -> ``ZeosDriver`` ->
-``WallClockZeosRunner`` for ``zeos``; ``BrowserPromptPlayer`` ->
-``WallClockPromptRunner`` for ``prompt``). An arm with no builder gets a ``FakeRun``:
-a real ``Game`` on the real board, against the wall clock, whose moves are random and
-whose model latency is simulated, so the page can be built and tried end to end
-before any of those pieces exist. A ``FakeRun`` never touches its worker and judges no
-criteria; its result says ``fake: true`` in the verdicts' detail.
+``RUN_BUILDERS``, the integration seam: a builder per arm assembles that arm's run
+from a ``RunContext``, to the ``Run`` contract. ``RUN_BUILDERS`` is empty here, and an
+arm with no builder gets a ``FakeRun``: a real ``Game`` on the real board, against the
+wall clock, whose moves are random and whose model latency is simulated, so the page
+runs end to end. A ``FakeRun`` never touches its worker and judges no criteria; its
+verdicts' detail says so.
 """
 
 from __future__ import annotations
@@ -109,8 +107,8 @@ def _criteria() -> list[dict[str, Any]]:
 class RunContext:
     """Everything ``open_run`` was given, resolved: the board loaded, the defaults filled.
 
-    ``worker`` is ``None`` only when the page had no worker to hand (the stub machine
-    before ``pilot_stub_worker.js`` exists); a real builder may refuse that.
+    ``worker`` is the channel to the model thread, or to the stub thread for the stub
+    machine; ``None`` when the build has no stub, which only a ``FakeRun`` accepts.
     """
 
     arm: Arm
@@ -305,7 +303,7 @@ class FakeRun:
                     self._pending.append(pending)
                 continue
             late = now - due
-            ticks = 1 + int(late // tick_s)
+            ticks = min(1 + int(late // tick_s), self.spec.max_steps - self.game.ticks)
             self.overrun_ms += late * 1000.0
             self.catchup_ticks += ticks - 1
             decisions = [*self._pending, *([pending] if pending is not None else [])]
@@ -317,6 +315,11 @@ class FakeRun:
             decisions.extend(self._reflex())
             self._emit(decisions, ticks - 1)
             due += ticks * tick_s
+        if self._pending:
+            # Replies that landed after the last tick, e.g. just before Stop: they were
+            # played and counted, so they are reported.
+            self._emit(self._pending, 0)
+            self._pending = []
         return self._result()
 
     def close(self) -> None:
@@ -435,7 +438,7 @@ class FakeRun:
                     "id": str(c.get("id", c.get("kind", "?"))),
                     "kind": str(c.get("kind", "?")),
                     "passed": None,
-                    "detail": "not judged: a FakeRun has no kernel (fake: true)",
+                    "detail": "not judged: a FakeRun runs no kernel",
                     "because": str(c.get("because", "")).strip(),
                 }
                 for c in _criteria()
@@ -497,14 +500,18 @@ def payload_json(
 def finished_json(result: RunResult, root: str | Path = CASE_ROOT) -> str:
     """The body of the ``finished`` message: ``{result, verdicts, journal, payload}``.
 
-    ``payload`` is itself JSON text, as coop-count-web's page passes it to the debugger.
+    ``result`` is ``RunResult.to_json()`` less its ``journal`` and ``verdicts``, which
+    are sent once each, beside it. ``payload`` is itself JSON text, as coop-count-web's
+    page passes it to the debugger.
     """
     data = result.to_json()
+    journal = data.pop("journal")
+    verdicts = data.pop("verdicts")
     return json.dumps(
         {
             "result": data,
-            "verdicts": data["verdicts"],
-            "journal": data["journal"],
+            "verdicts": verdicts,
+            "journal": journal,
             "payload": payload_json(result.journal, root),
         },
         separators=(",", ":"),

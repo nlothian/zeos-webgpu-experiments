@@ -11,6 +11,9 @@
 
 import { BoardView, boardSize, lagStats, markerFor } from "./board.js";
 
+/** Simulated latency of the stub machine, per decode step and per position filled. */
+const STUB_LATENCY = { stepMs: 20, positionMs: 1 };
+
 const $ = (id) => document.getElementById(id);
 /** contracts.CONTROL_STOP and CONTROL_BYTES */
 const CONTROL_STOP = 0;
@@ -26,6 +29,7 @@ const state = {
   isolated: self.crossOriginIsolated === true,
   gpu: null, // null unknown, else {ok, why}
   model: null, // the export's name, from the manifest
+  stub: false, // whether the build has the Space Invaders stub (web/stub/)
   describe: null,
   started: null, // {arm, board, seed, machine}
   lags: [],
@@ -100,8 +104,15 @@ function refreshControls() {
 
 const PHASES = ["loading", "warming", "playing", "finished"];
 
+/** The phases a run on `machine` has none of: no thread to load for a stub the build
+ * does not have. */
+function skippedFor(machine) {
+  return machine === "stub" && !state.stub ? ["loading"] : [];
+}
+
 /** Mark `phase` as the current one; `skipped` names phases this run has none of. */
 function setPhase(phase, skipped = []) {
+  state.phase = phase;
   const at = PHASES.indexOf(phase);
   for (const li of $("phases").children) {
     const index = PHASES.indexOf(li.dataset.phase);
@@ -115,6 +126,14 @@ function setPhase(phase, skipped = []) {
             : "active"
           : "";
   }
+}
+
+/** Mark the phase a run was in as the one it failed in. */
+function failPhase() {
+  for (const li of $("phases").children) {
+    if (li.dataset.phase === state.phase) li.className = "failed";
+  }
+  state.phase = "failed";
 }
 
 // -- model --------------------------------------------------------------------
@@ -161,6 +180,21 @@ async function ensureModel() {
   modelThread = model;
   setModelStatus(`loaded on ${model.backend} in ${((performance.now() - started) / 1000).toFixed(1)} s`);
   send("attachModel", { backend: "webgpu", buffer: model.buffer, port: model.port, name: state.model }, [model.port]);
+}
+
+let stubThread = null;
+
+/** Start the stub's thread on the page's thread and attach it as backend "stub", once:
+ * the stub answers through the same channel as the model (stub_thread.js). */
+async function ensureStub() {
+  if (stubThread !== null) return;
+  const { startStubThread } = await import("./stub_thread.js");
+  setModelStatus("starting the stub thread");
+  stubThread = await startStubThread({ stubUrl: "stub/pilot_stub_worker.js", opts: STUB_LATENCY });
+  setModelStatus(`stub ready: ${STUB_LATENCY.stepMs} ms a step + ${STUB_LATENCY.positionMs} ms a position`);
+  send("attachModel", { backend: "stub", buffer: stubThread.buffer, port: stubThread.port, name: "pilot stub" }, [
+    stubThread.port,
+  ]);
 }
 
 // -- the board and its live numbers -------------------------------------------------
@@ -276,7 +310,16 @@ function recordRun(run, result, verdicts) {
 
 // -- debugger -------------------------------------------------------------------
 
+/** The debugger's three files, fetched once; every caller awaits the same promise, so
+ * two payloads arriving close together are drawn in the order they were asked for. */
 let assets = null;
+
+function fetchText(name) {
+  return fetch(name).then((r) => {
+    if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+    return r.text();
+  });
+}
 
 // server.page() in src/zeos/debugger, done here because the page has no server: each
 // marker must appear exactly once, and the data goes in last (as coop-count-web does).
@@ -287,15 +330,19 @@ function inline(built, marker, text) {
 }
 
 async function showDebugger(dataJson) {
-  if (assets === null) {
-    const names = ["debugger/index.html", "debugger/debugger.css", "debugger/debugger.js"];
-    assets = await Promise.all(names.map((name) => fetch(name).then((r) => r.text())));
+  try {
+    if (assets === null) {
+      assets = Promise.all(["debugger/index.html", "debugger/debugger.css", "debugger/debugger.js"].map(fetchText));
+    }
+    const [shell, css, script] = await assets;
+    let built = inline(shell, "/*CSS*/", css);
+    built = inline(built, "/*JS*/", script);
+    built = inline(built, "__DATA__", dataJson);
+    $("debugger").srcdoc = built;
+  } catch (err) {
+    assets = null;
+    log(`the debugger could not be drawn: ${err.message}`);
   }
-  const [shell, css, script] = assets;
-  let built = inline(shell, "/*CSS*/", css);
-  built = inline(built, "/*JS*/", script);
-  built = inline(built, "__DATA__", dataJson);
-  $("debugger").srcdoc = built;
 }
 
 function download(name, text, type) {
@@ -318,29 +365,31 @@ const handlers = {
     log(stack || message);
     if (state.running) {
       state.running = false;
-      setPhase("finished");
+      failPhase();
       refreshControls();
     }
   },
-  ready: ({ pyodide, python, model, describe }) => {
+  ready: ({ pyodide, python, model, stub, describe }) => {
     state.booted = true;
     state.model = model;
+    state.stub = stub;
     state.describe = describe;
     renderChecks();
     refreshControls();
     setStatus(`ready — Python ${python} (Pyodide ${pyodide}); choose a player and press run`);
+    if (!stub) log("this build has no web/stub/pilot_stub_worker.js; the stub machine runs on no worker");
     if (describe.builders.length < 2) {
       log(`page.RUN_BUILDERS has ${JSON.stringify(describe.builders)}; other arms run as a FakeRun (random moves, simulated latency)`);
     }
     showDebugger(describe.payload);
   },
-  model: ({ name, backend }) => log(`model thread attached: ${name} on ${backend}`),
+  model: ({ name, backend }) => log(`${backend === "stub" ? "stub" : "model"} thread attached: ${name} on ${backend}`),
   warming: ({ arm }) => {
-    setPhase("warming", state.started.machine === "model" ? [] : ["loading"]);
+    setPhase("warming", skippedFor(state.started.machine));
     setStatus(`warming: prefilling the ${ARM_NAMES[arm]}'s system prompt before the clock starts`);
   },
   started: ({ arm, board: name, seed, machine }) => {
-    setPhase("playing", machine === "model" ? [] : ["loading"]);
+    setPhase("playing", skippedFor(machine));
     const spec = state.describe.boards[name];
     setStatus(`playing: ${ARM_NAMES[arm]} on the ${name} board (${spec.w}×${spec.h}, ${spec.tick} s tick), seed ${seed}, ${MACHINE_NAMES[machine]}`);
   },
@@ -350,7 +399,7 @@ const handlers = {
     const run = state.started;
     state.running = false;
     state.last = { ...finished, run };
-    setPhase("finished", run.machine === "model" ? [] : ["loading"]);
+    setPhase("finished", skippedFor(run.machine));
     const r = finished.result;
     const end = state.lastFrame;
     const how = finished.stopped
@@ -396,22 +445,32 @@ $("run").addEventListener("click", async () => {
   state.running = true;
   resetLive();
   refreshControls();
-  if (state.started.machine === "model") {
+  // Cleared here, not by the worker, so a Stop pressed while a thread loads is kept.
+  Atomics.store(control, CONTROL_STOP, 0);
+  const { machine } = state.started;
+  if (machine === "model" || state.stub) {
     setPhase("loading");
-    const blocker = modelBlocker();
+    const blocker = machine === "model" ? modelBlocker() : null;
     try {
       if (blocker !== null) throw new Error(blocker);
-      await ensureModel();
+      await (machine === "model" ? ensureModel() : ensureStub());
     } catch (err) {
       state.running = false;
-      setPhase("finished");
+      failPhase();
       refreshControls();
       setModelStatus(`failed: ${err.message}`);
-      setStatus(`the model did not load: ${err.message}`, true);
+      setStatus(`the ${machine} did not load: ${err.message}`, true);
       return;
     }
   }
-  setPhase("warming", state.started.machine === "model" ? [] : ["loading"]);
+  if (Atomics.load(control, CONTROL_STOP) !== 0) {
+    state.running = false;
+    setPhase("finished", [...skippedFor(machine), "warming", "playing"]);
+    refreshControls();
+    setStatus(`stopped before the run started (the ${machine} is loaded and kept)`);
+    return;
+  }
+  setPhase("warming", skippedFor(machine));
   send("start", state.started);
 });
 
@@ -430,7 +489,7 @@ $("download").addEventListener("click", () => {
 
 $("download-result").addEventListener("click", () => {
   const { run, result, verdicts } = state.last;
-  download(`${runName(run)}.json`, JSON.stringify({ run, result: { ...result, journal: undefined }, verdicts }, null, 2), "application/json");
+  download(`${runName(run)}.json`, JSON.stringify({ run, result, verdicts }, null, 2), "application/json");
 });
 
 // -- boot -----------------------------------------------------------------------

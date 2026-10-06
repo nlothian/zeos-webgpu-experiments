@@ -119,6 +119,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .phases li.done { color: var(--ok); border-color: var(--ok); }
 .phases li.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+.phases li.failed { color: #fff; background: var(--hot); border-color: var(--hot); }
 .phases li.skipped { opacity: 0.4; text-decoration: line-through; }
 
 .model-status { gap: 8px 10px; }

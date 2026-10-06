@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import shutil
@@ -162,6 +163,59 @@ def test_stop_ends_a_run_within_a_tick() -> None:
     assert run.run().ticks == 0
 
 
+def test_catch_up_never_plays_past_max_steps() -> None:
+    """A loop that falls far behind applies the missed ticks, but no more than are left."""
+
+    class LateClock(FastClock):
+        def sleep(self, seconds: float) -> None:
+            super().sleep(seconds + 1.0)  # every wake is about five ticks late
+
+    frames: list[Frame] = []
+
+    def sink(frame: Frame) -> None:
+        frames.append(frame)
+
+    spec = dataclasses.replace(contracts.load_board("ablation", 7), max_steps=3)
+    context = page.RunContext(
+        arm="prompt",
+        spec=spec,
+        worker=None,
+        stub=True,
+        on_frame=sink,
+        stop=None,
+        clock=LateClock(),
+    )
+    result = page.FakeRun(context).run()
+    assert result.ticks == 3 and frames[-1]["tick"] == 3
+    assert result.catchup_ticks == 2
+
+
+def test_stop_reports_moves_that_landed_after_the_last_tick() -> None:
+    """A reply that lands between ticks is played at once and reported with the next
+    frame; when Stop comes first, the run still reports it."""
+    holder: list[page.FakeRun] = []
+
+    class StopOnPending:
+        def is_set(self) -> bool:
+            return bool(holder and holder[0]._pending)  # pyright: ignore[reportPrivateUsage]
+
+    frames: list[Frame] = []
+
+    def sink(frame: Frame) -> None:
+        frames.append(frame)
+
+    run = page.open_run(
+        "zeos", "default", 7, None, on_frame=sink, stop=StopOnPending(), clock=FastClock()
+    )
+    assert isinstance(run, page.FakeRun)
+    holder.append(run)
+    result = run.run()
+    moves = [d for f in frames for d in f["decisions"]]
+    assert moves and moves[-1]["by"] == "pilot"
+    assert result.decisions == len(moves)
+    assert not run._pending  # pyright: ignore[reportPrivateUsage]
+
+
 def test_a_registered_builder_replaces_the_fake() -> None:
     seen: list[page.RunContext] = []
 
@@ -199,6 +253,8 @@ def test_json_for_the_page() -> None:
     finished = json.loads(page.finished_json(result))
     assert set(finished) == {"result", "verdicts", "journal", "payload"}
     assert finished["result"]["ticks"] == result.ticks
+    assert "journal" not in finished["result"] and "verdicts" not in finished["result"]
+    assert finished["verdicts"] == result.verdicts and finished["journal"] == result.journal
     payload = json.loads(finished["payload"])
     assert payload["structure"]["case"] == "space-invaders"
     assert "frames" not in payload, "no journal: the debugger draws the wiring only"
@@ -322,6 +378,8 @@ def test_build_assembles_everything_the_page_fetches(built: tuple[Path, dict[str
         assert (dist / "vendor" / "tokenizers" / "tokenizers.min.mjs").is_file()
     else:
         assert manifest["model"] is None
+    assert manifest["stub"] == build.STUB_WORKER.is_file()
+    assert (dist / "stub" / "pilot_stub_worker.js").is_file() == manifest["stub"]
     assert json.loads((dist / "manifest.json").read_text(encoding="utf-8")) == manifest
 
 
@@ -332,13 +390,11 @@ def test_everything_the_page_references_was_built(built: tuple[Path, dict[str, A
     assert "app.js" in refs and "style.css" in refs
     for ref in refs:
         assert (dist / ref).is_file(), f"index.html refers to {ref}, which was not built"
-    for script in ("app.js", "si_worker.js", "board.js"):
+    for script in ("app.js", "si_worker.js", "board.js", "stub_thread.js"):
         text = (dist / script).read_text(encoding="utf-8")
         for local in re.findall(r'from "\./([^"]+)"', text) + re.findall(
             r'import\("\./([^"]+)"\)', text
         ):
-            if local.startswith("stub/"):
-                continue  # the Space Invaders stub, imported only when the build has one
             assert (dist / local).is_file(), f"{script} imports {local}"
         for fetched in re.findall(r'"(\w+\.(?:js|json))"', text):
             assert (dist / fetched).is_file(), f"{script} fetches {fetched}"
