@@ -3790,4 +3790,7 @@ class Kernel:
                 if resolution.handler is not None:
                     self.spawn(resolution.handler, parent=job.job_id)
             case FaultAction.CONTINUE | FaultAction.RETRY:
-                self._inject_kernel(job, resolution.notice)
+                # A spoof is journalled above whatever the descriptor says; only the
+                # notice is the descriptor's to decline.
+                if fault.kind is not FaultKind.SPOOF or job.descriptor.spoof_notice:
+                    self._inject_kernel(job, resolution.notice)

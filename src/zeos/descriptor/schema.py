@@ -370,6 +370,12 @@ class Descriptor:
     capabilities: tuple[Capability, ...] = ()
     endorsers: tuple[DescriptorName, ...] = ()
     compartments: tuple[CompartmentSpec, ...] = ()
+    #: Whether a spoof fault injects its advisory ``<FAULT kind=spoof_fault>`` notice
+    #: into this job's context. The alarm itself is raised either way -- the same
+    #: ``FaultRaised`` and ``FaultDispatched`` in the journal -- so this governs only
+    #: what the model is told, for a job that reads a notice after its own call as a
+    #: refusal of that call.
+    spoof_notice: bool = True
     # -- Virtual Context ------------------------------------------------------
     context: ContextPolicy = field(default_factory=ContextPolicy)
     #: Source tags whose segments are pinned -- exempt from eviction. The
@@ -465,6 +471,7 @@ class Descriptor:
             "capabilities",
             "endorsers",
             "compartments",
+            "spoof_notice",
             "context",
             "pins",
             "maps",
@@ -515,6 +522,10 @@ class Descriptor:
                 )
             )
 
+        spoof_notice = raw.get("spoof_notice", True)
+        if not isinstance(spoof_notice, bool):
+            raise DescriptorError(f"{name}: 'spoof_notice' must be true or false")
+
         return Descriptor(
             name=name,
             priority=Priority(priority_raw),
@@ -542,6 +553,7 @@ class Descriptor:
                 DescriptorName(str(e)) for e in _as_list(raw.get("endorsers"), owner=str(name))
             ),
             compartments=tuple(compartments),
+            spoof_notice=spoof_notice,
             context=_context_policy(raw, owner=str(name)),
             pins=tuple(str(p) for p in _as_list(raw.get("pins"), owner=str(name))),
             maps=tuple(

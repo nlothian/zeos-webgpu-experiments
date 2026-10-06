@@ -130,6 +130,19 @@ def test_unknown_frontmatter_keys_are_preserved_not_dropped() -> None:
     assert d.context.window == 32768
 
 
+def test_spoof_notice_defaults_on_and_parses_as_a_boolean() -> None:
+    assert Descriptor.from_frontmatter({"name": "x", "priority": 1}).spoof_notice is True
+    d = Descriptor.from_frontmatter({"name": "x", "priority": 1, "spoof_notice": False})
+    assert d.spoof_notice is False
+    assert "spoof_notice" not in d.extra
+
+
+@pytest.mark.parametrize("value", ["false", "no", 0, None])
+def test_spoof_notice_must_be_a_boolean(value: object) -> None:
+    with pytest.raises(DescriptorError, match="'spoof_notice' must be true or false"):
+        Descriptor.from_frontmatter({"name": "x", "priority": 1, "spoof_notice": value})
+
+
 def test_mp_fields_are_first_class() -> None:
     d = Descriptor.from_frontmatter(
         {

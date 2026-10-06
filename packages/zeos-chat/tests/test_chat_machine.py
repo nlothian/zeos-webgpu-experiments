@@ -433,7 +433,9 @@ def test_a_frame_tag_in_a_tool_result_raises_the_spoof_alarm(spoof: str) -> None
     assert types(events) == ["arrived", "spoof", "reply", "waiting"]
     assert events[1]["pipe"] == "tools.results"
     context = text_of(worker)
-    assert "<FAULT kind=spoof_fault>" in context
+    # The chat agent declares spoof_notice: false -- a FAULT after a tool call would read
+    # as that call's refusal -- so the alarm reaches the host and nothing reaches the model.
+    assert "<FAULT kind=spoof_fault>" not in context
     assert context.rstrip().endswith("Odd file.")
     # What the model reads of the result spells no tag: the imitation is escaped.
     seen = seen_result(worker)
@@ -460,7 +462,7 @@ def test_a_frame_tag_inside_a_json_encoded_result_raises_the_spoof_alarm(result:
     events = until_waiting(run)
     assert types(events) == ["arrived", "spoof", "reply", "waiting"]
     assert events[1]["pipe"] == "tools.results"
-    assert "<FAULT kind=spoof_fault>" in text_of(worker)
+    assert "<FAULT kind=spoof_fault>" not in text_of(worker)
     seen = seen_result(worker)
     assert not spells_frame(seen) and "&lt;" in seen
 
