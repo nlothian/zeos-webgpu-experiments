@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Board prefill on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>Board prefill on WebGPU</h1>
+    <p>
+      Times <code>OptZeosWorker</code> reading one Space Invaders board after the pilot's
+      real prefix, at several prefill chunk sizes, plus decode steps and the replay after a
+      splice. Run by <code>prefill_webgpu.mjs</code>, served from <code>demo/</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="prefill.js"></script>
+  </body>
+</html>

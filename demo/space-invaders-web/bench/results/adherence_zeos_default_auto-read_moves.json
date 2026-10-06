@@ -1,0 +1,456 @@
+{
+  "arm": "zeos",
+  "board": "default",
+  "mode": "auto-read",
+  "grammar": "moves",
+  "seed": 7,
+  "boards": 15,
+  "load_s": 21.3,
+  "run_s": 1701.7,
+  "decode_steps": 75,
+  "step_ms_mean": 22593.8,
+  "boards_with_a_move": 15,
+  "model_commands": {
+    "WRITE stdout": 15
+  },
+  "valid_moves": 15,
+  "move_payloads": {
+    "left": 10,
+    "right": 5
+  },
+  "other_writes": [],
+  "model_reads": 0,
+  "moves_after_a_read": 14,
+  "exits": 0,
+  "respawns": 0,
+  "says": [],
+  "tokens_per_command": {
+    "4": 1,
+    "5": 14
+  },
+  "splices": [
+    {
+      "step": 51,
+      "kv_start": 4773,
+      "replay": 397,
+      "removed_words": 203,
+      "inserted_words": 36
+    },
+    {
+      "step": 51,
+      "kv_start": 3513,
+      "replay": 1427,
+      "removed_words": 191,
+      "inserted_words": 34
+    },
+    {
+      "step": 51,
+      "kv_start": 3190,
+      "replay": 1527,
+      "removed_words": 188,
+      "inserted_words": 34
+    },
+    {
+      "step": 51,
+      "kv_start": 4015,
+      "replay": 483,
+      "removed_words": 185,
+      "inserted_words": 34
+    },
+    {
+      "step": 51,
+      "kv_start": 2867,
+      "replay": 1409,
+      "removed_words": 188,
+      "inserted_words": 34
+    },
+    {
+      "step": 51,
+      "kv_start": 3465,
+      "replay": 573,
+      "removed_words": 199,
+      "inserted_words": 35
+    }
+  ],
+  "context_tokens_at_end": 5395,
+  "mask_calls": 75,
+  "mask_misses": 6,
+  "mask_miss_ms": [
+    886,
+    936,
+    412,
+    765,
+    302,
+    188
+  ],
+  "mask_distinct_states": 6,
+  "per_board": [
+    {
+      "board": 0,
+      "tick": 0,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 240.8,
+      "commands": [
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 4,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 1,
+      "tick": 1,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 95.49,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 2,
+      "tick": 2,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 93.96,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 3,
+      "tick": 3,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 79.38,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 4,
+      "tick": 4,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 114.02,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 5,
+      "tick": 5,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 96.33,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 6,
+      "tick": 6,
+      "moved": "right",
+      "steps": 5,
+      "seconds": 69.89,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout right",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "right",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 7,
+      "tick": 7,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 75.82,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 8,
+      "tick": 8,
+      "moved": "right",
+      "steps": 5,
+      "seconds": 108.69,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout right",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "right",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 9,
+      "tick": 9,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 103.71,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 10,
+      "tick": 10,
+      "moved": "right",
+      "steps": 5,
+      "seconds": 260.61,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout right",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "right",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 11,
+      "tick": 11,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 86.72,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 12,
+      "tick": 12,
+      "moved": "right",
+      "steps": 5,
+      "seconds": 93.73,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout right",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "right",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 13,
+      "tick": 13,
+      "moved": "left",
+      "steps": 5,
+      "seconds": 85.08,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout left",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "left",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    },
+    {
+      "board": 14,
+      "tick": 14,
+      "moved": "right",
+      "steps": 5,
+      "seconds": 97.43,
+      "commands": [
+        {
+          "line": "read stdin",
+          "op": "READ",
+          "pipe": "stdin",
+          "payload": "",
+          "tokens": 0,
+          "auto": true
+        },
+        {
+          "line": "write stdout right",
+          "op": "WRITE",
+          "pipe": "stdout",
+          "payload": "right",
+          "tokens": 5,
+          "auto": false
+        }
+      ]
+    }
+  ]
+}
