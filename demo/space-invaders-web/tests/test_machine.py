@@ -438,7 +438,7 @@ def test_the_seat_maps_valued_stdout_never_reaches_the_pilots_grammar() -> None:
 def test_the_defaults_are_the_benchs() -> None:
     worker, _ = fake_worker()
     machine = PilotJsMachine(worker)
-    assert (machine._max_chunk, machine._stall_ms) == (256, 5.0) == (DEFAULT_MAX_CHUNK, 5.0)
+    assert (machine._max_chunk, machine._stall_ms) == (128, 5.0) == (DEFAULT_MAX_CHUNK, 5.0)
     assert machine.forbid_verbs == () and machine.abi.verb("exit") is not None
     assert machine._uncapped_above is None, "every step is capped unless asked"
 

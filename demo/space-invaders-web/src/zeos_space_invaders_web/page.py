@@ -525,8 +525,18 @@ ZEOS_KERNEL_OPTIONS: dict[str, Any] = dict(DEFAULT_ZEOS_KERNEL_OPTIONS)
 #: The pilot's descriptor, whose context policy ``PILOT_CONTEXT`` changes.
 PILOT = DescriptorName("pilot")
 #: ``ContextPolicy`` fields laid over the pilot descriptor's ``context:`` block (the
-#: native ``goals/pilot.md``) before the kernel starts; see ``DEFAULT_PILOT_CONTEXT``.
-DEFAULT_PILOT_CONTEXT: Final[Mapping[str, Any]] = {}
+#: native ``goals/pilot.md``, ``window: 4096``) before the kernel starts.
+#:
+#: A window large enough that the pager does not act within a game. In the browser the
+#: pilot's KV stays resident, and a splice is not cheap: the earliest span the pager
+#: stubs lies just after the pinned body, the DeltaNet layers' state cannot be cut, so
+#: every position after it is computed again -- on WebGPU a 3k-position replay took
+#: 16-19 s and left the pilot without a move for 43-53 s of a 120 s game. The native
+#: window exists because each API request resends the whole transcript; neither the
+#: watermarks nor a smaller window shortened the replay (pads and stubs, which the pager
+#: keeps, are what the tail is made of). The price is a longer context, so every prefill
+#: run costs more as the game goes on.
+DEFAULT_PILOT_CONTEXT: Final[Mapping[str, Any]] = {"window": 32768}
 #: The pilot context overrides in force; ``configure_json``'s ``context`` key changes them.
 PILOT_CONTEXT: dict[str, Any] = dict(DEFAULT_PILOT_CONTEXT)
 

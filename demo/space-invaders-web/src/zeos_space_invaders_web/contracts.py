@@ -74,10 +74,11 @@ FRAME_OFFSET: Final = 16
 CHANNEL_BUSY: Final = "channel busy: decode in flight"
 
 #: Prefill chunk for a pilot step: a cancel lands within one chunk of a board being
-#: read. 256, not smaller: below about 800 positions each run carries a fixed overhead
-#: that made chunk 64 read a board 1.65x slower (``bench/RESULTS.md``). Warm-up and
-#: replay use the worker's own (larger) default.
-DEFAULT_MAX_CHUNK: Final = 256
+#: read. 128, chosen end to end on WebGPU with a quiet GPU (README, *Measured*): against
+#: 256 it lowered the ablation board's pilot lag p95 from 28-34 to 16-19 ticks and the
+#: longest cancel, and was level on the default board. Chunk 64 read a board 1.65x
+#: slower than 256 in the benchmark (``bench/RESULTS.md``), from each run's fixed cost.
+DEFAULT_MAX_CHUNK: Final = 128
 
 #: How long ``decode`` polls a step in flight before handing the kernel a stall.
 DEFAULT_STALL_MS: Final = 5.0

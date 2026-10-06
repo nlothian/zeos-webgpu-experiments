@@ -12,7 +12,7 @@ model decode step never blocks it: the machine *begins* a step over the channel,
 for its result with a bounded `Atomics.wait` (the loop's only sleep while a step is in
 flight), and *cancels* it when the job is preempted or its context changes. The model
 thread checks for a cancel before every prefill chunk, so a cancel lands within one
-chunk (`maxChunk`, 256 positions for a pilot step). Stop reaches the loop through a
+chunk (`maxChunk`, 128 positions for a pilot step). Stop reaches the loop through a
 control SharedArrayBuffer the page writes, because the loop never yields to the worker's
 event loop.
 
@@ -418,8 +418,19 @@ disagree, this section says which holds.
   advance their script.
 - **A synchronous call behind a step in flight waits up to one chunk.** The kernel's
   inject of a resume notice and the pager's splice call the worker synchronously, so
-  they settle first; on WebGPU at chunk 256 that is up to about 1 s (`cancel_ms`), and
+  they settle first; on WebGPU at chunk 128 that is up to about 0.7-1.5 s (`cancel_ms`,
+  rising with the context), and
   the loop stalls for it.
+- **Wave 3 defaults** (measured on WebGPU with no other GPU user, README *Measured*):
+  `DEFAULT_MAX_CHUNK` is 128, superseding the machine notes' 256; the pilot's context
+  window is 32,768 (`page.DEFAULT_PILOT_CONTEXT`, laid over the native `goals/pilot.md`'s
+  4096 on the built kernel, so the native case is unchanged and there is no copy of
+  it), because a pager splice makes the pilot recompute everything after the splice
+  point; `?tune={"context":{...}}` changes it. `stall_ms` stays 5 and the mask prewarm
+  stays on.
+- **The prompt arm renders each turn once** (`BrowserPromptPlayer.render_turn` caches
+  the request's rendering): the native `record` rendered it a second time, and the
+  `lead` view's aim search behind it takes up to ~360 ms under Pyodide.
 - **Automation hooks.** `app.js` keeps `window.siRuns` (each `finished`, less journal
   and payload), `window.siErrors` and `window.siPhase`, which `tests/si_webgpu.mjs`
   reads.

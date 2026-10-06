@@ -33,8 +33,8 @@ TICK_S = 0.1
 STOP_AFTER_MS = 6000
 #: A synchronous call behind a step in flight (the kernel's inject of a resume notice, a
 #: pager splice) waits for the step to stop at its next chunk boundary, so one chunk's
-#: fill time is the longest the loop can stall: at ``DEFAULT_MAX_CHUNK`` (256) and 1 ms
-#: a position that is 256 ms, more than two of these ticks. 0.25 ms a position keeps a
+#: fill time is the longest the loop can stall: at ``DEFAULT_MAX_CHUNK`` (128) and 1 ms
+#: a position that is 128 ms, more than one of these ticks. 0.25 ms a position keeps a
 #: chunk inside a tick, which is what this test is about; the real model's chunk time
 #: is what ``si_webgpu.mjs`` measures.
 STUB_LATENCY = {"stepMs": 20, "positionMs": 0.25}
