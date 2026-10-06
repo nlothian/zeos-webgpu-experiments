@@ -62,6 +62,9 @@ self.onmessage = async (event) => {
     await requireWebGpu();
     const ort = await import(ortWebgpuUrl);
     ort.env.wasm.wasmPaths = new URL(".", ortWebgpuUrl).href;
+    // ONNX Runtime still runs some kernels as WebAssembly beside WebGPU: one thread, so no
+    // worker pool is started and those kernels run as they always have.
+    ort.env.wasm.numThreads = 1;
     const { Tokenizer } = await import(tokenizersUrl);
     const base = new URL(modelUrl, self.location.href);
     // meta.json lists every file's size, so the download can be reported as a whole.

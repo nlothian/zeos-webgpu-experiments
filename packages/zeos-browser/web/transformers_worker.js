@@ -194,9 +194,25 @@ export class TransformersWorker {
   }
 
   /** Build a worker from the files an export wrote, on WebGPU. `read(name)` returns a
-   * file's bytes as a Uint8Array (or a promise of them). */
-  static async load({ ort, Tokenizer, read, sessionOptions = {}, onActivity = null }) {
-    const backend = "webgpu";
+   * file's bytes as a Uint8Array (or a promise of them). `backend` may only be `webgpu`;
+   * `numThreads` (1 by default) is for the kernels ONNX Runtime still runs as WebAssembly
+   * beside WebGPU. Any other option is refused, rather than ignored. */
+  static async load({
+    ort,
+    Tokenizer,
+    read,
+    backend = "webgpu",
+    numThreads = 1,
+    sessionOptions = {},
+    onActivity = null,
+    ...unknown
+  }) {
+    if (backend !== "webgpu") {
+      throw new Error(`TransformersWorker.load: backend ${backend} is not supported; the model runs on WebGPU only`);
+    }
+    const names = Object.keys(unknown);
+    if (names.length > 0) throw new Error(`TransformersWorker.load: unknown option${names.length > 1 ? "s" : ""} ${names.join(", ")}`);
+    if (ort.env?.wasm) ort.env.wasm.numThreads = numThreads;
     const decoder = new TextDecoder();
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");

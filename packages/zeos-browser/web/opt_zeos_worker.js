@@ -92,6 +92,14 @@ export const MAX_SNAPSHOTS = 16;
 /** The most caches one context keeps, one per mask history. */
 export const MAX_TRACKS = 2;
 
+/** Throw for a backend other than WebGPU, or for options `load` does not know: a caller
+ * passing one expects it to do something. */
+export function refuseOptions(where, backend, unknown) {
+  if (backend !== "webgpu") throw new Error(`${where}: backend ${backend} is not supported; the model runs on WebGPU only`);
+  const names = Object.keys(unknown);
+  if (names.length > 0) throw new Error(`${where}: unknown option${names.length > 1 ? "s" : ""} ${names.join(", ")}`);
+}
+
 /** What `fill` returns for a step `shouldStop` ended. */
 const STOPPED = Symbol("stopped");
 
@@ -347,20 +355,28 @@ export class OptZeosWorker {
    * @param {(name: string) => Uint8Array | string | Promise<Uint8Array | string>} [options.source]
    *   a graph or weights file as bytes, or as a URL ONNX Runtime reads itself. `read` by
    *   default. Files with the same SHA-256 in `meta.files` are read once.
+   * @param {"webgpu"} [options.backend] the only backend; anything else is refused.
+   * @param {number} [options.numThreads] threads for the kernels ONNX Runtime still runs as
+   *   WebAssembly beside WebGPU; 1 by default, so no cross-origin isolated pool is needed.
+   * Any other option is refused, rather than ignored.
    */
   static async load({
     ort,
     Tokenizer,
     read,
     source = read,
+    backend = "webgpu",
+    numThreads = 1,
     sessionOptions = {},
     onActivity = null,
     snapshotEvery,
     maxSnapshots,
     maxTracks,
     skipHidden,
+    ...unknown
   }) {
-    const backend = "webgpu";
+    refuseOptions("OptZeosWorker.load", backend, unknown);
+    if (ort.env?.wasm) ort.env.wasm.numThreads = numThreads;
     const decoder = new TextDecoder();
     const json = async (name) => JSON.parse(decoder.decode(await read(name)));
     const meta = await json("meta.json");
