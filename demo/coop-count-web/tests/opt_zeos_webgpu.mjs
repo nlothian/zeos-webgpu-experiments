@@ -7,7 +7,8 @@
 // Run export/bench/worker.html (OptZeosWorker on WebGPU) in headed Chrome and report its
 // checks and timings. Exits 1 if a check fails, 2 if the page errors, and 0 with a
 // skip message when the export is absent. `--page mask.html` runs the masked-tool-name
-// timings instead.
+// timings instead, and `--page chunks.html` the `maxChunk` timings and the stopped-step
+// check.
 //
 //   node tests/opt_zeos_webgpu.mjs [--port 8767] [--ort URL] [--steps 32] [--page worker.html]
 //     [--query "configs=2"]

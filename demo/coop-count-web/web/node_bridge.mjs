@@ -10,9 +10,16 @@
  * reply per request on stdout, in the frames of `frames.js`, so each of the parent's
  * calls returns only when the worker has finished.
  *
- *   node web/node_bridge.mjs [--model DIR] [--runtime web|node] [--threads N]
+ * A decode step the parent *began* (`begun: true`) can be cancelled while it runs: the
+ * parent writes a control frame `{cancel: id}`, which is read as soon as it arrives (the
+ * step is awaiting a run of the graph) and is not answered, and the step asks for it
+ * before every chunk. `--stub FILE` serves `stub_worker.js` over a JSON file of
+ * `{tapes, options}` instead of a model.
+ *
+ *   node web/node_bridge.mjs [--model DIR] [--runtime web|node] [--threads N] [--stub FILE]
  */
 
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 import { decodeFrame, encodeFrame, frameLength, serveRequest } from "./frames.js";
@@ -26,17 +33,28 @@ async function main() {
       model: { type: "string", default: DEFAULT_MODEL_DIR },
       runtime: { type: "string", default: "web" },
       threads: { type: "string", default: "1" },
+      stub: { type: "string" },
     },
   });
-  const worker = await loadNodeWorker({
-    modelDir: values.model,
-    runtime: values.runtime,
-    threads: Number(values.threads),
-  });
+  let worker;
+  if (values.stub === undefined) {
+    worker = await loadNodeWorker({
+      modelDir: values.model,
+      runtime: values.runtime,
+      threads: Number(values.threads),
+    });
+  } else {
+    await import("./stub_worker.js");
+    const { tapes, options = {} } = JSON.parse(await readFile(values.stub, "utf8"));
+    worker = globalThis.createStubWorker(tapes, options);
+    worker.backend = "stub";
+  }
   process.stdout.write(encodeFrame({ ready: true, backend: worker.backend }));
 
   let buffer = new Uint8Array(0);
   let chain = Promise.resolve();
+  // The id of the latest step the parent cancelled.
+  let cancelled = -1;
   process.stdin.on("data", (chunk) => {
     const joined = new Uint8Array(buffer.byteLength + chunk.byteLength);
     joined.set(buffer);
@@ -45,8 +63,13 @@ async function main() {
     for (let length = frameLength(buffer); length > 0; length = frameLength(buffer)) {
       const request = decodeFrame(buffer.subarray(0, length));
       buffer = buffer.slice(length);
+      if (request.cancel !== undefined) {
+        cancelled = request.cancel;
+        continue;
+      }
+      const shouldStop = request.begun ? () => cancelled === request.id : null;
       chain = chain.then(async () => {
-        process.stdout.write(encodeFrame(await serveRequest(worker, request)));
+        process.stdout.write(encodeFrame(await serveRequest(worker, request, { shouldStop })));
       });
     }
   });

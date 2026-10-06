@@ -340,6 +340,90 @@ describe("OptZeosWorker on onnxruntime-node", { skip }, () => {
     w.destroyContext("empty");
     assert.equal(typeof sampleToken, "function");
   });
+
+  test("maxChunk runs smaller chunks, still cut at the snapshot positions, to the same token", async () => {
+    const ids = prompt(w, "The branch line climbs through three tunnels to the village of Ashby Cross. Name the village.");
+    assert.ok(ids.length > 2 * EVERY);
+    w.createContext("whole");
+    w.append("whole", ids);
+    const whole = await w.decodeStep("whole", ALL);
+    const wholeLogits = w.lastLogits;
+    assert.deepEqual(whole.stats.chunks, Math.ceil(ids.length / EVERY), "the graph's chunk, cut every 16");
+    assert.equal(whole.stats.positions, ids.length);
+    assert.equal(whole.resident, ids.length);
+
+    w.createContext("small");
+    w.append("small", ids);
+    const before = w.stats.runs;
+    const small = await w.decodeStep("small", { ...ALL, maxChunk: 5 });
+    // Per 16 positions between snapshots: 5, 5, 5, 1.
+    let chunks = 0;
+    for (let at = 0; at < ids.length; at += EVERY) chunks += Math.ceil(Math.min(EVERY, ids.length - at) / 5);
+    assert.equal(small.stats.chunks, chunks);
+    assert.equal(w.stats.runs - before, chunks);
+    assert.equal(small.tokenId, whole.tokenId);
+    assert.ok(maxDiff(w.lastLogits, wholeLogits) < 0.5, "only float16 rounding apart");
+    assert.ok(maxDiff(small.attention, whole.attention) < 1e-2);
+    // Larger than the graph's own chunk is the graph's own chunk.
+    w.createContext("large");
+    w.append("large", ids);
+    const large = await w.decodeStep("large", { ...ALL, maxChunk: 1 << 20 });
+    assert.equal(large.stats.chunks, whole.stats.chunks);
+    assert.equal(bits(large.attention), bits(whole.attention));
+    await assert.rejects(w.decodeStep("large", { ...ALL, maxChunk: 0 }), RangeError);
+    for (const id of ["whole", "small", "large"]) w.destroyContext(id);
+  });
+
+  test("a step stopped before a chunk resumes from what it ran, to the same bits", async () => {
+    const ids = prompt(w, `Here are notes from the station.\n${"The night train leaves at ten past eleven from platform four. ".repeat(3)}\nWhen does it leave?`);
+    assert.ok(ids.length > 3 * EVERY);
+    const opts = { ...ALL, maxChunk: 6 };
+    w.createContext("twin");
+    w.append("twin", ids);
+    const want = await w.decodeStep("twin", opts);
+    const wantLogits = w.lastLogits;
+
+    w.createContext("stopped");
+    w.append("stopped", ids);
+    let asked = 0;
+    const before = { ...w.stats };
+    const stopped = await w.decodeStep("stopped", { ...opts, shouldStop: () => ++asked > 3 });
+    assert.equal(stopped.cancelled, true);
+    assert.equal(stopped.stats.chunks, 3);
+    assert.equal(stopped.resident, 6 + 6 + 4, "two runs of 6, then 4 to the snapshot at 16");
+    assert.equal(stopped.stats.positions, stopped.resident);
+    assert.equal(w.stats.runs - before.runs, 3);
+    assert.equal(w.contexts.get("stopped").track.kvLength, stopped.resident);
+    assert.equal(w.length("stopped"), ids.length, "a step never changes the tokens");
+
+    // Stopped again further on, then let finish: nothing recomputed, nothing rewound.
+    asked = 0;
+    const again = await w.decodeStep("stopped", { ...opts, shouldStop: () => ++asked > 2 });
+    assert.equal(again.cancelled, true);
+    assert.equal(again.resident, stopped.resident + 6 + 6);
+    const done = await w.decodeStep("stopped", { ...opts, shouldStop: () => false });
+    assert.equal(done.cancelled, undefined);
+    assert.equal(done.stats.positions, ids.length - again.resident);
+    assert.equal(w.stats.reruns, before.reruns, "no rewind");
+    assert.equal(w.stats.positions - before.positions, ids.length, "every position run once");
+    assert.equal(done.tokenId, want.tokenId);
+    assert.equal(bits(w.lastLogits), bits(wantLogits), "bit for bit the uninterrupted step");
+    assert.equal(bits(done.attention), bits(want.attention));
+
+    // A stop asked before the final one-position decode leaves that position pending.
+    for (const id of ["twin", "stopped"]) w.append(id, [want.tokenId]);
+    const next = await w.decodeStep("twin", opts);
+    const atDecode = await w.decodeStep("stopped", { ...opts, shouldStop: () => true });
+    assert.deepEqual(atDecode, {
+      cancelled: true,
+      resident: ids.length,
+      stats: { positions: 0, chunks: 0, fillMs: 0 },
+    });
+    const resumed = await w.decodeStep("stopped", opts);
+    assert.equal(resumed.stats.positions, 1);
+    assert.equal(bits(resumed.attention), bits(next.attention));
+    for (const id of ["twin", "stopped"]) w.destroyContext(id);
+  });
 });
 
 describe("OptZeosWorker behind SyncModelWorker", { skip }, () => {
@@ -356,6 +440,24 @@ describe("OptZeosWorker behind SyncModelWorker", { skip }, () => {
       const { tokenId, attention } = sync.decodeStep("s", ALL);
       assert.equal(sync.piece(tokenId), "Paris");
       assert.equal(attention.length, ids.length);
+
+      // The same step begun, cancelled at once, and begun again: the token is dropped,
+      // the positions run are kept, and the resumed step gives the same answer.
+      sync.createContext("b");
+      sync.append("b", ids);
+      sync.beginDecodeStep("b", { ...ALL, maxChunk: 8 });
+      assert.throws(() => sync.length("b"), /channel busy/);
+      sync.cancelDecode();
+      const cancelled = sync.pollDecode(60_000);
+      assert.equal(cancelled.cancelled, true);
+      assert.ok(cancelled.resident < ids.length, `resident ${cancelled.resident}`);
+      sync.beginDecodeStep("b", { ...ALL, maxChunk: 8 });
+      let done = null;
+      while (done === null) done = sync.pollDecode(5);
+      assert.equal(done.cancelled, false);
+      assert.equal(sync.piece(done.tokenId), "Paris");
+      assert.equal(done.stats.positions, ids.length - cancelled.resident);
+      assert.equal(done.resident, ids.length);
     } finally {
       await sync.terminate();
     }

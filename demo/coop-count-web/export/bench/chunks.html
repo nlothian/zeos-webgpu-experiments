@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OptZeosWorker chunks and cancel on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>OptZeosWorker chunks and cancel on WebGPU</h1>
+    <p>
+      Times a prefill at several <code>maxChunk</code> sizes and checks a step stopped
+      mid-fill resumes to the same bits. Query parameters: <code>model</code> (default
+      <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>), <code>ort</code> (the
+      <code>ort.webgpu.min.mjs</code> to import). Run by
+      <code>node tests/opt_zeos_webgpu.mjs --page chunks.html</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="chunks.js"></script>
+  </body>
+</html>

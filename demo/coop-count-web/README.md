@@ -840,6 +840,49 @@ the Chromium this was tested in. Under Node the same channel runs with a
 `worker_threads` thread (`web/node_model_thread.mjs`), where `Atomics.wait` is allowed on
 the main thread too.
 
+**A decode step that does not block.** `SyncModelWorker` also has
+`beginDecodeStep(jobId, opts)`, which posts a step and returns its request id at once;
+`pollDecode(timeoutMs)`, an `Atomics.wait` on the reply for at most `timeoutMs` that
+returns null while the step runs and otherwise
+`{tokenId, attention, cancelled: false, resident, stats}`; and `cancelDecode()`, which
+stores the step's id in an abort slot of the buffer (int32 slot 2; slot 3 marks the step
+in flight). `serveChannel` hands the worker a `shouldStop` that reads that slot, and the
+workers ask it before every run of the graph, so a cancel lands within one chunk; `opts`
+may carry `maxChunk` to make the chunks of that step smaller (they are still cut at the
+snapshot positions). A cancelled step answers `{cancelled: true, resident, stats}`: its
+token is dropped even if it had finished, the `resident` positions it ran stay cached,
+and the next step for the context resumes from them and, given the same `maxChunk`,
+chooses what an uninterrupted step would have, bit for bit (with another `maxChunk` the
+later chunks are cut differently, so it agrees only to float16 rounding). While a step is in flight every other call that reaches
+the model thread throws `channel busy: decode in flight`. Every reply names its request;
+a reply to another request (possible only after a call timed out) makes the channel
+unusable, and every later call throws. Without the new options every
+worker computes what it did before; replies only gain `resident` and `stats`
+(`positions` run, `chunks` runs, `fillMs` spent in them but a final one-position decode).
+`NodeWorker` has the same four members for CPython, over the pipe: it waits with
+`select`, and a cancel is a control frame `{cancel: id}` that `node_bridge.mjs` reads
+while the step awaits the graph. `stub_worker.js` takes `{stepMs, positionMs}` of
+simulated latency so tests can poll, time out and cancel (`startNodeModel({stub})`,
+`NodeWorker(stub=...)`).
+
+What smaller chunks cost on WebGPU, measured by `export/bench/chunks.html`
+(`tests/opt_zeos_webgpu.mjs --page chunks.html`) with the 4B in Chrome on an Apple M1
+Max, while other jobs loaded the machine (median of five fresh prefills; a second
+session agreed within 10% except the 250-position rows at 256 and the graph's chunk,
+which it ran in about 835 ms):
+
+| positions | graph's chunk | 256 | 128 | 64 | 32 |
+|---|---|---|---|---|---|
+| 250 | 1132 ms (1 run) | 1103 ms (1) | 1098 ms (2) | 1315 ms (4) | 2039 ms (8) |
+| 1000 | 4328 ms (4) | 4416 ms (4) | 4560 ms (8) | 5619 ms (16) | 8825 ms (32) |
+
+So each extra run costs roughly 60 to 160 ms at 64 and 130 to 160 ms at 32; at 1000
+positions 128 is within 5% of the graph's chunk and 64 about 30% slower. A stop lands
+at the next run's start, so its latency is at most one run: at 64, about 260 ms for each
+of the first two runs of a 1000-position step and about 350 ms on average over all 16.
+A step stopped before its third run (128 positions resident) returned at once, and,
+resumed with the same `maxChunk`, matched the uninterrupted step bit for bit.
+
 **Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
 clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
 alone (see *Determinism* below); with more threads the model thread did not finish
@@ -1194,6 +1237,14 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   `models/Qwen3.5-4B-ZEOS-OPT`.
 - `test_js_machine_contract.py` also runs the contract suite over the real model worker
   (`js-transformers`), driven from Node.
+- `tests/js/channel_async.test.mjs` and `test_node_worker_async.py` — the decode step
+  that does not block, over the stub with simulated latency: begin never waits, a poll
+  times out and then returns the result, calls refuse while a step is in flight, a
+  cancel lands between chunks and the step resumes from what it ran, a result that raced
+  the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
+  The real-model halves (in `opt_zeos_worker.test.mjs`, `transformers_worker.test.mjs`
+  and the last test of `test_node_worker_async.py`) check that a stopped step resumes to
+  the same bits, and that `maxChunk` cuts smaller chunks to the same token.
 - `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model
   on a thread of its own behind `SyncModelWorker`) writes CPython's journal.
 - These five and the `js-transformers` backend skip without Node, `npm install` or the

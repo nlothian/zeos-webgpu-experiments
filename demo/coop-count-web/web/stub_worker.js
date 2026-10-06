@@ -18,6 +18,20 @@
 //
 // A script with no imports or exports, so the page's module worker and Node can both
 // import it for its effect: it defines globalThis.createStubWorker.
+//
+// For the decode step that does not block (model_channel.js) it also pretends to have a
+// cache: a context has `resident` positions "filled", and a step fills the rest in chunks
+// of at most `maxChunk`, asking `shouldStop` before each chunk and before the final
+// one-position decode. With `{stepMs, positionMs}` in the options each chunk waits
+// `positionMs` per position and the final decode `stepMs` more, with real awaits, so a
+// cancel can land between chunks. With both 0 (the default) and no `shouldStop`, a step
+// is synchronous and does exactly what it did before.
+//
+// A real model's step is a function of the context, so a step whose result was dropped
+// gives the same token when it is asked again. A tape is not, so a step that was begun
+// (it has a `shouldStop`) leaves the tape where it was and records what it would advance
+// to; the next step, a truncate or a fork of the context commits that only if the token
+// it chose has since been appended.
 
 (function () {
   "use strict";
@@ -50,6 +64,8 @@
   class StubWorker {
     constructor(tapes, options = {}) {
       this.blockSize = options.blockSize ?? 16;
+      this.stepMs = options.stepMs ?? 0;
+      this.positionMs = options.positionMs ?? 0;
       this.terminator = options.terminator ?? ";";
       this.tapes = new Map(Object.entries(tapes));
       // Python and JavaScript split and sort non-ASCII text differently, so the twin
@@ -75,6 +91,11 @@
     }
 
     // -- identity -----------------------------------------------------------
+
+    /** What `frames.js`'s `pieces` reads, when the stub is served over a channel. */
+    get meta() {
+      return { tokenizerSize: this.vocab.length };
+    }
 
     info() {
       return {
@@ -116,7 +137,15 @@
       if (this.contexts.has(jobId)) throw new Error(`context ${jobId} already exists`);
       const at = jobId.indexOf(":");
       const descriptor = at < 0 ? "" : jobId.slice(at + 1);
-      return { tape: this.tapes.get(descriptor) ?? [], ids: [], issued: 0, pending: [], spoken: false };
+      return {
+        tape: this.tapes.get(descriptor) ?? [],
+        ids: [],
+        issued: 0,
+        pending: [],
+        spoken: false,
+        resident: 0,
+        uncommitted: null,
+      };
     }
 
     createContext(jobId) {
@@ -145,14 +174,19 @@
       if (!(n >= 0 && n <= ctx.ids.length)) {
         throw new RangeError(`truncate at ${n} outside [0, ${ctx.ids.length}]`);
       }
+      this.commit(ctx);
       ctx.ids.length = n;
+      // The last token stays pending, as a model's cache does after a cut.
+      ctx.resident = Math.min(ctx.resident, Math.max(n - 1, 0));
     }
 
     fork(parentId, childId) {
       const parent = this.ctx(parentId);
+      this.commit(parent);
       const child = this.fresh(childId);
       child.ids = parent.ids.slice();
       child.spoken = parent.spoken;
+      child.resident = parent.resident;
       this.contexts.set(childId, child);
     }
 
@@ -160,6 +194,7 @@
 
     decodeStep(jobId, opts) {
       const ctx = this.ctx(jobId);
+      this.commit(ctx);
       if (ctx.ids.length === 0) throw new Error(`decodeStep on ${jobId}, which holds no tokens`);
       const blocks = opts.allowedBlocks;
       const expected = Math.ceil(ctx.ids.length / this.blockSize);
@@ -177,24 +212,87 @@
         throw new RangeError("sample needs temperature > 0, topK >= 1 and 0 <= u < 1");
       }
 
-      if (ctx.pending.length === 0) {
-        if (ctx.issued >= ctx.tape.length) {
-          throw new Error(
-            `${jobId} asked for command ${ctx.issued + 1} of a tape with ${ctx.tape.length}`,
-          );
-        }
-        ctx.pending = wordsOf(ctx.tape[ctx.issued], this.terminator, ctx.spoken);
-        ctx.issued += 1;
+      const shouldStop = opts.shouldStop ?? null;
+      const maxChunk = opts.maxChunk ?? Infinity;
+      if (maxChunk !== Infinity && !(Number.isInteger(maxChunk) && maxChunk >= 1)) {
+        throw new RangeError(`maxChunk ${maxChunk} is not a positive integer`);
       }
-      const word = ctx.pending[0];
+      const n = ctx.ids.length;
+      // A step repeated with nothing appended decodes its position again.
+      ctx.resident = Math.min(ctx.resident, n - 1);
+      const stats = { positions: 0, chunks: 0, fillMs: 0 };
+      const runs = [];
+      for (let start = ctx.resident; start < n - 1; start += maxChunk) runs.push(Math.min(maxChunk, n - 1 - start));
+      runs.push(1);
+      const choose = () => {
+        const tokenId = this.choose(ctx, jobId, allowed, shouldStop !== null);
+        return { tokenId, attention: null, resident: ctx.resident, stats };
+      };
+      const stopped = () => ({ cancelled: true, resident: ctx.resident, stats });
+      if (this.stepMs === 0 && this.positionMs === 0) {
+        if (shouldStop?.()) return stopped();
+        stats.positions = n - ctx.resident;
+        stats.chunks = runs.length;
+        ctx.resident = n;
+        return choose();
+      }
+      return (async () => {
+        for (let i = 0; i < runs.length; i++) {
+          if (shouldStop?.()) return stopped();
+          const last = i === runs.length - 1;
+          const began = Date.now();
+          await sleep(runs[i] * this.positionMs + (last ? this.stepMs : 0));
+          if (!last) stats.fillMs += Date.now() - began;
+          stats.positions += runs[i];
+          stats.chunks += 1;
+          ctx.resident += runs[i];
+        }
+        return choose();
+      })();
+    }
+
+    /** The tape's next word, checked against the token mask; advances the tape, or, for
+     * a begun step, records the advance for `commit`. */
+    choose(ctx, jobId, allowed, deferred) {
+      let pending = ctx.pending;
+      let issued = ctx.issued;
+      if (pending.length === 0) {
+        if (issued >= ctx.tape.length) {
+          throw new Error(`${jobId} asked for command ${issued + 1} of a tape with ${ctx.tape.length}`);
+        }
+        pending = wordsOf(ctx.tape[issued], this.terminator, ctx.spoken);
+        issued += 1;
+      }
+      const word = pending[0];
       const tokenId = this.ids.get(word);
       if (allowed !== null && !allowed[tokenId]) {
+        // As before begun steps existed: a synchronous step has drawn the command already.
+        if (!deferred) Object.assign(ctx, { pending, issued });
         throw new Error(`${jobId}: the token mask refuses the tape's next word ${JSON.stringify(word)}`);
       }
-      ctx.pending.shift();
-      ctx.spoken = true;
-      return { tokenId, attention: null };
+      const advance = { at: ctx.ids.length, tokenId, pending: pending.slice(1), issued };
+      if (deferred) ctx.uncommitted = advance;
+      else this.advance(ctx, advance);
+      return tokenId;
     }
+
+    /** Commit a begun step's advance if its token was appended after it; drop it if not. */
+    commit(ctx) {
+      const step = ctx.uncommitted;
+      if (step === null) return;
+      ctx.uncommitted = null;
+      if (ctx.ids.length > step.at && ctx.ids[step.at] === step.tokenId) this.advance(ctx, step);
+    }
+
+    advance(ctx, { pending, issued }) {
+      ctx.pending = pending;
+      ctx.issued = issued;
+      ctx.spoken = true;
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   globalThis.createStubWorker = (tapes, options) => new StubWorker(tapes, options);
