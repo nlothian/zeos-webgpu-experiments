@@ -556,6 +556,10 @@ class RunResult:
     verdicts: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
     journal: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
     parse_rate: float | None = None
+    #: Per-arm measurements beyond the table above, for the handover and tuning: warm-up
+    #: and prewarm time, overrun percentiles, cancel latency, step totals, faults, the
+    #: longest gap between pilot moves. Plain JSON values; ``{}`` when there are none.
+    extras: dict[str, object] = field(default_factory=dict[str, object])
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)

@@ -11,8 +11,10 @@ Every function takes and returns plain values -- names, numbers, JSON text -- or
 
 ``open_run`` is the ``OpenRun`` of ``contracts.py``. It looks the arm up in
 ``RUN_BUILDERS``, the integration seam: a builder per arm assembles that arm's run
-from a ``RunContext``, to the ``Run`` contract. ``RUN_BUILDERS`` is empty here, and an
-arm with no builder gets a ``FakeRun``: a real ``Game`` on the real board, against the
+from a ``RunContext``, to the ``Run`` contract -- ``ZeosRun`` (``PilotJsMachine`` ->
+``ZeosDriver`` -> ``WallClockZeosRunner``) and ``PromptRun`` (``BrowserPromptPlayer`` ->
+``WallClockPromptRunner``). An arm with no builder, or a run with no worker, gets a
+``FakeRun``: a real ``Game`` on the real board, against the
 wall clock, whose moves are random and whose model latency is simulated, so the page
 runs end to end. A ``FakeRun`` never touches its worker and judges no criteria; its
 verdicts' detail says so.
@@ -24,15 +26,19 @@ import json
 import math
 import random
 import statistics
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast
 
+from zeos.core.ids import JobId
 from zeos.debugger.payload import build_payload
 from zeos.descriptor.loader import load_case
 from zeos.journal.codec import decode_record
 from zeos.journal.writer import JournalRecord
+from zeos.machine.base import SpliceResult, Token
+from zeos_coop_count_web.js_machine import Bridge
 from zeos_coop_count_web.page import findings
 from zeos_space_invaders.game import ACTIONS, Controls, Game
 from zeos_space_invaders.game import (
@@ -45,6 +51,7 @@ from zeos_space_invaders.players.zeos.player import (
 from zeos_space_invaders.players.zeos.player import (
     threat_reading as _threat_reading,  # pyright: ignore[reportUnknownVariableType]
 )
+from zeos_space_invaders.utils import VIEWS
 
 from zeos_space_invaders_web.contracts import (
     ARMS,
@@ -65,10 +72,24 @@ from zeos_space_invaders_web.contracts import (
     StopFlag,
     load_board,
 )
+from zeos_space_invaders_web.machine import PilotJsMachine
+from zeos_space_invaders_web.prompt_player import BrowserPromptPlayer
+from zeos_space_invaders_web.runner import (
+    WallClockPromptRunner,
+    WallClockZeosRunner,
+    build_driver,
+)
 
 __all__ = [
+    "PROMPT_OPTIONS",
+    "RUNNER_OPTIONS",
     "RUN_BUILDERS",
+    "ZEOS_MACHINE_OPTIONS",
     "FakeRun",
+    "LoopClock",
+    "PromptRun",
+    "ZeosRun",
+    "channel",
     "RunContext",
     "RunBuilder",
     "describe_json",
@@ -123,8 +144,9 @@ class RunContext:
 RunBuilder = Callable[[RunContext], Run]
 """Assembles one arm's real run from a ``RunContext``."""
 
-#: The integration seam: arm -> builder. Empty until the integrator registers the real
-#: runs; ``open_run`` falls back to ``FakeRun`` for an arm missing here.
+#: The integration seam: arm -> builder. Both arms' real runs (``ZeosRun``,
+#: ``PromptRun``) are registered further down; ``open_run`` falls back to ``FakeRun``
+#: for an arm missing here, and for a run with no worker (a build without the stub).
 RUN_BUILDERS: dict[Arm, RunBuilder] = {}
 
 
@@ -157,7 +179,9 @@ def open_run(
         clock=clock if clock is not None else MonotonicClock(),
     )
     builder = RUN_BUILDERS.get(arm)
-    return builder(context) if builder is not None else FakeRun(context)
+    if builder is None or worker is None:
+        return FakeRun(context)
+    return builder(context)
 
 
 # --- frames ---------------------------------------------------------------------------
@@ -463,6 +487,262 @@ class FakeRun:
             if self.arm == "prompt"
             else None,
         )
+
+
+# --- the real runs (the builders RUN_BUILDERS holds) -------------------------------------
+
+#: ``PilotJsMachine`` keywords for the zeos arm; the tests and the tuning change them.
+#: Empty means the machine's defaults (``DEFAULT_MAX_CHUNK``, ``DEFAULT_STALL_MS``,
+#: the left/right/shoot payload grammar).
+ZEOS_MACHINE_OPTIONS: dict[str, Any] = {}
+#: ``BrowserPromptPlayer`` keywords for the prompt arm (``history`` defaults to the
+#: board's own).
+PROMPT_OPTIONS: dict[str, Any] = {}
+#: Runner keywords for either arm (``max_ticks``, ``max_seconds``).
+RUNNER_OPTIONS: dict[str, Any] = {}
+
+
+def channel(worker: object) -> tuple[AsyncModelWorker, Bridge | None]:
+    """The worker as the machine and the prompt arm take it, with the bridge for it.
+
+    Under Pyodide ``si_worker.js`` hands over a JavaScript ``SyncModelWorker``, which
+    ``pyodide_glue.attach`` wraps; a Python worker (``FakePilotWorker``, ``NodeWorker``)
+    is used as it is, over the default ``PythonBridge``.
+    """
+    try:
+        from pyodide.ffi import (  # pyright: ignore[reportMissingImports]
+            JsProxy,  # pyright: ignore[reportUnknownVariableType]
+        )
+    except ImportError:
+        return cast(AsyncModelWorker, worker), None
+    if isinstance(worker, JsProxy):
+        from zeos_space_invaders_web.pyodide_glue import attach
+
+        return attach(worker)
+    return cast(AsyncModelWorker, worker), None
+
+
+class LoopClock:
+    """The zeos runner's clock: ``now()`` is ``time.monotonic()``, which is what
+    ``ZeosDriver`` reads its deadlines on, and ``sleep`` is the given clock's -- under
+    Pyodide an ``Atomics.wait`` on the control buffer, so Stop wakes a sleeping loop."""
+
+    def __init__(self, sleeper: Clock) -> None:
+        self._sleeper = sleeper
+
+    def now(self) -> float:
+        return time.monotonic()
+
+    def sleep(self, seconds: float) -> None:
+        if seconds > 0:
+            self._sleeper.sleep(seconds)
+
+
+class _TimedPilot(PilotJsMachine):
+    """``PilotJsMachine`` that notes the game tick and wall time of every splice the
+    pager makes, so a long gap between pilot moves can be put next to the replay that
+    caused it."""
+
+    tick_of: Callable[[], int] = staticmethod(lambda: 0)
+    splices: list[dict[str, float]]
+
+    def splice(self, job: JobId, start: int, end: int, tokens: Sequence[Token]) -> SpliceResult:
+        if job not in self._native:  # pyright: ignore[reportPrivateUsage]
+            self.splices.append(
+                {
+                    "tick": self.tick_of(),
+                    "at": time.monotonic(),
+                    "removed": end - start,
+                    "inserted": len(tokens),
+                }
+            )
+        return super().splice(job, start, end, tokens)
+
+
+def _stopped(stop: StopFlag | None) -> bool:
+    return stop is not None and bool(stop.is_set())
+
+
+def _percentile(values: Sequence[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return float(ordered[max(0, math.ceil(q * len(ordered)) - 1)])
+
+
+def _overruns(values: Sequence[float]) -> dict[str, float]:
+    return {
+        "mean": round(statistics.fmean(values), 3) if values else 0.0,
+        "p95": round(_percentile(values, 0.95), 3),
+        "max": round(max(values), 3) if values else 0.0,
+    }
+
+
+class ZeosRun:
+    """The zeos arm: ``PilotJsMachine`` over the channel, ``ZeosDriver`` over it,
+    ``WallClockZeosRunner`` on the wall clock.
+
+    ``warm`` prewarms the grammar's mask cache, brings the kernel up (which creates the
+    pilot's context) and lets the runner prefill until the pilot blocks on its first
+    board, all before the clock starts. ``close`` closes the machine, which cancels and
+    drains a step left in flight and destroys every context.
+    """
+
+    def __init__(self, context: RunContext) -> None:
+        if context.worker is None:
+            raise ValueError("the zeos arm needs a worker: the model thread or the stub's")
+        worker, bridge = channel(context.worker)
+        self.context = context
+        self.machine = _TimedPilot(worker, bridge=bridge, **ZEOS_MACHINE_OPTIONS)
+        self.machine.splices = []
+        self.driver = build_driver(self.machine, context.spec)
+        self.runner = WallClockZeosRunner(
+            self.driver,
+            context.spec,
+            stop=context.stop,
+            on_frame=context.on_frame,
+            clock=LoopClock(context.clock),
+            **RUNNER_OPTIONS,
+        )
+        game = self.runner.game
+        self.machine.tick_of = lambda: int(game.ticks)
+        self.prewarm_ms = 0.0
+        self.closed = False
+
+    def warm(self) -> None:
+        if _stopped(self.context.stop):
+            return
+        began = time.monotonic()
+        self.prewarm_ms = round(self.machine.prewarm(), 1)
+        if _stopped(self.context.stop):
+            return
+        if not self.driver.started:
+            self.driver.start()
+        self.runner.warm()
+        self.warm_s = round(time.monotonic() - began, 3)
+
+    warm_s: float = 0.0
+
+    def run(self) -> RunResult:
+        result = self.runner.run()
+        result.extras = self._extras()
+        return result
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self.driver.close()
+
+    def _extras(self) -> dict[str, object]:
+        machine = self.machine
+        runner = self.runner
+        tick_s = self.context.spec.tick_seconds
+        faults: list[dict[str, object]] = []
+        pilot_exits = 0
+        for event in self.driver.kernel.events:
+            kind = getattr(type(event), "KIND", "")
+            if kind == "fault.raised":
+                faults.append(
+                    {
+                        "job": str(getattr(event, "job", "")),
+                        "fault": str(getattr(getattr(event, "fault", ""), "value", "")),
+                        "detail": str(getattr(event, "detail", "")),
+                    }
+                )
+            elif kind == "job.completed" and "pilot" in str(getattr(event, "job", "")):
+                pilot_exits += 1
+        pilot = [r for r in runner.records if r["by"] == "pilot"]
+        valid = sum(1 for r in pilot if r["action"] in ACTIONS)
+        # The longest stretch of game without a pilot move, from the clock's start (or
+        # the previous move) to the next move (or the end), and the splices inside it.
+        marks = [0, *(r["tick_applied"] for r in pilot), int(runner.game.ticks)]
+        gap, gap_from, gap_to = 0, 0, 0
+        for a, b in zip(marks, marks[1:], strict=False):
+            if b - a > gap:
+                gap, gap_from, gap_to = b - a, a, b
+        splices = machine.splices
+        in_gap = [s for s in splices if gap_from <= s["tick"] <= gap_to]
+        steps = [e for e in machine.step_log if e["outcome"] in ("token", "cancelled")]
+        biggest = max(steps, key=lambda e: e["positions"], default=None)
+        return {
+            "machine": "stub" if self.context.stub else "model",
+            "warm_s": self.warm_s,
+            "runner_warm_s": runner.warm_s,
+            "prewarm_ms": self.prewarm_ms,
+            "overrun_ms": _overruns(runner.overruns_ms),
+            "cancel_ms": _overruns(machine.cancel_ms),
+            "roundtrip_s": _overruns(machine.roundtrips),
+            "step_totals": dict(machine.step_totals),
+            "positions_total": machine.positions_total,
+            "fill_ms_total": round(machine.fill_ms_total, 1),
+            "biggest_step": None if biggest is None else dict(biggest),
+            "pilot_moves": len(pilot),
+            "pilot_valid_moves": valid,
+            "pilot_exits": pilot_exits,
+            "faults": faults,
+            "splices": len(splices),
+            "longest_pilot_gap": {
+                "ticks": gap,
+                "seconds": round(gap * tick_s, 3),
+                "from_tick": gap_from,
+                "to_tick": gap_to,
+                "splices": len(in_gap),
+            },
+        }
+
+
+class PromptRun:
+    """The prompt arm: ``BrowserPromptPlayer`` on its own contexts, ``WallClockPromptRunner``
+    on the wall clock. ``warm`` prefills the system prompt before the clock starts;
+    ``close`` cancels a request under way and destroys both contexts."""
+
+    def __init__(self, context: RunContext) -> None:
+        if context.worker is None:
+            raise ValueError("the prompt arm needs a worker: the model thread or the stub's")
+        worker, bridge = channel(context.worker)
+        spec = context.spec
+        options: dict[str, Any] = {"history": spec.history, **PROMPT_OPTIONS}
+        self.context = context
+        self.player = BrowserPromptPlayer(
+            worker, view=VIEWS[spec.view](), rules=spec.rules, bridge=bridge, **options
+        )
+        self.runner = WallClockPromptRunner(
+            self.player,
+            spec,
+            stop=context.stop,
+            on_frame=context.on_frame,
+            clock=LoopClock(context.clock),
+            **RUNNER_OPTIONS,
+        )
+        self.closed = False
+
+    def warm(self) -> None:
+        if not _stopped(self.context.stop):
+            self.runner.warm()
+
+    def run(self) -> RunResult:
+        result = self.runner.run()
+        replies = self.player.replies
+        result.extras = {
+            "machine": "stub" if self.context.stub else "model",
+            "warm_s": self.runner.warm_s,
+            "overrun_ms": _overruns(self.runner.overruns_ms),
+            "replies": len(replies),
+            "reply_latency_s": _overruns([r.latency for r in replies]),
+            "unparsed": [r.text for r in replies if not r.parsed][:20],
+        }
+        return result
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self.player.close()
+
+
+RUN_BUILDERS["zeos"] = ZeosRun
+RUN_BUILDERS["prompt"] = PromptRun
 
 
 # --- JSON for the page ----------------------------------------------------------------

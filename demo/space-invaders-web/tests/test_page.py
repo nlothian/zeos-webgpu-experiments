@@ -18,7 +18,7 @@ import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
-from typing import Any, get_type_hints
+from typing import Any, cast, get_type_hints
 
 import pytest
 
@@ -78,7 +78,7 @@ def fake_run(
 def test_open_run_is_the_contracts_open_run() -> None:
     opener: OpenRun = page.open_run
     assert callable(opener)
-    assert page.RUN_BUILDERS == {}, "the integrator fills the seam; until then every arm is fake"
+    assert page.RUN_BUILDERS == {"zeos": page.ZeosRun, "prompt": page.PromptRun}
     with pytest.raises(ValueError, match="unknown arm"):
         page.open_run("random", "default", 7, None)  # pyright: ignore[reportArgumentType]
     with pytest.raises(ValueError, match="unknown board"):
@@ -223,11 +223,16 @@ def test_a_registered_builder_replaces_the_fake() -> None:
         seen.append(context)
         return page.FakeRun(context)
 
+    real = page.RUN_BUILDERS["prompt"]
     page.RUN_BUILDERS["prompt"] = builder
     try:
-        page.open_run("prompt", "ablation", None, None, stub=True)
+        # A run with no worker is a FakeRun whatever is registered; any worker reaches
+        # the builder.
+        assert isinstance(page.open_run("prompt", "ablation", None, None), page.FakeRun)
+        assert not seen
+        page.open_run("prompt", "ablation", None, cast(Any, object()), stub=True)
     finally:
-        del page.RUN_BUILDERS["prompt"]
+        page.RUN_BUILDERS["prompt"] = real
     (context,) = seen
     assert (context.arm, context.spec.name, context.spec.seed, context.stub) == (
         "prompt",
