@@ -107,7 +107,10 @@ native one, at its own starvation limit (8): it counts a job's preemptions since
 last made progress ([`docs/notes/starvation-progress.md`](../../docs/notes/starvation-progress.md)),
 and the pilot makes progress with every move and every read of a board, so the reflex's
 preemptions do not retire it. Under the earlier rule, which never reset the count, the
-pilot was faulted 6–12 s into an ablation game (the *before* ablation row below).
+pilot was faulted 6–12 s into an ablation game (the *before* ablation row below). At the
+native limit with the current rule, a full ablation game on a quiet GPU
+(`bench/results/webgpu/native_limit_ablation.json`) ran to game over at tick 83 with 10
+preemptions, no fault, and 7 pilot moves, the longest gap between them 4 s.
 
 - **Pilot context window 32,768, not 4096, `page.DEFAULT_PILOT_CONTEXT`.**
   - When the pager splices a span out, the model must compute every position after the

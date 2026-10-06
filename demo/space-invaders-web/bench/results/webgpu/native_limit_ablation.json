@@ -1,0 +1,108 @@
+{
+ "note": "After merging fix/starvation-progress: final defaults at the kernel's own starvation_limit (8), zeos arm, ablation board, to game over, quiet GPU.",
+ "tune": null,
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 2,
+   "kills": 9,
+   "ticks": 83,
+   "decisions": 17,
+   "lag_ticks": {
+    "mean": 11.29,
+    "p95": 20,
+    "max": 20
+   },
+   "preemptions": 10,
+   "cancellations": 10,
+   "reflexes": 10,
+   "overrun_ms": {
+    "mean": 15.792,
+    "p95": 31.845,
+    "max": 449.79
+   },
+   "catchup_ticks": 4,
+   "warm_s": {
+    "page": 16.43,
+    "python": 15.043,
+    "prewarm_ms": 5193.1
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 244.675,
+    "p95": 651.235,
+    "max": 651.235
+   },
+   "roundtrip_s": {
+    "mean": 2.364,
+    "p95": 9.805,
+    "max": 9.805
+   },
+   "syscall_adherence": {
+    "moves": 7,
+    "valid": 7,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 40,
+    "stall": 3551,
+    "cancelled": 3,
+    "native": 27
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 2095,
+    "chunks": 17,
+    "fill_ms": 9557.40499985218,
+    "wall_ms": 7.015000000002658
+   },
+   "splices": 0,
+   "journal_splices": 0,
+   "context_ids": {
+    "1": 4150
+   },
+   "pilot_context": {
+    "window": 32768
+   },
+   "kernel_options": {},
+   "longest_pilot_gap": {
+    "ticks": 20,
+    "seconds": 4,
+    "from_tick": 50,
+    "to_tick": 70,
+    "splices": 0
+   },
+   "faults": []
+  }
+ ]
+}
