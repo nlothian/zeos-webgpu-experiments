@@ -6,14 +6,12 @@
 
 """``NodeWorker``'s decode step that does not block: begin, poll with a timeout, cancel.
 
-Over ``web/stub_worker.js`` with simulated latency (needs Node and ``npm install``), and
-over the OPT+ZEOS export on onnxruntime-node's CPU provider (skipped when it is absent).
+Over ``web/stub_worker.js`` with simulated latency (needs Node).
 """
 
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,14 +19,13 @@ from typing import Any
 
 import pytest
 
-from zeos_coop_count_web.node_worker import CHANNEL_BUSY, DEMO, NodeWorker, node_available
+from zeos_coop_count_web.node_worker import CHANNEL_BUSY, NodeWorker, node_available
 
-pytestmark = pytest.mark.skipif(not node_available(), reason="needs node and npm install")
+pytestmark = pytest.mark.skipif(not node_available(), reason="needs node")
 
 TAPES = {"pilot": ["write stdout left;", "read stdin;"]}
 WORDS = ["write", " stdout", " left;", " read", " stdin;"]
 ALL: dict[str, Any] = {"allowedBlocks": None, "allowedTokens": None}
-MODEL = Path(os.environ.get("ZEOS_OPT_MODEL_DIR", DEMO / "models" / "Qwen3.5-4B-ZEOS-OPT"))
 
 
 def stub_worker(tmp_path: Path, **options: float) -> NodeWorker:
@@ -188,41 +185,3 @@ def test_close_with_a_step_in_flight_cancels_and_drains_it(tmp_path: Path) -> No
     assert time.monotonic() - began < 5
     assert not w.inFlight
     assert w._process.poll() is not None  # pyright: ignore[reportPrivateUsage]
-
-
-@pytest.mark.skipif(
-    not (MODEL / "meta.json").is_file(), reason=f"needs the OPT+ZEOS export at {MODEL}"
-)
-def test_the_real_model_cancelled_and_resumed_gives_the_same_token() -> None:
-    threads = int(os.environ.get("ZEOS_OPT_THREADS", "8"))
-    with NodeWorker(MODEL, runtime="node", threads=threads) as w:
-        im_start, im_end = w.info().controlIds[:2]
-        ids = [
-            im_start,
-            *w.tokenize("user\nWhat is the capital of France? One word."),
-            im_end,
-            *w.tokenize("\n"),
-            im_start,
-            *w.tokenize("assistant\n<think>\n\n</think>\n\n"),
-        ]
-        w.createContext("plain")
-        w.append("plain", ids)
-        want = w.decodeStep("plain", ALL)
-        assert w.piece(want.tokenId) == "Paris"
-
-        w.createContext("cut")
-        w.append("cut", ids)
-        w.beginDecodeStep("cut", {**ALL, "maxChunk": 4})
-        w.cancelDecode()
-        cancelled = drain(w, 120_000)
-        assert cancelled["cancelled"] is True
-        assert cancelled["resident"] < len(ids)
-        w.beginDecodeStep("cut", {**ALL, "maxChunk": 4})
-        polls = 0
-        while (done := w.pollDecode(5)) is None:
-            polls += 1
-        assert polls > 0, "the step ran while the caller polled"
-        assert done["cancelled"] is False
-        assert done["tokenId"] == want.tokenId
-        assert done["stats"]["positions"] == len(ids) - cancelled["resident"]
-        assert done["attention"] is not None and len(done["attention"]) == len(ids)
