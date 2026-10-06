@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 # Nothing native, so the wheel installs under Pyodide next to the two packages it builds on:
 # the game, the case and the driver come from zeos-space-invaders, the worker channel, the
-# JsMachine and the grammar from zeos-coop-count-web.
+# JsMachine and the grammar from zeos-browser.
 dependencies = [
     "zeos",
     "zeos-space-invaders",
-    "zeos-coop-count-web",
+    "zeos-browser",
 ]
 
 [dependency-groups]
@@ -21,7 +21,7 @@ dev = [
 [tool.uv.sources]
 zeos = { workspace = true }
 zeos-space-invaders = { workspace = true }
-zeos-coop-count-web = { workspace = true }
+zeos-browser = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

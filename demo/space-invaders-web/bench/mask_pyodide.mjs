@@ -23,8 +23,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const BENCH = fileURLToPath(new URL(".", import.meta.url));
 const REPO = join(BENCH, "..", "..", "..");
-const COOP = join(REPO, "demo", "coop-count-web");
-const pyodideDir = join(COOP, "node_modules", "pyodide");
+const BROWSER = join(REPO, "packages", "zeos-browser");
+const pyodideDir = join(BROWSER, "node_modules", "pyodide");
 const { loadPyodide } = await import(pathToFileURL(join(pyodideDir, "pyodide.mjs")).href);
 const pyodide = await loadPyodide({ indexURL: `${pyodideDir}/` });
 
@@ -36,8 +36,8 @@ const files = {
   "zeos/machine/__init__.py": readFileSync(join(REPO, "src/zeos/machine/__init__.py"), "utf8"),
   "zeos/machine/base.py": readFileSync(join(REPO, "src/zeos/machine/base.py"), "utf8"),
   "zeos/machine/abi.py": readFileSync(join(REPO, "src/zeos/machine/abi.py"), "utf8"),
-  "zeos_coop_count_web/__init__.py": "",
-  "zeos_coop_count_web/token_mask.py": readFileSync(join(COOP, "src/zeos_coop_count_web/token_mask.py"), "utf8"),
+  "zeos_browser/__init__.py": "",
+  "zeos_browser/token_mask.py": readFileSync(join(BROWSER, "src/zeos_browser/token_mask.py"), "utf8"),
   "mask_core.py": readFileSync(join(BENCH, "mask_core.py"), "utf8"),
 };
 for (const [name, text] of Object.entries(files)) {

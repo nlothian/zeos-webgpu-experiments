@@ -38,6 +38,7 @@ from zeos_space_invaders_web.contracts import (
 HERE = Path(__file__).resolve().parents[1]
 REPO = HERE.parents[1]
 COOP = REPO / "demo" / "coop-count-web"
+BROWSER = REPO / "packages" / "zeos-browser"
 WEB = HERE / "web"
 
 
@@ -286,7 +287,7 @@ def test_the_debugger_draws_a_journal_when_there_is_one() -> None:
     """``payload_json`` decodes encoded kernel records, which is what ``RunResult.journal``
     holds (``ZeosDriver.journal()``); a coop-count run stands in for a kernel run here."""
     from zeos.journal.codec import encode_record
-    from zeos_coop_count_web import page as coop_page
+    from zeos_browser import page as coop_page
 
     case = REPO / "demo" / "coop-count" / "cases" / "coop-count-scripted"
     live = coop_page.open_run(str(case), "scripted")
@@ -301,13 +302,13 @@ def test_the_debugger_draws_a_journal_when_there_is_one() -> None:
 # --- the page's files and build.py --------------------------------------------------------
 
 
-def test_the_page_loads_the_pyodide_coop_count_web_pins() -> None:
-    """One Pyodide release across both pages and the Node harness (coop-count-web's npm)."""
+def test_the_page_loads_the_pyodide_coop_count_web_and_zeos_browser_pin() -> None:
+    """One Pyodide release across both pages and the Node harness (zeos-browser's npm)."""
     pin = r"cdn\.jsdelivr\.net/pyodide/v([0-9.]+)/full/pyodide\.mjs"
     (ours,) = re.findall(pin, (WEB / "si_worker.js").read_text(encoding="utf-8"))
     (theirs,) = re.findall(pin, (COOP / "web" / "pyodide_worker.js").read_text(encoding="utf-8"))
     assert ours == theirs
-    npm = json.loads((COOP / "package.json").read_text(encoding="utf-8"))
+    npm = json.loads((BROWSER / "package.json").read_text(encoding="utf-8"))
     assert npm["devDependencies"]["pyodide"] == ours
 
 
@@ -351,7 +352,7 @@ def test_build_assembles_everything_the_page_fetches(built: tuple[Path, dict[str
     names: list[str] = manifest["wheels"]
     assert [n.split("-")[0] for n in names] == [
         "zeos",
-        "zeos_coop_count_web",
+        "zeos_browser",
         "zeos_space_invaders",
         "zeos_space_invaders_web",
     ]
@@ -373,7 +374,7 @@ def test_build_assembles_everything_the_page_fetches(built: tuple[Path, dict[str
     for asset in build.DEBUGGER.iterdir():
         assert (dist / "debugger" / asset.name).read_bytes() == asset.read_bytes()
     for name in build.GENERIC:
-        assert (dist / name).read_bytes() == (COOP / "web" / name).read_bytes(), name
+        assert (dist / name).read_bytes() == (BROWSER / "web" / name).read_bytes(), name
     for name in build.PAGE:
         assert (dist / name).read_bytes() == (WEB / name).read_bytes(), name
     if all(source.is_dir() for source, _ in build.VENDOR.values()):
@@ -408,7 +409,7 @@ def test_everything_the_page_references_was_built(built: tuple[Path, dict[str, A
 
 
 def _pyodide_dir() -> Path | None:
-    for base in (HERE, COOP):
+    for base in (HERE, BROWSER):
         candidate = base / "node_modules" / "pyodide"
         if (candidate / "pyodide.mjs").is_file() and any(candidate.glob("pyyaml-*.whl")):
             return candidate
@@ -416,7 +417,7 @@ def _pyodide_dir() -> Path | None:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node")
-@pytest.mark.skipif(_pyodide_dir() is None, reason="needs npm install in coop-count-web")
+@pytest.mark.skipif(_pyodide_dir() is None, reason="needs npm install in packages/zeos-browser")
 def test_a_fake_run_plays_under_pyodide(built: tuple[Path, dict[str, Any]], tmp_path: Path) -> None:
     """The four wheels install and ``open_run`` plays under Pyodide, as in si_worker.js."""
     dist, manifest = built

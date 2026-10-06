@@ -46,7 +46,7 @@ if (!existsSync(manifestPath)) {
   process.exit(2);
 }
 if (!JSON.parse(readFileSync(manifestPath, "utf-8")).model) {
-  console.log("skip: the build has no model (export it and npm install in coop-count-web, then build.py)");
+  console.log("skip: the build has no model (export it and npm install in packages/zeos-browser, then build.py)");
   process.exit(0);
 }
 

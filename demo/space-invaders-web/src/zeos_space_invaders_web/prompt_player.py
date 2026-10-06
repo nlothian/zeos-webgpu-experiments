@@ -35,7 +35,7 @@ import time
 from collections.abc import Mapping
 from typing import Any, cast
 
-from zeos_coop_count_web.js_machine import IM_END, IM_START, Bridge, PythonBridge
+from zeos_browser.js_machine import IM_END, IM_START, Bridge, PythonBridge
 from zeos_space_invaders.game import Rules
 from zeos_space_invaders.players.base import PromptPlayer
 

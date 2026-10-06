@@ -26,7 +26,7 @@ from array import array
 
 from _common import BENCH, TokenizerWorker, pilot_seat_maps, write_json
 from mask_core import measure
-from zeos_coop_count_web.js_machine import JsMachine
+from zeos_browser.js_machine import JsMachine
 
 from zeos_space_invaders_web.contracts import PREWARM_COMMANDS
 
@@ -35,7 +35,7 @@ def _representable(
     machine: JsMachine, seat_valued: dict[str, tuple[str, ...]], walks: dict[str, list[list[int]]]
 ) -> dict[str, bool]:
     """Whether each prewarm command is in the language built with the seat maps' valued."""
-    from zeos_coop_count_web.token_mask import CommandLanguage
+    from zeos_browser.token_mask import CommandLanguage
 
     language = CommandLanguage(machine.abi, machine.aliases("pilot"), valued=seat_valued["pilot"])
     pieces = machine._pieces  # pyright: ignore[reportPrivateUsage]

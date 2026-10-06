@@ -6,7 +6,7 @@
 
 // Run one Python file under Pyodide in Node, with wheels installed and host
 // directories copied into the in-memory filesystem, the way si_worker.js does it.
-// coop-count-web's harness, for this page: Pyodide comes from coop-count-web, whose npm
+// coop-count-web's harness, for this page: Pyodide comes from zeos-browser, whose npm
 // install is the one this demo uses.
 //
 //   node pyodide_run.mjs --wheel W.whl ... --copy HOST:PYPATH ... \
@@ -24,7 +24,7 @@
 // not the host's directory order.
 //
 // ZEOS_PYODIDE_DIR overrides where the pyodide npm package is looked for; otherwise it
-// is node_modules here (build.py --link-node-modules) or coop-count-web's.
+// is node_modules here (build.py --link-node-modules) or zeos-browser's.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -60,14 +60,14 @@ if (!script) {
 }
 
 const here = path.dirname(new URL(import.meta.url).pathname);
-const coop = path.join(here, "..", "..", "coop-count-web");
+const browser = path.join(here, "..", "..", "..", "packages", "zeos-browser");
 const pyodideDir =
   process.env.ZEOS_PYODIDE_DIR ||
-  [path.join(here, "..", "node_modules", "pyodide"), path.join(coop, "node_modules", "pyodide")].find((dir) =>
+  [path.join(here, "..", "node_modules", "pyodide"), path.join(browser, "node_modules", "pyodide")].find((dir) =>
     fs.existsSync(path.join(dir, "pyodide.mjs")),
   );
 if (!pyodideDir) {
-  console.error("no pyodide npm package: run npm install in demo/coop-count-web");
+  console.error("no pyodide npm package: run npm install in packages/zeos-browser");
   process.exit(2);
 }
 const { loadPyodide } = await import(pathToFileURL(path.join(pyodideDir, "pyodide.mjs")).href);

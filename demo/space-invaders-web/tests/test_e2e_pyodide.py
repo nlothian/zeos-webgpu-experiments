@@ -6,7 +6,7 @@
 
 """End to end under Pyodide in Node: the built wheels, ``page.open_run`` and the real
 machine and runner, against ``web/stub/pilot_stub_worker.js`` on a thread of its own,
-reached through coop-count-web's channel as ``si_worker.js`` reaches it in the page.
+reached through zeos-browser's channel as ``si_worker.js`` reaches it in the page.
 
 The run sleeps on a control SharedArrayBuffer and Stop is written to it from another
 thread, as the page writes it: the loop must keep the tick rate and end within one tick
@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 
 HERE = Path(__file__).resolve().parents[1]
-COOP = HERE.parents[1] / "demo" / "coop-count-web"
+BROWSER = HERE.parents[1] / "packages" / "zeos-browser"
 
 TICK_S = 0.1
 STOP_AFTER_MS = 6000
@@ -98,7 +98,7 @@ print(json.dumps({{
 
 
 def _pyodide_dir() -> Path | None:
-    for base in (HERE, COOP):
+    for base in (HERE, BROWSER):
         candidate = base / "node_modules" / "pyodide"
         if (candidate / "pyodide.mjs").is_file() and any(candidate.glob("pyyaml-*.whl")):
             return candidate
@@ -126,7 +126,7 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Path, dict
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node")
-@pytest.mark.skipif(_pyodide_dir() is None, reason="needs npm install in coop-count-web")
+@pytest.mark.skipif(_pyodide_dir() is None, reason="needs npm install in packages/zeos-browser")
 @pytest.mark.parametrize("arm", ["zeos", "prompt"])
 def test_the_stub_over_the_channel_keeps_time_and_stops_within_a_tick(
     built: tuple[Path, dict[str, Any]], tmp_path: Path, arm: str

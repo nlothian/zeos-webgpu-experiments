@@ -23,7 +23,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from zeos.machine.abi import DEFAULT
-from zeos_coop_count_web.token_mask import CommandLanguage, RoundState, TokenMask
+from zeos_browser.token_mask import CommandLanguage, RoundState, TokenMask
 
 KEY = "pilot"
 

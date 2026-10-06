@@ -51,9 +51,15 @@ def test_unknown_board_is_refused() -> None:
         load_board("huge")  # pyright: ignore[reportArgumentType]
 
 
-def test_channel_layout_matches_coop_count_web() -> None:
-    """The frame offset is coop-count-web's ``DATA``; the port adds slots, not bytes."""
-    channel = Path(__file__).resolve().parents[2] / "coop-count-web" / "web" / "model_channel.js"
+def test_channel_layout_matches_zeos_browser() -> None:
+    """The frame offset is zeos-browser's ``DATA``; the port adds slots, not bytes."""
+    channel = (
+        Path(__file__).resolve().parents[3]
+        / "packages"
+        / "zeos-browser"
+        / "web"
+        / "model_channel.js"
+    )
     assert f"const DATA = {contracts.FRAME_OFFSET};" in channel.read_text()
     assert (
         len(

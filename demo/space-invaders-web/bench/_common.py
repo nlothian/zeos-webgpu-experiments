@@ -34,8 +34,7 @@ from zeos_space_invaders_web.contracts import BoardName, BoardSpec, load_board
 
 BENCH = Path(__file__).resolve().parent
 DEMO = BENCH.parents[1]
-COOP = DEMO / "coop-count-web"
-MODEL = COOP / "models" / "Qwen3.5-4B-ZEOS-OPT"
+MODEL = DEMO.parent / "packages" / "zeos-browser" / "models" / "Qwen3.5-4B-ZEOS-OPT"
 RESULTS = BENCH / "results"
 
 

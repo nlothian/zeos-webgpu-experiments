@@ -12,7 +12,7 @@ the CPython end-to-end run. ``web/stub/pilot_stub_worker.js`` is its twin on the
 side of the channel and is kept to the same behaviour (``tests/test_stub_parity.py``).
 What it has:
 
-* **a fixed vocabulary**: coop-count-web's five reserved tokens (``<pad>``, ``<eos>``,
+* **a fixed vocabulary**: zeos-browser's five reserved tokens (``<pad>``, ``<eos>``,
   ``<unk>``, ``<|im_start|>``, ``<|im_end|>``), then every word of the pilot's commands,
   of the prompt arm's replies and of the ChatML headers, each with and without a leading
   space, sorted;
@@ -74,7 +74,7 @@ __all__ = [
     "fill_chunks",
 ]
 
-#: The reserved tokens, in id order, as coop-count-web's stub has them.
+#: The reserved tokens, in id order, as zeos-browser's stub has them.
 SPECIAL = ("<pad>", "<eos>", "<unk>", "<|im_start|>", "<|im_end|>")
 PAD_ID, EOS_ID, UNK_ID = 0, 1, 2
 IM_START_ID, IM_END_ID = 3, 4
@@ -87,7 +87,7 @@ PROMPT_DESCRIPTOR = "prompt"
 WORKER_CHUNK = 2048
 DEFAULT_MOVES = ("left", "right", "shoot")
 
-#: ASCII whitespace only, as in coop-count-web's twin workers.
+#: ASCII whitespace only, as in zeos-browser's twin workers.
 _WORD = re.compile(r"[ \t\n\r\f\v]*[^ \t\n\r\f\v]+")
 _SPACE = " \t\n\r\f\v"
 

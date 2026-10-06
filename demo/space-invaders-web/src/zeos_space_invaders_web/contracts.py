@@ -12,7 +12,7 @@ built at the same time. The JavaScript half of the same contract -- the channel'
 layout and its race rules -- is ``CONTRACTS.md`` beside this package.
 
 What is a Protocol here is implemented elsewhere: ``AsyncModelWorker`` by the
-coop-count-web channel (``SyncModelWorker`` in ``model_channel.js``, ``NodeModelWorker``
+zeos-browser channel (``SyncModelWorker`` in ``model_channel.js``, ``NodeWorker``
 in ``node_worker.py``) and by ``FakePilotWorker``; ``PilotMachine`` by
 ``machine.PilotJsMachine``; ``PromptArm`` by ``prompt_player.BrowserPromptPlayer``;
 ``Runner`` by ``runner.WallClockZeosRunner`` and ``runner.WallClockPromptRunner``;
@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Final, Literal, NotRequired, Protocol, TypedDi
 
 from zeos.core.ids import JobId
 from zeos.machine.base import DecodeResult
-from zeos_coop_count_web.js_machine import Bridge, ZeosModelWorker
+from zeos_browser.js_machine import Bridge, ZeosModelWorker
 from zeos_space_invaders.game import Rules
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ BOARDS: Final[tuple[BoardName, ...]] = ("default", "ablation")
 
 # --- the worker channel (JavaScript side in CONTRACTS.md) ------------------------------
 
-#: Int32 slots of the channel's SharedArrayBuffer. 0 and 1 are coop-count-web's as they
+#: Int32 slots of the channel's SharedArrayBuffer. 0 and 1 are zeos-browser's as they
 #: were; 2 and 3 are the additions this port makes. Each holds ``requestId + 1`` so 0
 #: always means "none".
 SLOT_STATE: Final = 0

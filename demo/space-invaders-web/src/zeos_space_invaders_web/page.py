@@ -38,8 +38,8 @@ from zeos.descriptor.loader import load_case
 from zeos.journal.codec import decode_record
 from zeos.journal.writer import JournalRecord
 from zeos.machine.base import SpliceResult, Token
-from zeos_coop_count_web.js_machine import Bridge
-from zeos_coop_count_web.page import findings
+from zeos_browser.js_machine import Bridge
+from zeos_browser.page import findings
 from zeos_space_invaders.game import ACTIONS, Controls, Game
 from zeos_space_invaders.game import (
     snapshot as _snapshot,  # pyright: ignore[reportUnknownVariableType]

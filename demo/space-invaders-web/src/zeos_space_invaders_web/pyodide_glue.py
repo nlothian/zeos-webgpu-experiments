@@ -6,7 +6,7 @@
 
 """The JavaScript worker channel as an ``AsyncModelWorker``, for code running in Pyodide.
 
-coop-count-web's ``SyncModelWorker`` (``web/model_channel.js``) already has the four
+zeos-browser's ``SyncModelWorker`` (``web/model_channel.js``) already has the four
 non-blocking methods; what crosses the Pyodide boundary does not have the shapes the
 machine and the prompt arm are typed against. ``PyodideAsyncWorker`` wraps the JsProxy:
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any, cast
 
-from zeos_coop_count_web.js_machine import Bridge
+from zeos_browser.js_machine import Bridge
 
 from zeos_space_invaders_web.contracts import DecodeCancelled, DecodeDone
 from zeos_space_invaders_web.machine import normalise_poll
@@ -122,6 +122,6 @@ class PyodideAsyncWorker:
 def attach(js_worker: Any) -> tuple[PyodideAsyncWorker, Bridge]:
     """The channel's worker and the bridge for it, as the machine and the prompt arm
     take them. Pyodide only."""
-    from zeos_coop_count_web.pyodide_bridge import PyodideBridge
+    from zeos_browser.pyodide_bridge import PyodideBridge
 
     return PyodideAsyncWorker(js_worker), PyodideBridge()

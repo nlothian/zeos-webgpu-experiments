@@ -6,7 +6,7 @@
 
 // The Space Invaders stub model: the model-side twin of
 // zeos_space_invaders_web/fake_worker.py (FakePilotWorker), kept to the same behaviour
-// by tests/test_stub_parity.py. It is served over coop-count-web's worker channel as the
+// by tests/test_stub_parity.py. It is served over zeos-browser's worker channel as the
 // real model is, so begin/poll/cancel come from the channel and this file only has to
 // honour `shouldStop` and `maxChunk` in `decodeStep`.
 //

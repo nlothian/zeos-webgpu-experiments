@@ -25,15 +25,15 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-const COOP = fileURLToPath(new URL("../../coop-count-web/", import.meta.url));
+const BROWSER = fileURLToPath(new URL("../../../packages/zeos-browser/", import.meta.url));
 const { values } = parseArgs({
-  options: { model: { type: "string", default: join(COOP, "models", "Qwen3.5-4B-ZEOS-OPT") } },
+  options: { model: { type: "string", default: join(BROWSER, "models", "Qwen3.5-4B-ZEOS-OPT") } },
 });
 
 const { Tokenizer } = await import(
-  pathToFileURL(join(COOP, "node_modules", "@huggingface", "tokenizers", "dist", "tokenizers.mjs")).href
+  pathToFileURL(join(BROWSER, "node_modules", "@huggingface", "tokenizers", "dist", "tokenizers.mjs")).href
 );
-const { encodePlain } = await import(pathToFileURL(join(COOP, "web", "transformers_worker.js")).href);
+const { encodePlain } = await import(pathToFileURL(join(BROWSER, "web", "transformers_worker.js")).href);
 const json = async (name) => JSON.parse(await readFile(join(values.model, name), "utf8"));
 const meta = await json("meta.json");
 const tokenizer = new Tokenizer(await json("tokenizer.json"), await json("tokenizer_config.json"));

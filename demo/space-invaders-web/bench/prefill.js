@@ -16,11 +16,11 @@
 // Each trial forks a base context that already holds the prefix, so the prefix is run
 // once per board. Result in `window.benchResult` for `prefill_webgpu.mjs`.
 
-import { OptZeosWorker } from "/coop-count-web/web/opt_zeos_worker.js";
+import { OptZeosWorker } from "/packages/zeos-browser/web/opt_zeos_worker.js";
 
 const params = new URLSearchParams(location.search);
-const ortUrl = params.get("ort") ?? "/coop-count-web/node_modules/onnxruntime-web/dist/ort.webgpu.min.mjs";
-const modelUrl = new URL(params.get("model") ?? "/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT/", location.href);
+const ortUrl = params.get("ort") ?? "/packages/zeos-browser/node_modules/onnxruntime-web/dist/ort.webgpu.min.mjs";
+const modelUrl = new URL(params.get("model") ?? "/packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT/", location.href);
 const CHUNKS = (params.get("chunks") ?? "32,64,128,256,2048").split(",").map(Number);
 const REPS = Number(params.get("reps") ?? 3);
 const DECODE = Number(params.get("decode") ?? 24);
@@ -58,8 +58,8 @@ try {
   if (!adapter) throw new Error("no WebGPU adapter");
   const ort = await import(ortUrl);
   ort.env.wasm.wasmPaths = ortUrl.replace(/[^/]*$/, "");
-  const { Tokenizer } = await import("/coop-count-web/node_modules/@huggingface/tokenizers/dist/tokenizers.min.mjs");
-  const inputs = await (await fetch("/space-invaders-web/bench/.cache/webgpu_inputs.json")).json();
+  const { Tokenizer } = await import("/packages/zeos-browser/node_modules/@huggingface/tokenizers/dist/tokenizers.min.mjs");
+  const inputs = await (await fetch("/demo/space-invaders-web/bench/.cache/webgpu_inputs.json")).json();
   const read = async (name) => {
     const response = await fetch(new URL(name, modelUrl));
     if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);

@@ -9,9 +9,9 @@
     uv run python demo/space-invaders-web/build.py
     uv run python demo/space-invaders-web/serve.py      # http://localhost:8766
 
-It builds the ``zeos``, ``zeos-space-invaders``, ``zeos-coop-count-web`` and
+It builds the ``zeos``, ``zeos-space-invaders``, ``zeos-browser`` and
 ``zeos-space-invaders-web`` wheels with ``uv build``; copies the page from ``web/``,
-the generic model-thread JavaScript from ``../coop-count-web/web`` (copied at build
+the generic model-thread JavaScript from ``packages/zeos-browser/web`` (copied at build
 time, so there is one source for it), the Space Invaders case, and the debugger's
 static assets; and writes ``manifest.json`` naming the wheels and every case file,
 which is how the page finds them: a static host lists no directories. ``dist/`` is
@@ -21,11 +21,11 @@ Under Pyodide the wheels' one third-party dependency, PyYAML (zeos's case loader
 comes from Pyodide's own package index: micropip resolves it when it installs the
 ``zeos`` wheel.
 
-ONNX Runtime Web and the tokenizer come from coop-count-web's ``npm install`` and go
-into ``vendor/``; with them present and the model exported, the export is linked into
+ONNX Runtime Web and the tokenizer come from ``npm install`` in ``packages/zeos-browser``
+and go into ``vendor/``; with them present and the model exported, the export is linked into
 ``models/`` and named in the manifest, which is what offers the model machine on the page. A host
 that does not follow symbolic links -- most static hosts -- needs ``--copy-model``.
-``--link-node-modules`` links ``node_modules`` here to coop-count-web's, which is
+``--link-node-modules`` links ``node_modules`` here to zeos-browser's, which is
 where ``tests/pyodide_run.mjs`` looks for Pyodide.
 """
 
@@ -43,14 +43,14 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 WEB = HERE / "web"
 DIST = WEB / "dist"
-COOP = REPO / "demo" / "coop-count-web"
-COOP_WEB = COOP / "web"
+BROWSER = REPO / "packages" / "zeos-browser"
+BROWSER_WEB = BROWSER / "web"
 CASE = REPO / "demo" / "space-invaders" / "src" / "zeos_space_invaders" / "cases" / "space-invaders"
 DEBUGGER = REPO / "src" / "zeos" / "debugger" / "static"
-PACKAGES = ("zeos", "zeos-space-invaders", "zeos-coop-count-web", "zeos-space-invaders-web")
+PACKAGES = ("zeos", "zeos-space-invaders", "zeos-browser", "zeos-space-invaders-web")
 #: The page's own files, from ``web/``.
 PAGE = ("index.html", "app.js", "board.js", "si_worker.js", "stub_thread.js", "style.css")
-#: The model thread and its channel, unchanged from coop-count-web.
+#: The model thread and its channel, unchanged from zeos-browser.
 GENERIC = (
     "model_host.js",
     "model_thread.js",
@@ -65,8 +65,8 @@ GENERIC = (
 #: when ``web/stub/pilot_stub_worker.js`` exists; ``manifest.json`` says whether it does.
 STUB = WEB / "stub"
 STUB_WORKER = STUB / "pilot_stub_worker.js"
-NODE_MODULES = COOP / "node_modules"
-#: What the model thread imports, from the npm packages coop-count-web's package.json pins.
+NODE_MODULES = BROWSER / "node_modules"
+#: What the model thread imports, from the npm packages zeos-browser's package.json pins.
 VENDOR = {
     "onnxruntime-web": (
         NODE_MODULES / "onnxruntime-web" / "dist",
@@ -79,11 +79,11 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = COOP / "models" / "Qwen3.5-4B-ZEOS-OPT"
+MODEL = BROWSER / "models" / "Qwen3.5-4B-ZEOS-OPT"
 
 
 def link_node_modules(target: Path = HERE / "node_modules") -> Path:
-    """Point ``node_modules`` here at coop-count-web's npm install, once."""
+    """Point ``node_modules`` here at zeos-browser's npm install, once."""
     if target.is_symlink() or target.exists():
         return target
     target.symlink_to(NODE_MODULES.resolve(), target_is_directory=True)
@@ -110,7 +110,7 @@ def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -
     for name in PAGE:
         shutil.copy2(WEB / name, dist / name)
     for name in GENERIC:
-        shutil.copy2(COOP_WEB / name, dist / name)
+        shutil.copy2(BROWSER_WEB / name, dist / name)
     stub = STUB_WORKER.is_file()
     if stub:
         shutil.copytree(STUB, dist / "stub")
@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--link-node-modules",
         action="store_true",
-        help="link node_modules here to coop-count-web's (for tests/pyodide_run.mjs)",
+        help="link node_modules here to zeos-browser's (for tests/pyodide_run.mjs)",
     )
     args = parser.parse_args(argv)
     if args.link_node_modules:
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     wheels = manifest["wheels"]
     assert isinstance(wheels, list)
     print(f"built {DIST}: {len(wheels)} wheels")  # pyright: ignore[reportUnknownArgumentType]
-    model = manifest["model"] or "none (export the model and run npm install in coop-count-web)"
+    model = manifest["model"] or "none (export the model and npm install in packages/zeos-browser)"
     print(f"model: {model}")
     print(f"serve it with: uv run python {os.path.relpath(HERE / 'serve.py')}")
     return 0

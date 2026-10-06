@@ -5,7 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 // The page's stub_thread.js for Node: web/stub/pilot_stub_worker.js on a worker thread
-// of its own, served over coop-count-web's channel (serveChannel), reached from the main
+// of its own, served over zeos-browser's channel (serveChannel), reached from the main
 // thread as a SyncModelWorker. pyodide_run.mjs --pilot-stub uses it, so a Python run
 // under Pyodide begins, polls and cancels the stub's steps through the real channel, as
 // si_worker.js does in the browser.
@@ -15,11 +15,11 @@ import { pathToFileURL } from "node:url";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
-const coopWeb = path.join(here, "..", "..", "coop-count-web", "web");
+const browserWeb = path.join(here, "..", "..", "..", "packages", "zeos-browser", "web");
 const stubFile = path.join(here, "..", "web", "stub", "pilot_stub_worker.js");
 
 async function channel() {
-  return import(pathToFileURL(path.join(coopWeb, "model_channel.js")).href);
+  return import(pathToFileURL(path.join(browserWeb, "model_channel.js")).href);
 }
 
 /** Start the stub's thread and return a SyncModelWorker over it. */

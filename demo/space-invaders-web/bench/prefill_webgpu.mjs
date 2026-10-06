@@ -5,9 +5,10 @@
 // LICENSE file in the root directory of this source tree.
 
 // Run bench/prefill.html (board prefill by chunk size on WebGPU) in headed Chrome, as
-// coop-count-web's tests/opt_zeos_webgpu.mjs runs its bench page, and write
-// results/prefill_webgpu.json. Serves `demo/` so the page reaches coop-count-web's
-// worker, model and node_modules and this directory's inputs. Run prompt_sizes.py first.
+// zeos-browser's tests/opt_zeos_webgpu.mjs runs its bench pages, and write
+// results/prefill_webgpu.json. Serves the repository root so the page reaches
+// zeos-browser's worker, model and node_modules and this directory's inputs. Run
+// prompt_sizes.py first.
 //
 //   PLAYWRIGHT_MODULE=/path/to/node_modules/playwright \
 //     node demo/space-invaders-web/bench/prefill_webgpu.mjs [--port 8768] [--query "reps=5"]
@@ -46,7 +47,7 @@ async function playwright() {
 const { chromium } = await playwright();
 const server = spawn(
   "uv",
-  ["run", "--frozen", "python", join(DEMO, "coop-count-web", "serve.py"), "--dir", DEMO, "--port", values.port],
+  ["run", "--frozen", "python", join(DEMO, "space-invaders-web", "serve.py"), "--dir", REPO, "--port", values.port],
   { cwd: REPO, stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, UV_NO_CONFIG: "1" } },
 );
 await new Promise((resolve, reject) => {
@@ -63,7 +64,7 @@ const browser = await chromium.launch({
 try {
   const page = await browser.newPage();
   page.on("console", (message) => console.log(`[page] ${message.text().split("\n")[0]}`));
-  await page.goto(`http://localhost:${values.port}/space-invaders-web/bench/prefill.html?${values.query}`);
+  await page.goto(`http://localhost:${values.port}/demo/space-invaders-web/bench/prefill.html?${values.query}`);
   await page.waitForFunction(() => window.benchResult !== undefined, null, { timeout: 30 * 60_000, polling: 1000 });
   const result = await page.evaluate(() => window.benchResult);
   if (result.error) {

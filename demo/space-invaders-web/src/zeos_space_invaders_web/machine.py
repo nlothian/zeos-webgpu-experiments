@@ -63,12 +63,12 @@ from zeos.machine.base import (
     Token,
 )
 from zeos.machine.scripted import PAD_TOKEN
-from zeos_coop_count_web.js_machine import (
+from zeos_browser.js_machine import (
     Bridge,
     JsMachine,
     _StepPlan,  # pyright: ignore[reportPrivateUsage]
 )
-from zeos_coop_count_web.token_mask import CommandLanguage
+from zeos_browser.token_mask import CommandLanguage
 from zeos_space_invaders.game import ACTIONS
 from zeos_space_invaders.players.zeos.api_machine import ABI, Native
 

@@ -37,7 +37,7 @@ from typing import Any
 
 from _common import BENCH, PrefixReady, TokenizerWorker, board, pilot_seat_maps, write_json
 from zeos.machine.base import tokens_from_text
-from zeos_coop_count_web.js_machine import JsMachine
+from zeos_browser.js_machine import JsMachine
 from zeos_space_invaders.game import ACTIONS, Controls, Game, snapshot
 from zeos_space_invaders.players.base import PromptPlayer
 from zeos_space_invaders.players.zeos.player import ZeosDriver, encode
