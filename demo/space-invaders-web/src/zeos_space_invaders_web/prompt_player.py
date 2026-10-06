@@ -124,7 +124,7 @@ class BrowserPromptPlayer(PromptPlayer):
 
     # -- framing -------------------------------------------------------------
 
-    def render_turn(self, obs: str, info: Mapping[str, object]) -> str:
+    def render_turn(self, obs: str, info: Mapping[str, object]) -> str:  # pyright: ignore[reportIncompatibleMethodOverride] - the untyped base infers LiteralString
         """The native turn, rendered once per request: ``begin`` renders it and the
         native ``record`` renders it again for the log. The ``lead`` view's aim search
         behind it can take several hundred milliseconds under Pyodide when no shot
@@ -189,7 +189,7 @@ class BrowserPromptPlayer(PromptPlayer):
         if self.busy:
             raise RuntimeError("a prompt request is already under way")
         self.warm()
-        rendered = cast("str", self.render_turn(obs, info))
+        rendered = self.render_turn(obs, info)
         turn = self._turn("user", rendered) + self._turn("assistant", ASSISTANT_OPEN, close=False)
         if self._decision:
             self._worker.destroyContext(CONTEXT_ID)
