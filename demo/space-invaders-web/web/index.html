@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Metacognition AI
+
+This source code is licensed under the AGPL-3.0-only licence found in the
+LICENSE file in the root directory of this source tree.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Invaders on ZEOS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Space Invaders <span class="sub">— the ZEOS kernel and a language model, in your browser</span></h1>
+    <p id="status" class="status" role="status">starting the Pyodide worker…</p>
+    <p id="checks" class="checks meta"></p>
+  </div>
+  <!-- AGPL section 13: whoever this page is served to is owed the Corresponding Source. -->
+  <a href="https://github.com/metacognitionai/zeos" target="_blank" rel="noopener noreferrer">source</a>
+</header>
+
+<main>
+  <section class="panel" id="controls" aria-labelledby="controls-h">
+    <h2 id="controls-h">run</h2>
+    <div class="row">
+      <label>player
+        <select id="arm" disabled>
+          <option value="zeos" selected>ZEOS kernel (pilot + evade reflex)</option>
+          <option value="prompt">prompt loop (one request per move)</option>
+        </select>
+      </label>
+      <label>board
+        <select id="board" disabled>
+          <option value="default" selected>default — 12×16, 0.5 s tick</option>
+          <option value="ablation">ablation — 9×8, 0.2 s tick</option>
+        </select>
+      </label>
+      <label>seed
+        <input id="seed" type="number" inputmode="numeric" min="0" step="1" value="7" size="6" disabled>
+      </label>
+      <label>machine
+        <select id="machine" disabled>
+          <option value="model" id="model-option">language model on WebGPU</option>
+          <option value="stub" selected>stub (no GPU)</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="run" type="button" disabled>run</button>
+      <button id="stop" type="button" disabled>stop</button>
+      <ol id="phases" class="phases" aria-label="phase">
+        <li data-phase="loading">loading model</li>
+        <li data-phase="warming">warming</li>
+        <li data-phase="playing">playing</li>
+        <li data-phase="finished">finished</li>
+      </ol>
+    </div>
+    <div class="row model-status" id="model-status-row" hidden>
+      <span class="meta">model</span>
+      <progress id="model-progress" max="1" value="0" hidden></progress>
+      <span id="model-status" class="meta" role="status" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="board-panel" aria-labelledby="board-h">
+    <div class="head">
+      <h2 id="board-h">board</h2>
+      <span id="board-label" class="meta"></span>
+    </div>
+    <div class="board-box"><canvas id="board-canvas" role="img" aria-label="the game board"></canvas></div>
+    <p id="marker" class="marker" aria-live="polite">&nbsp;</p>
+    <dl class="stats" id="stats">
+      <div><dt>lives</dt><dd id="s-lives">–</dd></div>
+      <div><dt>kills</dt><dd id="s-kills">–</dd></div>
+      <div><dt>ticks</dt><dd id="s-ticks">–</dd></div>
+      <div><dt>preemptions</dt><dd id="s-preemptions">–</dd></div>
+      <div><dt>cancellations</dt><dd id="s-cancellations">–</dd></div>
+      <div><dt>reflexes</dt><dd id="s-reflexes">–</dd></div>
+      <div><dt>lag mean / p95</dt><dd id="s-lag">–</dd></div>
+      <div><dt>catch-up ticks</dt><dd id="s-catchup">–</dd></div>
+    </dl>
+    <ol id="moves" class="moves" aria-label="recent moves"></ol>
+  </section>
+
+  <section class="panel" id="finished-panel" aria-labelledby="finished-h">
+    <div class="head">
+      <h2 id="finished-h">result</h2>
+      <button id="download" type="button" disabled>download journal</button>
+      <button id="download-result" type="button" disabled>download result</button>
+    </div>
+    <p id="summary" class="hint">Run a game to see how it went.</p>
+    <ul id="verdicts" class="verdicts"></ul>
+  </section>
+
+  <section class="panel wide" id="runs-panel" aria-labelledby="runs-h">
+    <h2 id="runs-h">this session's runs</h2>
+    <p class="hint">Every finished run, for comparing the two players on the same board and seed.
+      Lag is in ticks between the board a move was chosen against and the tick it landed on.</p>
+    <div class="table-box">
+      <table id="runs">
+        <thead><tr><th>player</th><th>board</th><th>seed</th><th>machine</th><th>lives</th>
+          <th>kills</th><th>ticks</th><th>lag mean</th><th>lag p95</th><th>preemptions</th>
+          <th>cancellations</th><th>parse rate</th><th>criteria</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel wide" id="debugger-panel" aria-labelledby="debugger-h">
+    <h2 id="debugger-h">debugger</h2>
+    <iframe id="debugger" title="ZEOS debugger"></iframe>
+  </section>
+
+  <section class="panel wide" id="log-panel" aria-labelledby="log-h">
+    <h2 id="log-h">diagnostic log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+  // Without isolation there is no SharedArrayBuffer, so neither the model thread nor
+  // Stop; on a host that cannot send the headers, coi_serviceworker.js adds them and
+  // one reload applies it.
+  if (!self.crossOriginIsolated && "serviceWorker" in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register("coi_serviceworker.js").then((registration) => {
+      if (!navigator.serviceWorker.controller && !sessionStorage.getItem("coi-reloaded")) {
+        sessionStorage.setItem("coi-reloaded", "1");
+        (registration.installing || registration.waiting || registration.active)
+          ?.addEventListener("statechange", (event) => {
+            if (event.target.state === "activated") location.reload();
+          });
+        if (registration.active) location.reload();
+      }
+    });
+  }
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

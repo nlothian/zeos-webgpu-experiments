@@ -333,3 +333,38 @@ Written by the runner workstream (`runner.py`); none changes a type in `contract
 - `build_driver(machine, spec)` registers the reflex on the machine and builds a
   `ZeosDriver` told the board's rules and view; `page.open_run` can use it for the
   zeos arm.
+
+## Page notes
+
+Written by the page workstream; each is the smallest change the page needed.
+
+- **`open_run` takes an optional `clock`.** `page.open_run(arm, board, seed, worker, *,
+  stub, on_frame, stop, clock=None)`: the extra keyword is optional, so the function
+  still satisfies `OpenRun`. Under Pyodide `si_worker.js` passes
+  `{now: performance.now() / 1000, sleep: Atomics.wait(control, CONTROL_STOP, 0, ms)}`,
+  so a sleeping loop wakes the moment Stop is written; `None` is `MonotonicClock`.
+  `stop` is `{is_set: Atomics.load(control, CONTROL_STOP) !== 0}`.
+- **The stub machine gets a channel like the model's.** The page starts
+  `stub_thread.js`, which imports `web/stub/pilot_stub_worker.js`, calls
+  `self.createPilotStubWorker({stepMs, positionMs})` and serves it with `serveChannel`;
+  the page attaches it as backend `stub` (`attachModel`), and `si_worker.js` hands
+  `open_run` that `SyncModelWorker`. The model machine hands over the one attached for
+  backend `webgpu`. `manifest.json` says whether the build has the stub (`stub`); without
+  it `worker` is `None`, which only a `FakeRun` accepts.
+- **Stop is cleared by the page**, just before it starts loading a thread for a run, not
+  by `start`; a Stop pressed while a thread loads cancels the run before `start` is sent.
+- **`frame` and `decision` bodies are spread.** `{type: "frame", ...Frame}` and
+  `{type: "decision", ...DecisionRecord}`, the `{type, ...body}` convention; neither
+  shape has a `type` field. `started` and `finished` also carry `stopped` (whether Stop
+  was set).
+- **`ready`** carries `{pyodide, python, isolated, model, stub, describe}`: `model` is the
+  manifest's export name or `null`, `stub` whether the build has the stub, `describe` is
+  `page.describe_json()` (boards, arms, criteria ids, the registered builders, and the
+  debugger's wiring-only payload).
+- **`finished.result`** is `RunResult.to_json()` less `journal` and `verdicts`, which ride
+  beside it once each.
+- **The integration seam is `page.RUN_BUILDERS: dict[Arm, RunBuilder]`**, where a
+  `RunBuilder` takes a `page.RunContext(arm, spec, worker, stub, on_frame, stop, clock)`
+  and returns a `Run`. An arm with no builder runs as `page.FakeRun`.
+- **Board size** is not a `Frame` field; `board.js` reads it off `Frame.text`
+  (`Game.render`: one line a row, four characters a cell).
