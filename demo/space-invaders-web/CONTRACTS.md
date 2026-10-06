@@ -285,3 +285,51 @@ open, and the changes it made to `contracts.py`:
   vocabulary size) and `backend` (`"stub"`), which `serveChannel` reads for the
   channel's `pieces` and `backend` requests. It is a model-side worker: `decodeStep` is
   async and honours `shouldStop` and `maxChunk`; begin/poll/cancel come from the channel.
+
+## Runner notes
+
+Written by the runner workstream (`runner.py`); none changes a type in `contracts.py`.
+
+- **The zeos runner's clock tells `time.monotonic()` time.** `ZeosDriver._pump`
+  compares its deadline against `time.monotonic()`, and the runner passes the next
+  tick's due time on its `Clock` as that deadline. `MonotonicClock` qualifies, and so
+  does a Pyodide clock whose `now()` is `time.monotonic()` and whose `sleep()` is an
+  `Atomics.wait` on the control buffer. Under Pyodide the page must inject that clock:
+  `time.sleep` does not wake on a stop. The zeos runner raises `ValueError` at
+  construction if `clock.now()` is more than `CLOCK_TOLERANCE_S` (0.5 s) away from
+  `time.monotonic()`.
+- **The constructors take more than the factories pin**, all keyword-only with
+  defaults: `max_ticks` (default the board's `max_steps`), `max_seconds`, and for the
+  zeos runner `warm_timeout_s` (default 120 s). The zeos runner's `driver` is typed as
+  `runner.ZeosDriverLike`, the part of `ZeosDriver` it uses, so the factory
+  (`driver: ZeosDriver`) is still satisfied. Both runners have `warm()`, which
+  `run()` calls if it has not been called.
+- **Warm-up ends when the kernel has nothing to run**: a batch that returns before its
+  deadline with no write, i.e. `Kernel.tick()` found no runnable job. In this case
+  that is the pilot blocked on `game.state`. A stop during warm-up ends it without
+  setting `warmed`. Load the model and create the worker context before `warm()`:
+  `warm_timeout_s` bounds the prefill and the first syscall, not a model download.
+  A pilot that writes during warm-up moves the ship before tick 0; that move is
+  recorded at tick 0 with no lag and goes out on the first frame.
+- **`lag_ticks` for a pilot move is measured against the board the pilot read**, found
+  by the runner in the journal (`pipe.read` on `game.state`), not against
+  `Decision.tick`. The driver stamps a move with the newest board delivered, which runs
+  ahead of the one being answered whenever a board arrives mid-completion. An `evade`
+  move is measured against the threat its handler was dispatched for: the runner notes
+  the tick of each threat it hands over and takes the newest at each `vector.fired`.
+  The driver stamps a reflex with the tick of the latest reading of either kind, which
+  every later `sense` overwrites.
+- **`RunResult.reflexes` and `Frame.reflexes` count moves `evade` made**, not threats
+  delivered (`ZeosDriver.reflexes`). `cancellations` is `DriverMachine.cancellations`,
+  part of the native protocol.
+- **Frames.** One frame per batch of ticks applied, and a closing frame when the loop
+  exits if the last frame does not already carry every decision and the final
+  totals; its `tick` repeats the last one and its `catchup` is 0. Every
+  `DecisionRecord` reaches exactly one frame. Nothing is handed to the driver or the
+  prompt arm on the tick that ends the run.
+- **`FrameSink.__call__` is not positional-only**, so `frames.append` does not
+  type-check as a sink; wrap it. Making the parameter positional-only (`frame: Frame, /`)
+  in `contracts.py` would let it.
+- `build_driver(machine, spec)` registers the reflex on the machine and builds a
+  `ZeosDriver` told the board's rules and view; `page.open_run` can use it for the
+  zeos arm.

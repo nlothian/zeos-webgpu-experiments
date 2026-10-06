@@ -25,6 +25,7 @@ import json
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from zeos.core.ids import JobId, ObjectName, PipeName
 from zeos.core.kernel import Kernel, KernelConfig
@@ -33,7 +34,13 @@ from zeos.core.resources import ResourceTable
 from zeos.core.vectors import VectorTable
 from zeos.descriptor.loader import CaseBundle, load_case
 from zeos.journal.codec import encode_record
-from zeos.machine.base import DecodeResult, MachineRequest, OpKind, tokens_from_text
+from zeos.machine.base import (
+    DecodeResult,
+    MachineBackend,
+    MachineRequest,
+    OpKind,
+    tokens_from_text,
+)
 from zeos.world.store import WorldStore
 
 from ...game import ACTIONS, Controls, Rules, snapshot
@@ -166,6 +173,35 @@ def threat_reading(info: dict) -> str | None:
 # --- assembling the machine and the kernel -----------------------------------
 
 
+@runtime_checkable
+class DriverMachine(MachineBackend, Protocol):
+    """What `ZeosDriver` and `build_kernel` need of the machine they are handed.
+
+    The kernel's `MachineBackend`, plus what a driver and its runner read off the
+    machine itself: the pilot's request-to-syscall time for a decision, how many
+    generations it cancelled, dropping a preempted job's completion, and closing.
+    `APIMachineBase` is one; a machine over another transport (the browser port's)
+    is another, with no common base.
+    """
+
+    @property
+    def last_roundtrip(self) -> float | None:
+        """Request-to-syscall seconds of the last completed pilot command."""
+        ...
+
+    @property
+    def cancellations(self) -> int:
+        """Generations the machine stopped wanting; the machine's count, not the
+        kernel's (`ZeosDriver.preemptions` is that)."""
+        ...
+
+    def invalidate(self, job: JobId) -> None:
+        """Drop whatever is being generated for `job`; see `_invalidate_preempted`."""
+        ...
+
+    def close(self) -> None: ...
+
+
 def build_machine(backend: str = "openai", **kwargs: object) -> APIMachineBase:
     """The machine the kernel will decode through, with the reflex registered."""
     # The machine narrows its schema to exactly the game's words, so a reply naming
@@ -197,7 +233,7 @@ def load_criteria(root: Path = CASE_ROOT) -> tuple[dict, ...]:
 
 
 def build_kernel(
-    machine: APIMachineBase | None = None,
+    machine: DriverMachine | None = None,
     root: Path = CASE_ROOT,
     *,
     view: object | None = None,
@@ -306,7 +342,7 @@ class ZeosDriver:
     """
 
     kernel: Kernel = field(default=None)  # type: ignore[assignment]
-    machine: APIMachineBase = field(default=None)  # type: ignore[assignment]
+    machine: DriverMachine = field(default=None)  # type: ignore[assignment]
     #: Which served backend to build when none is handed in.
     backend: str = "openai"
     #: The game the pilot is told the rules of when the kernel is built here;
