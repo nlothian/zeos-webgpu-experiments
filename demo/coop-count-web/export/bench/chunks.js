@@ -7,8 +7,8 @@
 // OptZeosWorker's decode step that can stop (web/opt_zeos_worker.js) on ONNX Runtime
 // Web's WebGPU backend: the time of a fresh prefill of 250 and 1000 positions at
 // maxChunk 32, 64, 128, 256 and the graph's own, with the overhead of each extra chunk;
-// and a step stopped mid-fill by `shouldStop`, resumed, and checked bit for bit against
-// the uninterrupted step. The result is printed and left in `window.benchResult`
+// and a step stopped by `shouldStop` before its third run, resumed with the same
+// maxChunk, and checked bit for bit against the uninterrupted step. The result is printed and left in `window.benchResult`
 // (`{checks: [{name, ok, detail}], timings, error?}`) for `tests/opt_zeos_webgpu.mjs`:
 //
 //   node tests/opt_zeos_webgpu.mjs --page chunks.html
@@ -126,20 +126,23 @@ try {
   const want = await w.decodeStep("twin", { ...ALL, maxChunk: 64 });
   w.createContext("cut");
   w.append("cut", ids);
-  let stop = false;
-  let stopAt = 0;
-  setTimeout(() => {
-    stop = true;
-    stopAt = performance.now();
-  }, 60);
-  const cancelled = await w.decodeStep("cut", { ...ALL, maxChunk: 64, shouldStop: () => stop });
-  const cancelMs = performance.now() - stopAt;
-  check("cancelled mid-fill", cancelled.cancelled === true && cancelled.resident > 0 && cancelled.resident < 1000, JSON.stringify(cancelled));
+  // Stopped from inside shouldStop, before the third run: deterministic, two runs in.
+  let asked = 0;
+  let stoppedAt = 0;
+  const shouldStop = () => {
+    asked += 1;
+    if (asked < 3) return false;
+    stoppedAt = performance.now();
+    return true;
+  };
+  const cancelled = await w.decodeStep("cut", { ...ALL, maxChunk: 64, shouldStop });
+  const returnMs = performance.now() - stoppedAt;
+  check("stopped before the third run", cancelled.cancelled === true && cancelled.resident === 128 && cancelled.stats.chunks === 2, JSON.stringify(cancelled));
   const done = await w.decodeStep("cut", { ...ALL, maxChunk: 64 });
   check("resumed step equals the uninterrupted one bit for bit", done.tokenId === want.tokenId && bits(done.attention) === bits(want.attention));
   check("resumed only the rest", done.stats.positions === 1000 - cancelled.resident, `${done.stats.positions}`);
-  timings.cancel = { cancelMs, resident: cancelled.resident };
-  log(`cancel landed ${cancelMs.toFixed(1)} ms after the flag, resident ${cancelled.resident}`);
+  timings.cancel = { returnMs, resident: cancelled.resident, fillMs: cancelled.stats.fillMs };
+  log(`stopped with ${cancelled.resident} resident after ${cancelled.stats.fillMs.toFixed(1)} ms of runs; returned ${returnMs.toFixed(1)} ms after the stop`);
   window.benchResult = { checks, timings };
 } catch (error) {
   log(String(error.stack ?? error));

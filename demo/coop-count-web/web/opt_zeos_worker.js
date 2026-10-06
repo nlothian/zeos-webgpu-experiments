@@ -74,9 +74,11 @@
  * `shouldStop`, asked before every run of the graph. When it answers true the step
  * returns `{cancelled: true, resident, stats}` at once: the positions already run stay in
  * the cache (`resident` of them), so the next step for the context resumes from there.
- * Chunks are cut as a function of where they start, so a step stopped and then resumed
- * runs exactly the chunks it would have run uninterrupted, and chooses the same token
- * bit for bit. Every answer carries `resident` and `stats` (`positions` run, `chunks`
+ * Chunks are cut as a function of where they start and of `maxChunk`, so a step stopped
+ * and then resumed with the same `maxChunk` runs exactly the chunks it would have run
+ * uninterrupted, and chooses the same token bit for bit. Resumed with another
+ * `maxChunk`, the chunks after the stop are cut differently and agree only to float16
+ * rounding. Every answer carries `resident` and `stats` (`positions` run, `chunks`
  * runs, `fillMs` spent in them, not counting a final one-position decode).
  */
 

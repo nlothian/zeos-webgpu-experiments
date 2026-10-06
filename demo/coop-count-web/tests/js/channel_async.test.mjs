@@ -13,7 +13,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CHANNEL_BUSY } from "../../web/model_channel.js";
+import { encodeFrame } from "../../web/frames.js";
+import { CHANNEL_BUSY, CHANNEL_BYTES, SyncModelWorker } from "../../web/model_channel.js";
 import { startNodeModel } from "../../web/node_model_thread.mjs";
 import "../../web/stub_worker.js";
 
@@ -223,4 +224,98 @@ test("the stub without latency or shouldStop answers synchronously, as before", 
   // A stop asked before the step is answered at once, still synchronously.
   const stopped = stub.decodeStep("a:pilot", { ...ALL, shouldStop: () => true });
   assert.deepEqual(stopped, { cancelled: true, resident: 0, stats: { positions: 0, chunks: 0, fillMs: 0 } });
+});
+
+/** A SyncModelWorker whose "model thread" answers inside `post`, as `answer` says. */
+function inline(answer) {
+  const buffer = new SharedArrayBuffer(CHANNEL_BYTES);
+  const state = new Int32Array(buffer, 0, 4);
+  const bytes = new Uint8Array(buffer);
+  const reply = (header) => {
+    const frame = encodeFrame(header);
+    bytes.set(frame, 16);
+    Atomics.store(state, 1, frame.byteLength);
+    Atomics.store(state, 0, 2);
+  };
+  return new SyncModelWorker(buffer, (request) => {
+    if (request.method === "pieces") return reply({ id: request.id, ok: true, value: ["a", "b"] });
+    if (request.method === "backend") return reply({ id: request.id, ok: true, value: "inline" });
+    answer(request, reply);
+  });
+}
+
+test("a reply to another request makes the channel unusable", () => {
+  const sync = inline((request, reply) => reply({ id: request.id + 1, ok: true, value: 3 }));
+  assert.throws(() => sync.length("a"), /unusable: a reply to request 3 arrived for request 2/);
+  assert.throws(() => sync.length("a"), /unusable/);
+  assert.throws(() => sync.beginDecodeStep("a", ALL), /unusable/);
+});
+
+test("a begun step whose reply names another request is refused too", () => {
+  const sync = inline((request, reply) => reply({ id: request.id + 7, ok: true, value: { tokenId: 1 } }));
+  sync.beginDecodeStep("a", ALL);
+  assert.throws(() => sync.pollDecode(0), /unusable/);
+});
+
+test("a call that timed out leaves the channel unusable rather than out of step", async () => {
+  const sync = await startNodeModel({ stub: { tapes: TAPES, options: { stepMs: 3000 } }, timeoutMs: 1000 });
+  try {
+    context(sync, "a:pilot", 2);
+    assert.throws(() => sync.decodeStep("a:pilot", ALL), /did not answer decodeStep within 1000 ms/);
+    // Its reply would land in the buffer during the next call.
+    assert.throws(() => sync.length("a:pilot"), /unusable: decodeStep \(request \d+\) timed out/);
+  } finally {
+    await sync.terminate();
+  }
+});
+
+test("a begin whose post throws leaves the channel free", () => {
+  const sync = inline((request, reply) => {
+    if (request.begun) throw new Error("port closed");
+    reply({ id: request.id, ok: true, value: 4 });
+  });
+  assert.throws(() => sync.beginDecodeStep("a", ALL), /port closed/);
+  assert.equal(sync.inFlight, false);
+  assert.equal(sync.length("a"), 4);
+});
+
+test("a begun step's advance is committed before a fork copies the context", async () => {
+  await withStub({ stepMs: 5 }, async (sync) => {
+    sync.createContext("a:pilot");
+    sync.append("a:pilot", sync.tokenize("go"));
+    sync.beginDecodeStep("a:pilot", ALL);
+    const first = drain(sync);
+    assert.equal(sync.piece(first.tokenId), "write");
+    sync.append("a:pilot", [first.tokenId]);
+    sync.fork("a:pilot", "b:pilot");
+    // The child starts its own tape, after a parent that has spoken: a leading space.
+    sync.beginDecodeStep("b:pilot", ALL);
+    assert.equal(sync.piece(drain(sync).tokenId), " write");
+    sync.beginDecodeStep("a:pilot", ALL);
+    assert.equal(sync.piece(drain(sync).tokenId), " stdout");
+  });
+});
+
+test("a begun step's advance is committed before a truncate cuts its token away", async () => {
+  await withStub({ stepMs: 5 }, async (sync) => {
+    sync.createContext("a:pilot");
+    sync.append("a:pilot", sync.tokenize("go"));
+    sync.beginDecodeStep("a:pilot", ALL);
+    const first = drain(sync);
+    sync.append("a:pilot", [first.tokenId]);
+    sync.truncate("a:pilot", 1);
+    // As a synchronous step would have: the tape moved on when the token was taken.
+    sync.beginDecodeStep("a:pilot", ALL);
+    assert.equal(sync.piece(drain(sync).tokenId), " stdout");
+  });
+});
+
+test("the stub refuses a maxChunk that is not a positive integer", async () => {
+  await withStub({ stepMs: 1 }, async (sync) => {
+    context(sync, "a:pilot", 2);
+    for (const maxChunk of [0, 2.5, -1]) {
+      sync.beginDecodeStep("a:pilot", { ...ALL, maxChunk });
+      assert.throws(() => sync.pollDecode(5000), /maxChunk .* is not a positive integer/);
+    }
+  });
 });

@@ -131,9 +131,19 @@ Where the code settles what the text above leaves open, or differs from it:
   to it; a value that is not a positive integer is a `RangeError` (an error reply).
 - **Finished replies carry `resident`** as well as `stats` (the context's full length
   for the step's cache), so `pollDecode`'s `DecodeDone` has a `resident` key too.
-- **`pollDecode(timeoutMs = 0)`.** `timeoutMs` defaults to 0 (a non-blocking check). A
-  cancelled answer's `resident`/`stats` are `null` only for a worker that does not report
-  them (none of the three here).
+- **`pollDecode(timeoutMs = 0)`.** `timeoutMs` defaults to 0 (a non-blocking check that
+  still takes a reply that has landed). `resident` and `stats` are read from the reply as
+  they are; all three workers report them.
+- **Bit-identical resumption needs the same `maxChunk`.** Chunks are cut by where they
+  start and by `maxChunk`; a step resumed with another `maxChunk` cuts the rest
+  differently and agrees only to float16 rounding.
+- **Stale replies.** Every reply's `id` is checked against the request waited on. In
+  `SyncModelWorker` a mismatch, or any call that timed out (whose reply would land
+  later), makes the channel unusable: every later call throws `model channel unusable:
+  ...`, since the one reply buffer cannot hold a stale reply aside. `NodeWorker` reads an
+  ordered pipe, so it discards a reply to an earlier request and keeps waiting.
+- **`beginDecodeStep`** sets the slots before posting (a thread may answer before `post`
+  returns) and clears them if `post` throws.
 - **`shouldStop` is asked before every run of the graph, not before a skipped hidden
   run** (`OptZeosWorker` carries a hidden run past without a run; it costs one copy).
   `TransformersWorker` asks it before each run of `decodeStep`'s replay and before its
@@ -149,7 +159,9 @@ Where the code settles what the text above leaves open, or differs from it:
   `web/node_bridge.mjs`: `pollDecode` waits with `select` on the raw pipe; a cancel is a
   control frame `{"cancel": id}` that the bridge reads while the step awaits the graph and
   never answers. `pollDecode` returns a plain dict (`attention` a list of floats or
-  `None`). Calls while in flight raise `RuntimeError(CHANNEL_BUSY)`. `NodeWorker(stub=path)`
+  `None`). Calls while in flight raise `RuntimeError(CHANNEL_BUSY)`. `close()` with a
+  step in flight cancels and drains it, and kills a child that has not exited 30 s after
+  its stdin closed. `maxChunk` is passed through unchanged; the worker validates it. `NodeWorker(stub=path)`
   serves the stub over a JSON file of `{tapes, options}`. This touched
   `node_bridge.mjs`, which the ownership table does not list.
 

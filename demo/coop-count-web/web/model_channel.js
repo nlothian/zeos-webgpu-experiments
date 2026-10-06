@@ -33,6 +33,12 @@
  * `pollDecode` then reports `{cancelled: true, resident, stats}`, never a token. While a
  * step is in flight every synchronous call refuses (`CHANNEL_BUSY`), so nothing queues
  * behind it; `piece` and a cached `info` never reach the model thread and keep working.
+ *
+ * **Stale replies.** Every reply names the request it answers, and a reply for any other
+ * request is an error: one buffer holds one reply, so it cannot be set aside while the
+ * right one is awaited. The only way one arises is a call that timed out, whose reply
+ * lands later, so a timed-out call leaves the channel unusable: every later call throws
+ * rather than risk taking that reply as its own.
  */
 
 import { decodeFrame, encodeFrame, serveRequest } from "./frames.js";
@@ -88,24 +94,43 @@ export class SyncModelWorker {
     this.timeoutMs = timeoutMs;
     this.next = 0;
     this.cachedInfo = null;
+    /** Why the channel can no longer be used (a call timed out), or null. */
+    this.broken = null;
     // `JsMachine` asks for every piece once at start-up; one call fetches them all.
     this.pieces = this.call("pieces");
     this.backend = this.call("backend");
   }
 
   call(method, ...args) {
+    this.usable();
     if (this.inFlight) throw new Error(CHANNEL_BUSY);
+    const id = this.next++;
     Atomics.store(this.state, 0, WAITING);
-    this.post({ id: this.next++, method, args });
+    this.post({ id, method, args });
     const outcome = Atomics.wait(this.state, 0, WAITING, this.timeoutMs);
     if (outcome === "timed-out") {
+      this.broken = `${method} (request ${id}) timed out after ${this.timeoutMs} ms`;
       throw new Error(`model worker did not answer ${method} within ${this.timeoutMs} ms`);
     }
-    const length = Atomics.load(this.state, 1);
-    const reply = decodeFrame(this.bytes.slice(DATA, DATA + length));
+    const reply = this.take(id);
     Atomics.store(this.state, 0, IDLE);
     if (!reply.ok) throw new Error(`model worker ${method}: ${reply.error}`);
     return reply.value;
+  }
+
+  usable() {
+    if (this.broken !== null) throw new Error(`model channel unusable: ${this.broken}`);
+  }
+
+  /** The reply in the buffer, which must answer request `id`. */
+  take(id) {
+    const length = Atomics.load(this.state, 1);
+    const reply = decodeFrame(this.bytes.slice(DATA, DATA + length));
+    if (reply.id !== id) {
+      this.broken = `a reply to request ${reply.id} arrived for request ${id}`;
+      throw new Error(`model channel unusable: ${this.broken}`);
+    }
+    return reply;
   }
 
   info() {
@@ -162,13 +187,21 @@ export class SyncModelWorker {
   /** Post one decode step and return its request id; never waits. `opts` is
    * `decodeStep`'s, plus `maxChunk`, the most positions one prefill run may take. */
   beginDecodeStep(jobId, opts) {
+    this.usable();
     if (this.inFlight) throw new Error(CHANNEL_BUSY);
     const args = stepArgs(opts);
     const id = this.next++;
+    // Set before posting: a model thread may answer before `post` returns.
     Atomics.store(this.state, ABORT, 0);
     Atomics.store(this.state, IN_FLIGHT, id + 1);
     Atomics.store(this.state, 0, WAITING);
-    this.post({ id, method: "decodeStep", args: [jobId, args], begun: true });
+    try {
+      this.post({ id, method: "decodeStep", args: [jobId, args], begun: true });
+    } catch (error) {
+      Atomics.store(this.state, IN_FLIGHT, 0);
+      Atomics.store(this.state, 0, IDLE);
+      throw error;
+    }
     return id;
   }
 
@@ -183,8 +216,7 @@ export class SyncModelWorker {
     const flight = Atomics.load(this.state, IN_FLIGHT);
     if (flight === 0) return null;
     if (Atomics.wait(this.state, 0, WAITING, Math.max(0, timeoutMs)) === "timed-out") return null;
-    const length = Atomics.load(this.state, 1);
-    const reply = decodeFrame(this.bytes.slice(DATA, DATA + length));
+    const reply = this.take(flight - 1);
     const cancelled = Atomics.load(this.state, ABORT) === flight;
     Atomics.store(this.state, ABORT, 0);
     Atomics.store(this.state, IN_FLIGHT, 0);
@@ -192,7 +224,7 @@ export class SyncModelWorker {
     if (!reply.ok) throw new Error(`model worker decodeStep: ${reply.error}`);
     const value = reply.value;
     if (cancelled || value.cancelled === true) {
-      return { cancelled: true, resident: value.resident ?? null, stats: value.stats ?? null };
+      return { cancelled: true, resident: value.resident, stats: value.stats };
     }
     return { ...value, cancelled: false };
   }

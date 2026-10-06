@@ -30,7 +30,8 @@
 // A real model's step is a function of the context, so a step whose result was dropped
 // gives the same token when it is asked again. A tape is not, so a step that was begun
 // (it has a `shouldStop`) leaves the tape where it was and records what it would advance
-// to; the next step commits that only if the token it chose has since been appended.
+// to; the next step, a truncate or a fork of the context commits that only if the token
+// it chose has since been appended.
 
 (function () {
   "use strict";
@@ -173,6 +174,7 @@
       if (!(n >= 0 && n <= ctx.ids.length)) {
         throw new RangeError(`truncate at ${n} outside [0, ${ctx.ids.length}]`);
       }
+      this.commit(ctx);
       ctx.ids.length = n;
       // The last token stays pending, as a model's cache does after a cut.
       ctx.resident = Math.min(ctx.resident, Math.max(n - 1, 0));
@@ -180,6 +182,7 @@
 
     fork(parentId, childId) {
       const parent = this.ctx(parentId);
+      this.commit(parent);
       const child = this.fresh(childId);
       child.ids = parent.ids.slice();
       child.spoken = parent.spoken;
@@ -211,7 +214,9 @@
 
       const shouldStop = opts.shouldStop ?? null;
       const maxChunk = opts.maxChunk ?? Infinity;
-      if (!(maxChunk >= 1)) throw new RangeError(`maxChunk ${maxChunk} is not positive`);
+      if (maxChunk !== Infinity && !(Number.isInteger(maxChunk) && maxChunk >= 1)) {
+        throw new RangeError(`maxChunk ${maxChunk} is not a positive integer`);
+      }
       const n = ctx.ids.length;
       // A step repeated with nothing appended decodes its position again.
       ctx.resident = Math.min(ctx.resident, n - 1);

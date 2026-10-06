@@ -154,6 +154,42 @@ def test_cancelled_and_resumed_steps_say_what_uncancelled_ones_do(tmp_path: Path
         assert [w.piece(t) for t in plain] == WORDS
 
 
+def test_polling_with_no_wait_takes_the_reply_once_it_lands(slow: NodeWorker) -> None:
+    context(slow, "a:pilot", 6)
+    slow.beginDecodeStep("a:pilot", ALL)
+    polls = 0
+    deadline = time.monotonic() + 10
+    while (reply := slow.pollDecode(0)) is None:
+        assert time.monotonic() < deadline, "pollDecode(0) never took the reply"
+        polls += 1
+        time.sleep(0.005)
+    assert polls > 0
+    assert slow.piece(reply["tokenId"]) == "write"
+    assert not slow.inFlight
+
+
+def test_a_reply_to_an_earlier_request_is_discarded(slow: NodeWorker) -> None:
+    context(slow, "a:pilot", 3)
+    # A request whose caller never read its reply, as if interrupted mid-call.
+    slow._write({"id": slow._next, "method": "length", "args": ["missing"]}, [])  # pyright: ignore[reportPrivateUsage]
+    slow._next += 1  # pyright: ignore[reportPrivateUsage]
+    assert slow.length("a:pilot") == 3
+    slow.beginDecodeStep("a:pilot", ALL)
+    assert slow.piece(drain(slow)["tokenId"]) == "write"
+
+
+def test_close_with_a_step_in_flight_cancels_and_drains_it(tmp_path: Path) -> None:
+    w = stub_worker(tmp_path, positionMs=50, stepMs=5)
+    context(w, "a:pilot", 200)  # 10 s uninterrupted
+    w.beginDecodeStep("a:pilot", {**ALL, "maxChunk": 4})
+    began = time.monotonic()
+    with w:
+        pass
+    assert time.monotonic() - began < 5
+    assert not w.inFlight
+    assert w._process.poll() is not None  # pyright: ignore[reportPrivateUsage]
+
+
 @pytest.mark.skipif(
     not (MODEL / "meta.json").is_file(), reason=f"needs the OPT+ZEOS export at {MODEL}"
 )

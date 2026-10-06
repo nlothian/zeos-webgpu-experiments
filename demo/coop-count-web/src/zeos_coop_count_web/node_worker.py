@@ -23,6 +23,11 @@ the step runs and that the step checks before every chunk. A cancelled step's re
 always dropped, even if the reply had already been written when the cancel was sent; and
 while a step is in flight every other call that reaches the child raises
 ``CHANNEL_BUSY``.
+
+Every reply names the request it answers. The pipe keeps replies in order, so a reply
+to an earlier request (one whose caller was interrupted before reading it) is read and
+discarded, and the wait goes on for the right one; a reply to a later request cannot
+happen and raises.
 """
 
 from __future__ import annotations
@@ -109,7 +114,7 @@ class NodeWorker:
         self._buffer = bytearray()
         self._in_flight: int | None = None
         self._cancelled = False
-        frame = self._read()
+        frame = self._read(None)
         assert frame is not None  # no timeout
         ready, _ = frame
         self.backend = str(ready["backend"])
@@ -194,7 +199,7 @@ class NodeWorker:
         "resident", "stats"}`` for one that was cancelled. An error reply raises."""
         if self._in_flight is None:
             return None
-        frame = self._read(timeout=max(0.0, timeoutMs) / 1000)
+        frame = self._read(self._in_flight, timeout=max(0.0, timeoutMs) / 1000)
         if frame is None:
             return None
         reply, blobs = frame
@@ -205,13 +210,13 @@ class NodeWorker:
             raise RuntimeError(f"worker decodeStep: {reply['error']}")
         raw = cast(dict[str, Any], _decode(reply["value"], blobs))
         if cancelled or raw.get("cancelled") is True:
-            return {"cancelled": True, "resident": raw.get("resident"), "stats": raw.get("stats")}
+            return {"cancelled": True, "resident": raw["resident"], "stats": raw["stats"]}
         return {
             "tokenId": int(raw["tokenId"]),
             "attention": _floats(raw["attention"]),
             "cancelled": False,
-            "resident": raw.get("resident"),
-            "stats": raw.get("stats"),
+            "resident": raw["resident"],
+            "stats": raw["stats"],
         }
 
     def cancelDecode(self) -> None:
@@ -223,10 +228,23 @@ class NodeWorker:
         self._write({"cancel": self._in_flight}, [])
 
     def close(self) -> None:
+        """End the child: a step in flight is cancelled and drained first, and a child
+        that has not exited 30 s after its stdin closed is killed."""
         if self._process.poll() is None:
+            if self._in_flight is not None:
+                self.cancelDecode()
+                try:
+                    self.pollDecode(30_000)
+                except RuntimeError:
+                    # The step's error, or the child gone: it is being shut down anyway.
+                    pass
             stdin = cast(IO[bytes], self._process.stdin)
             stdin.close()
-            self._process.wait(timeout=30)
+            try:
+                self._process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
 
     def __enter__(self) -> NodeWorker:
         return self
@@ -243,7 +261,7 @@ class NodeWorker:
         header = {"id": self._next, "method": method, "args": [_encode(a, blobs) for a in args]}
         self._next += 1
         self._write(header, blobs)
-        frame = self._read()
+        frame = self._read(cast(int, header["id"]))
         assert frame is not None  # no timeout
         reply, reply_blobs = frame
         if not reply["ok"]:
@@ -257,21 +275,32 @@ class NodeWorker:
         stdin.write(struct.pack("<I", len(payload)) + payload + b"".join(blobs))
         stdin.flush()
 
-    def _read(self, timeout: float | None = None) -> tuple[dict[str, Any], list[bytes]] | None:
-        """The next frame from the child; ``None`` if it is not complete within
-        ``timeout`` seconds (``None``: wait as long as it takes)."""
+    def _read(
+        self, expect: int | None, timeout: float | None = None
+    ) -> tuple[dict[str, Any], list[bytes]] | None:
+        """The reply to request ``expect`` (``None``: the next frame, the ready frame);
+        ``None`` if it is not complete within ``timeout`` seconds (``None``: wait as long
+        as it takes). Replies to earlier requests are discarded. Whatever the timeout,
+        what the pipe already holds is read."""
         fd = cast(IO[bytes], self._process.stdout).fileno()
         deadline = None if timeout is None else time.monotonic() + timeout
-        while (frame := self._frame()) is None:
+        while True:
+            frame = self._frame()
+            if frame is not None:
+                answered = frame[0].get("id")
+                if expect is None or answered == expect:
+                    return frame
+                if not (isinstance(answered, int) and answered < expect):
+                    raise RuntimeError(f"a reply to request {answered} came for {expect}")
+                continue
             if deadline is not None:
-                left = deadline - time.monotonic()
-                if left <= 0 or not select.select([fd], [], [], left)[0]:
+                left = max(0.0, deadline - time.monotonic())
+                if not select.select([fd], [], [], left)[0]:
                     return None
             data = os.read(fd, 1 << 20)
             if not data:
                 raise RuntimeError(f"the node worker exited (status {self._process.poll()})")
             self._buffer += data
-        return frame
 
     def _frame(self) -> tuple[dict[str, Any], list[bytes]] | None:
         """Take the first complete frame off the read buffer, if there is one."""
@@ -307,7 +336,8 @@ def _step_args(opts: Any) -> dict[str, object]:
     if opts.get("sample") is not None:
         args["sample"] = dict(opts["sample"])
     if opts.get("maxChunk") is not None:
-        args["maxChunk"] = int(opts["maxChunk"])
+        # Unchanged: the worker validates it, as it does from the page.
+        args["maxChunk"] = opts["maxChunk"]
     return args
 
 
