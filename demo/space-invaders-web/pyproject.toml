@@ -1,0 +1,44 @@
+[project]
+name = "zeos-space-invaders-web"
+version = "0.1.0"
+description = "The Space Invaders demo in a static web page: the kernel and the game under Pyodide, the pilot served by an in-browser model over WebGPU"
+readme = "README.md"
+requires-python = ">=3.12"
+# Nothing native, so the wheel installs under Pyodide next to the two packages it builds on:
+# the game, the case and the driver come from zeos-space-invaders, the worker channel, the
+# JsMachine and the grammar from zeos-coop-count-web.
+dependencies = [
+    "zeos",
+    "zeos-space-invaders",
+    "zeos-coop-count-web",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv.sources]
+zeos = { workspace = true }
+zeos-space-invaders = { workspace = true }
+zeos-coop-count-web = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# boards/*.json ride along as package data: hatchling ships every file under the package.
+packages = ["src/zeos_space_invaders_web"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Written down rather than inherited: ruff 0.16 changed its defaults.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]

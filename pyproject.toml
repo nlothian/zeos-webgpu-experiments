@@ -50,7 +50,13 @@ zeos = "zeos.cli:main"
 [tool.uv.workspace]
 # The demos are workspace members: same venv and lockfile, but nothing from
 # demo/ ever ships in the zeos wheel.
-members = ["demo/counter", "demo/coop-count", "demo/coop-count-web", "demo/space-invaders"]
+members = [
+    "demo/counter",
+    "demo/coop-count",
+    "demo/coop-count-web",
+    "demo/space-invaders",
+    "demo/space-invaders-web",
+]
 
 [dependency-groups]
 dev = [

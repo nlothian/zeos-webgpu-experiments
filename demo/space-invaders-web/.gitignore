@@ -1,0 +1,6 @@
+# What build.py assembles: the wheels and the page, ready to serve.
+/dist
+/web/dist
+# npm dependencies, usually a symlink to coop-count-web's. No trailing slash, so a
+# symlink matches.
+/node_modules

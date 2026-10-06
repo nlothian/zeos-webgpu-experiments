@@ -14,6 +14,7 @@ members = [
     "zeos-coop-count",
     "zeos-coop-count-web",
     "zeos-space-invaders",
+    "zeos-space-invaders-web",
 ]
 
 [[package]]
@@ -1851,3 +1852,28 @@ dev = [
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
+
+[[package]]
+name = "zeos-space-invaders-web"
+version = "0.1.0"
+source = { editable = "demo/space-invaders-web" }
+dependencies = [
+    { name = "zeos" },
+    { name = "zeos-coop-count-web" },
+    { name = "zeos-space-invaders" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "zeos", editable = "." },
+    { name = "zeos-coop-count-web", editable = "demo/coop-count-web" },
+    { name = "zeos-space-invaders", editable = "demo/space-invaders" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
