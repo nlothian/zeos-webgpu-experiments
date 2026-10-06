@@ -294,6 +294,41 @@ const OPT_ZEOS = [
       w.maxTracks = 2;
     }
   }],
+  ["a cut past a stored snapshot restores that snapshot, not the start", async (w) => {
+    // Past the third snapshot, so the replay must start from a state the cache stored,
+    // and a wrong snapshot (or none) would show in the logits.
+    const notes = "The branch line leaves the main station at the north end of the town, crosses the river on an iron bridge, and climbs through three tunnels to the village. ";
+    const ids = prompt(w, `Here are the station notes. ${notes.repeat(3)}Which tunnel is longest?`);
+    assert.ok(ids.length > 4 * EVERY);
+    w.createContext("long");
+    w.append("long", ids);
+    for (let i = 0; i < 2; i++) await step(w, "long");
+    const n = w.length("long");
+    const hidden = 3 * EVERY + 5;
+    const mask = new Uint8Array(n).fill(1);
+    mask[hidden] = 0;
+    // The latest snapshot the cache holds at or before the hidden position (thinning to
+    // maxSnapshots may have dropped some): the replay must start there, not at 0.
+    const latest = (at) => Math.max(0, ...w.contexts.get("long").track.snapshots.map((x) => x.pos).filter((p) => p <= at));
+    const from = latest(hidden);
+    assert.ok(from >= EVERY, `a stored snapshot to restore, at ${from}`);
+    const before = { ...w.stats };
+    const got = await w.decodeStep("long", { allowedBlocks: mask, allowedTokens: null });
+    assert.equal(w.stats.reruns - before.reruns, 1);
+    assert.equal(w.stats.rerunPositions - before.rerunPositions, hidden - from, `from the snapshot at ${from}`);
+    w.createContext("fresh");
+    w.append("fresh", w.contexts.get("long").tokens);
+    const want = await w.decodeStep("fresh", { allowedBlocks: mask, allowedTokens: null });
+    assert.equal(bits(got.attention), bits(want.attention));
+
+    // truncate past one, too, under the wide mask the first cache was built with.
+    const cut = 2 * EVERY + 3;
+    const ref = await w.reference(Array.from(ids.slice(0, cut)), null, EVERY);
+    w.truncate("long", cut);
+    const after = await w.decodeStep("long", ALL);
+    assert.equal(bits(after.attention), bits(ref.attention));
+    for (const id of ["long", "fresh"]) w.destroyContext(id);
+  }],
   ["a repeated step, truncate and fork each recompute what a fresh prefix would", async (w) => {
     const ids = prompt(w, "Name three colours, one per line, and nothing else please.");
     w.createContext("fresh");

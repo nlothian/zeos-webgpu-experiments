@@ -8,9 +8,11 @@
 // `mask_tool_choice`): a chat-agent context of about 7,000 tokens with tool results in it,
 // stepped as JsMachine steps it -- a delivery appended and run by the next step, then one
 // token per step -- with the results hidden while each tool's name is decoded. The same
-// schedule runs unmasked, masked with the worker's defaults (two caches, hidden runs
-// carried past), masked with two caches and every hidden position run, and masked with one
-// cache (a rewind and replay each way). The tokens are fixed, not the model's choices, so
+// schedule runs unmasked; masked with the worker's defaults (two caches, hidden runs
+// carried past); masked so, with the note ChatToolMachine writes in front of each hidden
+// result ("[result hidden while choosing the tool]", hidden on every step but the masked
+// ones, which read it in the result's place); masked with two caches and every hidden
+// position run; and masked with one cache (a rewind and replay each way). The tokens are fixed, not the model's choices, so
 // every configuration runs the same positions. The result is printed and left in
 // `window.benchResult` (`{checks, timings, error?}`) for `tests/opt_zeos_webgpu.mjs
 // --page mask.html`.
@@ -90,14 +92,17 @@ async function timed(fn) {
  */
 let activity = [];
 
-async function play(w, plan, masked, label) {
+async function play(w, plan, masked, label, withNotes = false) {
   const job = `mask-${label}`;
   w.createContext(job);
   const hidden = [];
+  const notes = [];
+  const note = Array.from(w.tokenize("[result hidden while choosing the tool]"));
   const mask = (narrow) => {
     const n = w.length(job);
     const m = new Uint8Array(n).fill(1);
     if (narrow) for (const [a, b] of hidden) m.fill(0, a, b);
+    else for (const [a, b] of notes) m.fill(0, a, b);
     return { allowedBlocks: m, allowedTokens: null };
   };
   const before = { ...w.stats };
@@ -140,6 +145,11 @@ async function play(w, plan, masked, label) {
     if (!call.last) {
       // The delivery, run by the next step with the first token of the next turn.
       w.append(job, call.head);
+      if (withNotes) {
+        const from = w.length(job);
+        w.append(job, note);
+        notes.push([from, w.length(job)]);
+      }
       const at = w.length(job);
       w.append(job, call.result);
       hidden.push([at, w.length(job)]);
@@ -188,16 +198,17 @@ try {
   w.destroyContext("warm");
 
   const configs = [
-    ["unmasked", false, 2, true],
-    ["masked", true, 2, true],
-    ["masked, hidden runs run", true, 2, false],
-    ["masked, one cache", true, 1, false],
-  ].slice(0, Number(params.get("configs") ?? 4));
+    ["unmasked", false, 2, true, false],
+    ["masked", true, 2, true, false],
+    ["masked, with notes", true, 2, true, true],
+    ["masked, hidden runs run", true, 2, false, false],
+    ["masked, one cache", true, 1, false, false],
+  ].slice(0, Number(params.get("configs") ?? 5));
   const runs = [];
-  for (const [label, masked, tracks, skip] of configs) {
+  for (const [label, masked, tracks, skip, withNotes] of configs) {
     w.maxTracks = tracks;
     w.skipHidden = skip;
-    const result = await play(w, build(w), masked, label);
+    const result = await play(w, build(w), masked, label, withNotes);
     runs.push(result);
     log(`${label}: ${JSON.stringify(result)}`);
   }
@@ -214,7 +225,8 @@ try {
   for (const run of others) {
     timings.overhead[run.label] = run.perCall.map((row, i) => {
       const ref = base.perCall[i];
-      const extra = row.span + row.afterSpan - (ref.span + ref.afterSpan);
+      // The notes are also prefilled with each result, so a run with them counts that too.
+      const extra = row.span + row.afterSpan + row.prefill - (ref.span + ref.afterSpan + ref.prefill);
       return {
         call: names[i],
         extraMs: Math.round(extra),
