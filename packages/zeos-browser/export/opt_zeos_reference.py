@@ -18,7 +18,8 @@ for ``secret`` with the ``secretHidden`` positions hidden and open. Written to
 ``models/.reference/opt-zeos-<key>.npz``, where ``key`` is the first 16 hex digits of the
 SHA-256 of the prompts' ids (special tokens parsed) and the hidden positions as JSON, so
 the page finds the file for the prompts it tokenised and a changed prompt gets a new
-file. Needs the bf16 weights at ``models/Qwen3.5-4B`` and about 20 GB of memory, for a
+file. The ids are the export's tokenizer's (``--export``), the one the page tokenises
+with, so the key is the page's whatever tokenizer files the bf16 download carries. Needs the bf16 weights at ``models/Qwen3.5-4B`` and about 20 GB of memory, for a
 few minutes; an existing file is left alone.
 """
 
@@ -39,6 +40,7 @@ PROMPTS = HERE / "bench" / "reference_prompts.json"
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--hf", type=Path, default=PACKAGE / "models" / "Qwen3.5-4B")
+    parser.add_argument("--export", type=Path, default=PACKAGE / "models" / "Qwen3.5-4B-ZEOS-OPT")
     parser.add_argument("--out", type=Path, default=PACKAGE / "models" / ".reference")
     args = parser.parse_args(argv)
 
@@ -48,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     import transformers
 
     prompts = json.loads(PROMPTS.read_text(encoding="utf-8"))
-    tok = tokenizers.Tokenizer.from_file(str(args.hf / "tokenizer.json"))
+    tok = tokenizers.Tokenizer.from_file(str(args.export / "tokenizer.json"))
 
     def ids(text: str) -> list[int]:
         return list(tok.encode(text, add_special_tokens=False).ids)

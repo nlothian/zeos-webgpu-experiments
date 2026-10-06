@@ -14,8 +14,9 @@
 //   `export_model.ZeosQwen` moves it under the same mask. The prompts are
 //   `reference_prompts.json`; the reference logits are what `export/opt_zeos_reference.py`
 //   writes (`models/.reference/opt-zeos-<key>.npz`, keyed by the prompts' ids). Without
-//   that file these checks are skipped, and say so. And one run of 2048 positions after
-//   a cache, the graph's largest chunk, leaves a hidden position at exactly zero.
+//   that file the check fails: the comparison is the point. And one run of 2048
+//   positions after a cache, the graph's largest chunk, leaves a hidden position at
+//   exactly zero.
 // - **The mask hides tokens.** The hidden tokens of a context are swapped for others,
 //   with the same mask: every logit and every attention weight is the same bit for bit,
 //   after a prefill, after a single-token decode step over that cache, and when every
@@ -25,11 +26,22 @@
 // - **A cancelled step resumes to the same bits.** A step stopped before a run of the
 //   graph and resumed with the same `maxChunk` chooses the same token with the same
 //   logits and attention as the uninterrupted step, with and without a mask.
+// - **The interface clauses** (`unit_clauses.js`), with snapshots every 16 positions and
+//   at most 4 kept: tokenisation and pieces, greedy steps against cache-free runs and the
+//   snapshot thinning, a replay after a past position is hidden, skipped hidden runs bit
+//   for bit the runs executed when aligned, a narrowed mask on a second cache (switching
+//   back, catching up, a third mask), one cache rewinding, repeated steps, truncate and
+//   fork, allowedTokens, sample and the refusals, maxChunk cut at the snapshots, a stopped
+//   step resumed, and `load` refusing what it cannot do. Then the same kind of clauses for
+//   TransformersWorker over an `export_model.py` q4 export (`transformers`, default
+//   `/models/Qwen3.5-2B-zeos-q4/`), skipped and said so when that export is absent.
 //
 // The result is printed and left in `window.benchResult` (`{checks: [{name, ok,
 // detail}], skipped, timings, error?}`) for `tests/opt_zeos_webgpu.mjs --page checks.html`.
 
 import { OptZeosWorker, argmax } from "../../web/opt_zeos_worker.js";
+import { TransformersWorker } from "../../web/transformers_worker.js";
+import { optZeosClauses, transformersClauses } from "./unit_clauses.js";
 
 const ORT_VERSION = "1.31.0-dev.20260914-8d85527a0";
 const params = new URLSearchParams(location.search);
@@ -38,6 +50,8 @@ const ortUrl =
   `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/ort.webgpu.min.mjs`;
 const modelUrl = new URL(params.get("model") ?? "/models/Qwen3.5-4B-ZEOS-OPT/", location.href);
 const referenceUrl = new URL(params.get("reference") ?? "/models/.reference/", location.href);
+/** An `export_model.py` export that runs on WebGPU (q4), for TransformersWorker's clauses. */
+const transformersUrl = new URL(params.get("transformers") ?? "/models/Qwen3.5-2B-zeos-q4/", location.href);
 
 const logEl = document.getElementById("log");
 function log(line) {
@@ -267,7 +281,7 @@ try {
   const npz = new URL(`opt-zeos-${key.slice(0, 16)}.npz`, referenceUrl);
   const response = await fetch(npz);
   if (!response.ok) {
-    skip("the logits against transformers' reference", `no reference at ${npz.pathname} (HTTP ${response.status}); the export's check writes it`);
+    check("the reference logits exist", false, `no reference at ${npz.pathname} (HTTP ${response.status}); run export/opt_zeos_reference.py`);
   } else {
     const ref = readNpz(await response.arrayBuffer());
     for (const [name, ids, chunk] of [
@@ -411,9 +425,32 @@ try {
   }
   timings.cancelMs = performance.now() - t2;
 
-  window.benchResult = { checks, skipped, timings, stats: w.stats };
-  log(JSON.stringify({ timings, skipped }, null, 2));
+  // -- the interface clauses, on a worker with small snapshot spacing ----------------
+  const t3 = performance.now();
+  await optZeosClauses(w, check);
+  timings.clausesMs = performance.now() - t3;
+  const stats = w.stats;
   await w.release();
+
+  // -- TransformersWorker, on an export_model.py export that runs on WebGPU ---------
+  const t4 = performance.now();
+  const transformersRead = async (name) => {
+    const response = await fetch(new URL(name, transformersUrl));
+    if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+  if (!(await fetch(new URL("meta.json", transformersUrl))).ok) {
+    skip("TransformersWorker's clauses", `no export at ${transformersUrl.pathname}; export_model.py --quant q4 writes one`);
+  } else {
+    const tw = await TransformersWorker.load({ ort, Tokenizer, read: transformersRead });
+    log(`TransformersWorker loaded ${transformersUrl.pathname} on ${tw.backend}`);
+    await transformersClauses(tw, check);
+    await tw.release();
+  }
+  timings.transformersMs = performance.now() - t4;
+
+  window.benchResult = { checks, skipped, timings, stats };
+  log(JSON.stringify({ timings, skipped }, null, 2));
 } catch (error) {
   window.benchResult = { checks, skipped, error: String(error?.stack ?? error) };
   log(`error: ${error?.stack ?? error}`);
