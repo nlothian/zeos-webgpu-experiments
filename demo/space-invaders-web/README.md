@@ -1,8 +1,9 @@
 # Space Invaders in the browser
 
-**Status: under construction.** The page, its build and its server work end to end, but
-every run is a `FakeRun` (below): the pieces that let the kernel and the model play
-are on other branches and are not wired in yet.
+**Status: playable, with two known problems** (see *Measured* below): the kernel faults
+the pilot for starvation on its ninth preemption, which ends its play within about ten
+seconds on the ablation board, and a pager splice makes the pilot replay most of its
+context, about 19 s on WebGPU.
 
 The port puts [`../space-invaders`](../space-invaders/) in a static web page: the ZEOS
 kernel and the game run under Pyodide, and the pilot is served by
@@ -60,15 +61,49 @@ here to coop-count-web's.
   prompt loop's parse rate), downloads of the journal and the result, and the ZEOS
   debugger on the Space Invaders case.
 
-### The FakeRun
+### The real runs and the FakeRun
 
-`page.open_run` looks the player up in `page.RUN_BUILDERS`, which is empty on this
-branch, and falls back to `FakeRun`: a real `Game` on the real board against the wall
-clock, with random moves (biased to shoot under a monster) and simulated model latency
-(about 1.2 s a pilot move, 5 s a prompt reply; quicker with the stub). The ZEOS arm's
-reflex is the native `threat_reading` and `dodge`, and it preempts a pilot request in
-flight. A `FakeRun` never calls its worker and runs no kernel, so it has no journal: its
-verdicts read *not judged* and the debugger shows the case's wiring only.
+`page.open_run` looks the player up in `page.RUN_BUILDERS`. The ZEOS arm (`ZeosRun`) is
+`PilotJsMachine` over the worker channel, the native `ZeosDriver` and
+`WallClockZeosRunner`; the prompt loop (`PromptRun`) is `BrowserPromptPlayer` and
+`WallClockPromptRunner`. Before the clock starts, the ZEOS arm fills the grammar's mask
+cache and prefills the pilot's system prompt until it waits for its first board; the
+prompt loop prefills its system prompt.
+
+A run with no worker -- the stub machine in a build without `web/stub/` -- is a
+`FakeRun`: a real `Game` on the real board against the wall clock, with random moves and
+simulated model latency. It runs no kernel, so its verdicts read *not judged* and the
+debugger shows the case's wiring only.
+
+`?tune=` on the page's URL overrides the arms' options for that page load, as JSON
+`{"zeos": {...}, "prompt": {...}, "kernel": {...}}` (`page.configure_json`): for example
+`?tune={"zeos":{"max_chunk":128}}`. `kernel` overrides the zeos arm's `KernelConfig`, for
+diagnosis only.
+
+## Measured
+
+Qwen3.5-4B-ZEOS-OPT on WebGPU in Chrome on an M1 Max, seed 7, `tests/si_webgpu.mjs`,
+60 s of play each, machine defaults (`max_chunk` 256, `stall_ms` 5):
+
+| player | board | lives | kills | ticks | lag mean / p95 (ticks) | preemptions | warm-up | notes |
+|---|---|---|---|---|---|---|---|---|
+| ZEOS | default | 3 | 1 | 121 | 5.0 / 8 | 7 | 16 s | 23 pilot moves, all valid; four criteria pass |
+| ZEOS | ablation | 0 | 3 | 64 | 9.8 / 17 | 9 | 12 s | pilot faulted for starvation on its 9th preemption; no pilot move after |
+| prompt | default | 2 | 0 | 120 | 5.5 / 7 | – | 8 s | parse rate 100% |
+| prompt | ablation | 0 | 0 | 66 | 9.3 / 11 | – | 7 s | parse rate 86% |
+
+Warm-up includes about 5 s (default) or 3.5 s (ablation) of mask prewarm. With the
+kernel's starvation limit lifted (`?tune={"kernel":{"starvation_limit":100000}}`, a
+diagnosis, not a fix), 120 s of each: on the default board the pilot made 25 moves, lag
+8.7 / 12 ticks, but a pager splice made one step replay 2,961 positions (18.6 s), and
+the longest gap between pilot moves was 43.5 s; on the ablation board the ZEOS arm won
+(3 lives, 8 kills, 81 ticks).
+
+**Starvation.** `KernelConfig.starvation_limit` (8) is compared with a job's preemption
+count, which the scheduler only ever increments. The case does not set it. A pilot that
+takes several ticks a move is running when most threats arrive, so it is preempted by
+nearly every one; the ablation board reaches nine threats in about 40 ticks and the
+default board in about 120 (simulated over 40 seeds).
 
 ## Layout
 
@@ -77,8 +112,12 @@ verdicts read *not judged* and the debugger shows the case's wiring only.
   `load_board`. [`CONTRACTS.md`](CONTRACTS.md) is the JavaScript half (the channel's slot
   layout, the begin/poll/cancel decode step and its race rules, the page and worker
   messages) and who owns which file.
-- `src/zeos_space_invaders_web/page.py`: `open_run`, `FakeRun`, and the JSON the page
-  reads (`finished_json`, `payload_json`, `describe_json`).
+- `src/zeos_space_invaders_web/page.py`: `open_run`, the two real runs and `FakeRun`,
+  and the JSON the page reads (`finished_json`, `payload_json`, `describe_json`).
+- `machine.py` (`PilotJsMachine`), `prompt_player.py` (`BrowserPromptPlayer`),
+  `runner.py` (the wall-clock runners), `metrics.py`, `pyodide_glue.py` and
+  `fake_worker.py` (`FakePilotWorker`); `web/stub/pilot_stub_worker.js` is its twin.
+- `bench/`: the measurements the defaults came from ([`bench/RESULTS.md`](bench/RESULTS.md)).
 - `src/zeos_space_invaders_web/boards/`: byte-for-byte copies of the native
   `settings_default.json` and `settings_ablation.json`.
 - `web/`: the page (`index.html`, `app.js`, `board.js`, `style.css`) and `si_worker.js`,
@@ -90,8 +129,16 @@ verdicts read *not judged* and the debugger shows the case's wiring only.
 ```bash
 uv run pytest demo/space-invaders-web
 node --test demo/space-invaders-web/tests/js/*.test.mjs
+uv run python demo/space-invaders-web/build.py && \
+  PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node demo/space-invaders-web/tests/si_webgpu.mjs
 ```
 
-The pytest suite builds `web/dist` into a temporary directory, and plays a `FakeRun`
-under Pyodide in Node (`tests/pyodide_run.mjs`) when coop-count-web's npm install is
-present.
+The pytest suite builds `web/dist` into a temporary directory and, when
+coop-count-web's npm install is present, plays under Pyodide in Node
+(`tests/pyodide_run.mjs`): a `FakeRun`, and both arms against the JavaScript pilot stub
+over the real channel (`test_e2e_pyodide.py`). `test_e2e_stub.py` plays both arms under
+CPython against `FakePilotWorker`; `test_e2e_node_model.py` plays the ZEOS arm on the
+4B through onnxruntime-node when the export is present (several minutes).
+`tests/si_webgpu.mjs` drives the built page in headed Chrome over both boards and both
+players and prints each run's metrics; it needs Playwright and Chrome, which are not
+dependencies of this demo.

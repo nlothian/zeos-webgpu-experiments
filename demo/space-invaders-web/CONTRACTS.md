@@ -368,3 +368,49 @@ Written by the page workstream; each is the smallest change the page needed.
   and returns a `Run`. An arm with no builder runs as `page.FakeRun`.
 - **Board size** is not a `Frame` field; `board.js` reads it off `Frame.text`
   (`Game.render`: one line a row, four characters a cell).
+
+## Integration notes
+
+Written by the integrator after merging the five branches; where the notes above
+disagree, this section says which holds.
+
+- **The zeos runner's clock.** The page notes say `si_worker.js` passes a clock whose
+  `now()` is `performance.now() / 1000`; the runner notes require `time.monotonic()`.
+  Both hold: `page.ZeosRun` and `page.PromptRun` wrap whatever clock `open_run` is given
+  in `page.LoopClock`, whose `now()` is `time.monotonic()` and whose `sleep()` is the
+  given clock's (under Pyodide the `Atomics.wait` on the control buffer). The JS clock's
+  `now` is therefore never read by a real run, only by a `FakeRun`.
+- **`RUN_BUILDERS` is filled**: `"zeos"` is `page.ZeosRun` (`PilotJsMachine` over the
+  channel, `runner.build_driver`, `WallClockZeosRunner`), `"prompt"` is `page.PromptRun`
+  (`BrowserPromptPlayer`, `WallClockPromptRunner`). `open_run` still returns a `FakeRun`
+  for a run with no worker (a build without the stub). A JavaScript `SyncModelWorker`
+  reaches the builders as a JsProxy and is wrapped with `pyodide_glue.attach`
+  (`page.channel`); a Python worker is used as it is.
+- **Warm-up order** (`ZeosRun.warm`): `machine.prewarm()`, then `driver.start()` (which
+  creates the pilot's context), then `runner.warm()`, all before the clock starts.
+  `close()` closes the machine (`ZeosDriver.close`) or the prompt player, which cancel
+  and drain a step in flight and destroy every context.
+- **`RunResult.extras`** (new, `dict[str, object]`, default `{}`) carries what the table
+  above does not: warm-up and prewarm time, overrun and cancel percentiles, step totals,
+  the biggest step, pilot moves and how many were valid, `exit`s, kernel faults, splices
+  (counted by the machine and in the journal), context sizes, and the longest gap
+  between pilot moves with the splices inside it. `finished.result.extras` carries it to
+  the page.
+- **Tuning without a rebuild.** `page.configure_json(text)` replaces
+  `ZEOS_MACHINE_OPTIONS`, `PROMPT_OPTIONS` and `ZEOS_KERNEL_OPTIONS` from
+  `{"zeos": {...}, "prompt": {...}, "kernel": {...}}`; `start` carries an optional
+  `tune` string (the page's `?tune=` query parameter) and `si_worker.js` applies it
+  before `open_run`. `kernel` overrides `KernelConfig` fields on the zeos arm's kernel
+  and is for diagnosis only; empty is the native case's kernel.
+- **The prompt arm's reply** opens with an empty think block
+  (`prompt_player.ASSISTANT_OPEN`), and a newline ends a reply only once it holds more
+  than a code fence (see the machine notes' prompt-arm item, which predates this).
+  Both stubs count only known tokens of the open assistant turn, so the block does not
+  advance their script.
+- **A synchronous call behind a step in flight waits up to one chunk.** The kernel's
+  inject of a resume notice and the pager's splice call the worker synchronously, so
+  they settle first; on WebGPU at chunk 256 that is up to about 1 s (`cancel_ms`), and
+  the loop stalls for it.
+- **Automation hooks.** `app.js` keeps `window.siRuns` (each `finished`, less journal
+  and payload), `window.siErrors` and `window.siPhase`, which `tests/si_webgpu.mjs`
+  reads.
