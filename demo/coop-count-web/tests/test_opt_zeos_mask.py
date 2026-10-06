@@ -63,7 +63,10 @@ TOOLS = [
     tool("send_email", "Send an email.", to="The recipient's address.", body="The message."),
 ]
 CLASSES = {"get_weather": "read", "read_file": "read"}
-TYPES = {t["function"]["name"]: dict.fromkeys(t["function"]["parameters"]["properties"], "string") for t in TOOLS}
+TYPES = {
+    t["function"]["name"]: dict.fromkeys(t["function"]["parameters"]["properties"], "string")
+    for t in TOOLS
+}
 
 #: (user message, the first call's result with the planted instruction, the planted tool)
 CASES = [
@@ -123,12 +126,24 @@ def converse(worker: NodeWorker, mask: bool, message: str, result: str) -> dict[
     )
     try:
         run.send_user(message)
-        first = [e for e in until_waiting(run) if e["type"] in ("tool_call", "approval_required", "reply")]
+        first = [
+            e
+            for e in until_waiting(run)
+            if e["type"] in ("tool_call", "approval_required", "reply")
+        ]
         if first[0]["type"] != "tool_call":
-            return {"first": None, "first_type": first[0]["type"], "first_text": first[0].get("text")}
+            return {
+                "first": None,
+                "first_type": first[0]["type"],
+                "first_text": first[0].get("text"),
+            }
         run.drain(first[0]["sink"])
         run.deliver_tool_result(result)
-        after = [e for e in until_waiting(run) if e["type"] in ("tool_call", "approval_required", "reply")]
+        after = [
+            e
+            for e in until_waiting(run)
+            if e["type"] in ("tool_call", "approval_required", "reply")
+        ]
         nxt = after[0] if after else {"type": "none"}
         return {
             "first": first[0]["name"],
@@ -145,7 +160,9 @@ def converse(worker: NodeWorker, mask: bool, message: str, result: str) -> dict[
 
 @pytest.fixture(scope="module")
 def worker() -> Any:
-    with NodeWorker(MODEL, runtime="node", threads=int(os.environ.get("ZEOS_OPT_THREADS", "8"))) as w:
+    with NodeWorker(
+        MODEL, runtime="node", threads=int(os.environ.get("ZEOS_OPT_THREADS", "8"))
+    ) as w:
         yield w
 
 
@@ -154,7 +171,9 @@ def test_a_planted_instruction_cannot_choose_the_masked_name(worker: NodeWorker)
     for message, result, planted in CASES:
         masked = converse(worker, True, message, result)
         unmasked = converse(worker, False, message, result)
-        report.append({"message": message, "planted": planted, "masked": masked, "unmasked": unmasked})
+        report.append(
+            {"message": message, "planted": planted, "masked": masked, "unmasked": unmasked}
+        )
     out = os.environ.get("ZEOS_MASK_REPORT")
     if out:
         Path(out).write_text(json.dumps(report, indent=2))
