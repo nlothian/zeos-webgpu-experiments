@@ -15,31 +15,40 @@ model is the comparison.
 ## Getting started
 
 The page uses zeos-browser's npm install (ONNX Runtime Web, the tokenizer, and the
-Pyodide the Node tests use) and its model export (see *Getting the model* in
+Pyodide the Node tests use), and downloads the model from the Hugging Face Hub the first
+time it runs (see *Loading and caching the model* in
 [`packages/zeos-browser`](../../packages/zeos-browser/README.md)). From the repository
 root:
 
 ```bash
+uv sync --all-packages
 npm install --prefix packages/zeos-browser           # once; also caches PyYAML for Node
 uv run python demo/space-invaders-web/build.py       # wheels, page, case, vendor -> web/dist
 uv run python demo/space-invaders-web/serve.py       # http://localhost:8766
 ```
 
 Open <http://localhost:8766> in a browser with WebGPU (recent Chrome or Edge), choose
-*Qwen3.5-4B-ZEOS-OPT on WebGPU* as the machine, and press **run**. The first run loads
-the model (about 5 s from a local disk), and the model stays loaded for later runs. Each
+*Qwen3.5-4B-ZEOS-OPT_Q4F16 on WebGPU* as the machine, and press **run**. The first run
+downloads the model from
+[`nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16`](https://huggingface.co/nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16)
+(about 2.4 GB, once: the browser keeps it, and a reload or a restarted browser loads it
+from its storage), and the model stays loaded for later runs. Each
 run then warms up before the clock starts, taking about 15 s for the ZEOS arm and 7 s
 for the prompt loop. The
 server sends the two headers that make the page cross-origin isolated; without them
 there is no SharedArrayBuffer, and the page says so. It uses port 8766 so that it can run
-beside coop-count-web's page on 8765. `serve.py --port` and `--dir` change both.
+beside coop-count-web's page on 8765. `serve.py --port` and `--dir` change both. A line
+under the model's progress says where the model comes from and how much of it the
+browser has stored, with a **clear cached model** button.
 
-`build.py` links the model export (by default
-`packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT`) into `web/dist/models/` and names it in
-`manifest.json`; `--model DIR` offers another export. The link works with `serve.py`;
-**to put `web/dist` on a static host, build with `--copy-model`**, which copies the
-export (gigabytes) instead, because a static host does not follow symbolic links.
-Without the npm install or the export the build still works, and the page offers only
+`build.py` names the Hub source, at a pinned commit, in `manifest.json`. `--model`
+links a local export (by default `packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT`,
+made as *Getting the model* in zeos-browser describes; `--model DIR` names another) into
+`web/dist/models/` and loads it by default, without the browser's cache;
+`?model=huggingface` or `?model=local` in the URL picks either. The link works with
+`serve.py`; **to put a `--model` build on a static host, add `--copy-model`**, which
+copies the export (gigabytes) instead, because a static host does not follow symbolic
+links. Without the npm install the build still works, and the page offers only
 the stub. `--link-node-modules` links `node_modules`
 here to zeos-browser's.
 
@@ -54,7 +63,8 @@ here to zeos-browser's.
   latency; without it the stub machine runs on no worker, which only a `FakeRun` accepts.
   The header shows whether the page is cross-origin isolated, whether WebGPU offered an
   adapter, and whether the build has the model.
-- **Phases:** *loading model* (with a download bar, model machine only), *warming* (the
+- **Phases:** *loading model* (with a bar for the download, or the read from the
+  browser's storage, model machine only), *warming* (the
   system prompt is prefilled before the game clock starts), *playing*, *finished*.
   **Stop** is read between 20 ms slices of the loop, so it ends a run within about 20 ms
   plus the step under way, which can be the lead view's aim search (see *Known issues*). If the

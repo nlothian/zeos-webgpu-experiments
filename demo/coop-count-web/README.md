@@ -18,63 +18,66 @@ console's interrupt.
 ## Getting it running
 
 **You need** [uv](https://docs.astral.sh/uv/), Node.js with npm (tested with Node 22),
-and a browser with WebGPU (tested in Chrome on an Apple M1 Max). Preparing the model
-once needs a network connection to download 2.8 GB from the Hugging Face Hub and about
-6 GB of free disk (the download and the graph made from it).
+and a browser with WebGPU (tested in Chrome on an Apple M1 Max). The first time the
+language model runs, the page downloads it from the Hugging Face Hub (about 2.4 GB) and
+keeps it in the browser's storage, so the browser needs that much room for the site.
 
 Every command runs from the repository root.
 
 ```bash
-# 1. Python packages, including zeos-browser's export group (PyTorch, transformers, onnx).
-uv sync --all-packages --group export
+# 1. Python packages.
+uv sync --all-packages
 
 # 2. ONNX Runtime Web and the tokenizer, which build.py copies into the page.
 npm install --prefix packages/zeos-browser
 
-# 3. Download Qwen3.5-4B as onnx-community's -OPT export (q4f16, 2.8 GB).
-uv run hf download onnx-community/Qwen3.5-4B-ONNX-OPT \
-    --include "*.json" "chat_template.jinja" \
-      "onnx/embed_tokens_q4f16.onnx*" "onnx/decoder_model_merged_q4f16.onnx*" \
-    --local-dir packages/zeos-browser/models/Qwen3.5-4B-ONNX-OPT
-
-# 4. Give it the key mask and measured attention the page runs (see "The OPT+ZEOS
-#    graph" in packages/zeos-browser). Writes packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT/
-#    in seconds.
-uv run python packages/zeos-browser/export/opt_zeos_surgery.py \
-    --src packages/zeos-browser/models/Qwen3.5-4B-ONNX-OPT \
-    --out packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT
-
-# 5. Optional: drop PyTorch and the rest of the export group again.
-uv sync --all-packages
-
-# 6. Assemble the page into demo/coop-count-web/web/dist/.
+# 3. Assemble the page into demo/coop-count-web/web/dist/.
 uv run python demo/coop-count-web/build.py
 
-# 7. Serve it, cross-origin isolated, on port 8765.
+# 4. Serve it, cross-origin isolated, on port 8765.
 uv run python demo/coop-count-web/serve.py
 ```
 
 Open <http://localhost:8765/> and press **run**. The defaults are the language model on
 the GPU, the scenario `coop-count-scripted`, and *press the keys automatically*, which
-sends the interrupt at 39 ms of virtual time. The first run downloads the 2.8 GB of
-weights into the browser and prefills the first prompt; *The OPT+ZEOS worker* in
-[`packages/zeos-browser`](../../packages/zeos-browser/README.md) gives the model worker's
-load, prefill and decode timings.
+sends the interrupt at 39 ms of virtual time. The first run downloads the model from
+[`nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16`](https://huggingface.co/nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16)
+at the commit `build.py` pins, checks every file's size and SHA-256, and prefills the
+first prompt; a reload, or the browser started again, loads it from the browser's
+storage instead (in Chrome on an M1 Max, the model was ready about 4–5 s after **run**
+from the browser's storage, against about 20 s for a download from a local server). *Loading and caching the model* and *The OPT+ZEOS worker* in
+[`packages/zeos-browser`](../../packages/zeos-browser/README.md) say how, and give the
+model worker's load, prefill and decode timings.
 The *transcript* tab shows the counters counting and the interrupt handler resetting
 the count.
 
-`build.py` prints the model it put on the page. If it says `model: none`, step 2, 3 or 4
-is missing. The page then still runs every scenario that has recorded answers, and
-offers the language model as *(not in this build)*. To offer another export, pass
-`--model`, for example `--model packages/zeos-browser/models/Qwen3.5-2B-zeos-q4`.
+Under the *model* line, a line says where the model comes from, how much of it the
+browser has stored (and whether it may evict it when short of space), with a **clear
+cached model** button; after it, the next run downloads the model again. A download cut
+short (the tab closed, the network gone) resumes where it stopped on the next run.
 
-**Serving it elsewhere.** `web/dist/models/` is a symbolic link to the export, so copy
-the export in with `build.py --copy-model` before uploading `web/dist/` to a file host.
-The page fetches Pyodide from the jsDelivr CDN, so the browser needs a network
-connection the first time. The language model needs the page cross-origin isolated:
-`serve.py` sends the two headers that takes, and on a host that cannot send them
-`coi_serviceworker.js` adds them in the browser after one reload. The recorded-answer
-machines run on any host, `python -m http.server` included.
+`build.py` prints the model it put on the page. If it says `model: none`, step 2 is
+missing. The page then still runs every scenario that has recorded answers, and offers
+the language model as *(not in this build)*.
+
+**A local export.** For working on the model, `build.py --model` links the export at
+`packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT` (made as *Getting the model* in
+`packages/zeos-browser` describes) into the page and loads it by default, from this
+server and without the browser's cache; `--model DIR` names another export, for example
+`--model packages/zeos-browser/models/Qwen3.5-2B-zeos-q4`. Either source can be chosen per
+load with `?model=huggingface` or `?model=local` in the URL. `--hf-repo` and
+`--hf-revision` (a full commit) change the Hub source; `manifest.json` records the
+sources (`model_sources`) and the default (`model_source`).
+
+**Serving it elsewhere.** `web/dist/` is a static site: upload it to any file host. The
+page fetches Pyodide from the jsDelivr CDN and the model from the Hub, so the browser
+needs a network connection the first time. The language model needs the page
+cross-origin isolated: `serve.py` sends the two headers that takes, and on a host that
+cannot send them `coi_serviceworker.js` adds them in the browser after one reload; the
+Hub's responses are CORS responses, which the isolation admits. With `--model`,
+`web/dist/models/` is a symbolic link to the export, so copy the export in with
+`build.py --model --copy-model` before uploading. The recorded-answer machines run on any
+host, `python -m http.server` included.
 
 ## What runs
 
@@ -124,7 +127,8 @@ reproduces the scheduled run exactly. While a job is parked on a device pipe the
 stays open, idling, until a press arrives or *stop* is pressed.
 
 **What the model is doing.** A *model* line under the run buttons follows the model
-thread: the download as a whole (the export's `meta.json` lists every file's size), the
+thread: the download as a whole (the export's `meta.json` lists every file's size), or
+the read from the browser's storage, and the check of a resumed download, then the
 session ONNX Runtime builds once the files are in, and then every run of the graph --
 which prompt is being prefilled and how far, with an estimate of the time left, or which
 decode step is in flight -- with the mean step time once steps have run. The kernel is
@@ -239,9 +243,13 @@ uv run pytest demo/coop-count-web            # or, from demo/coop-count-web: uv 
   skips when Node, the npm package or the cached PyYAML is missing; `ZEOS_PYODIDE_DIR`
   points it at a Pyodide installed elsewhere.
 
-`JsMachine`, the grammar mask, the channel and the model have their tests in
-`packages/zeos-browser`, and the chat agent in `packages/zeos-chat`. No test here runs
-the model, so none needs a GPU or the export.
+`JsMachine`, the grammar mask, the channel, the model cache and the model have their
+tests in `packages/zeos-browser`, and the chat agent in `packages/zeos-chat`. No test here
+runs the model, so none needs a GPU or the export.
+
+No test, default or opt-in, downloads the model from the Hugging Face Hub: the model
+cache is tested with a fake server and an in-memory store
+(`packages/zeos-browser/tests/js/model_cache.test.mjs`).
 
 `uv build` (used by `build.py`, the determinism test and `test_page.py`) fetches the
 hatchling build backend from PyPI the first time it runs, so those need a network once.

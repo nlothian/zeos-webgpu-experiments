@@ -17,16 +17,26 @@ installs the `zeos-browser` wheel under Pyodide and its `build.py` copies the Ja
 
 | | |
 |---|---|
-| `src/zeos_browser/` | `js_machine` (`JsMachine`, the worker interface), `token_mask`, `pyodide_bridge`, `fake_worker` (the Python twin of the stub), `live` (`LiveRun`) and `transcript`, `page` (what a page's worker calls), `node_worker` (the stub in a Node child process, for tests) |
-| `web/` | `opt_zeos_worker.js`, `transformers_worker.js`, `stub_worker.js`, `model_channel.js`, `frames.js`, `model_host.js`, `model_thread.js`, `coi_serviceworker.js`; `node_bridge.mjs` and `node_model_thread.mjs` serve the stub under Node for the tests |
+| `src/zeos_browser/` | `js_machine` (`JsMachine`, the worker interface), `token_mask`, `pyodide_bridge`, `fake_worker` (the Python twin of the stub), `live` (`LiveRun`) and `transcript`, `page` (what a page's worker calls), `node_worker` (the stub in a Node child process, for tests), `model_source` (the model a page's `build.py` names in its manifest) |
+| `web/` | `opt_zeos_worker.js`, `transformers_worker.js`, `stub_worker.js`, `model_channel.js`, `frames.js`, `model_host.js`, `model_thread.js`, `model_cache.js`, `opfs_store.js`, `sha256.js`, `coi_serviceworker.js`; `node_bridge.mjs` and `node_model_thread.mjs` serve the stub under Node for the tests |
 | `export/` | `opt_zeos_surgery.py` (the OPT+ZEOS graph), `export_model.py`, `opt_zeos_reference.py`, and `bench/`, the WebGPU check and timing pages |
 | `models/` | gitignored: where the exports land |
 | `package.json` | ONNX Runtime Web, the tokenizer, and Pyodide for the Node tests |
 
 ## Getting the model
 
-Every command runs from the repository root. Preparing the model once needs a network
-connection to download 2.8 GB from the Hugging Face Hub and about 6 GB of free disk.
+A page needs nothing prepared: it downloads the OPT+ZEOS export from the Hugging Face Hub,
+[`nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16`](https://huggingface.co/nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16),
+at a pinned commit, the first time the model machine runs (about 2.4 GB of the files are
+read), and keeps it in the browser's storage, so a reload, or the browser started again,
+reads it from disk instead (*Loading and caching the model*, below). `npm install` here
+is still needed, for ONNX Runtime Web and the tokenizer each page's `build.py` copies in.
+
+To run a page on a local export instead (to try a change to the graph, say), make the
+export, then build the page with `--model`, which links it into the page and loads it by
+default; `?model=huggingface` in the page's URL still loads the Hub's. Making the export
+needs a network connection to download 2.8 GB from the Hub and about 6 GB of free disk.
+Every command runs from the repository root:
 
 ```bash
 uv sync --all-packages --group export     # PyTorch, transformers, onnx
@@ -39,10 +49,95 @@ uv run python packages/zeos-browser/export/opt_zeos_surgery.py \
     --src packages/zeos-browser/models/Qwen3.5-4B-ONNX-OPT \
     --out packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT
 uv sync --all-packages                    # optional: drop the export group again
+uv run python demo/coop-count-web/build.py --model   # or --model DIR for another export
 ```
 
-Each page's `build.py` then finds the export at `models/Qwen3.5-4B-ZEOS-OPT` and links it
-into the page.
+`--model` with no directory means `packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT`;
+`--copy-model` copies the export instead of linking it, for a host that does not follow
+links. The WebGPU bench pages under `export/bench/` and `tests/opt_zeos_webgpu.mjs` read
+the local export only.
+
+### Loading and caching the model
+
+`src/zeos_browser/model_source.py` writes the manifest's model fields for both pages'
+`build.py`: `model_sources` (`huggingface`: `{name, repo, revision}`, always; `local`:
+`{name, path}` with `--model`), `model_source`, the default, and `model`, its name.
+`--hf-repo` and `--hf-revision` change the Hub source; the revision must be a full
+40-digit commit (`HF_REVISION`), never a branch, because the cache keys files by it. To
+publish a new export, upload it to the repo and set `HF_REVISION` to the new commit (from
+`https://huggingface.co/api/models/<repo>`). In the page, `model_host.js`'s
+`modelSource(manifest)` picks the source (a `?model=` query parameter overrides the
+default) and `startBrowserModel({model})` hands it to the model thread, whose `read`
+callback is `model_cache.js`'s `modelFiles(...).read`, for either worker.
+
+**Cross-origin isolation.** The pages are served with `Cross-Origin-Embedder-Policy:
+require-corp` (serve.py, or `coi_serviceworker.js`). Under it a cross-origin `fetch` must
+be a CORS request whose every response carries `Access-Control-Allow-Origin`; the
+cache's fetches are CORS requests (the default mode) without credentials. Checked with
+curl and in Chrome 154 from the model thread of a `require-corp` page: `huggingface.co/
+<repo>/resolve/<commit>/<file>` answers 307 (small files, to `/api/resolve-cache/...`) or
+302 (LFS files, to `us.aws.cdn.hf.co/xet-bridge-us/...`) with `Access-Control-Allow-Origin:
+<origin>`, and the CDN answers with `Access-Control-Allow-Origin: *` and `Access-Control-
+Expose-Headers: *`; every hop passed, including `Range: bytes=N-` requests (a
+CORS-safelisted header in that form, so no preflight), which the CDN answers 206 with
+`Content-Range`. So the isolation stays as it is: no `credentialless`, and the service
+worker is not involved.
+
+**Storage: the Origin Private File System (`opfs_store.js`).** Measured in Chrome 154 on
+an M1 Max with a 2.07 GB file (the size of the decoder's first data file): OPFS, written
+through a synchronous access handle in 8 MB pieces, took 1.4 s and streamed back in
+1.1 s (0.4 s through the access handle); Cache Storage (`cache.put` of a streamed
+`Response`) took 5.3 s, its read 1.4 s, and after `caches.delete` the origin's usage
+stayed at 2.07 GB, where removing the OPFS file freed it at once. `Blob.arrayBuffer()` of
+a 2.2 GB OPFS file did not return in ten minutes, so files are read as a stream into one
+preallocated `Uint8Array`. An OPFS file can also be resumed (a `.part` file plus a
+`Range` request), where a cache entry is all or nothing. Files live at
+`zeos-model-cache/<repo>/<revision>/<path>` (each part URI-encoded): the key is repo,
+revision and path, so a new commit never reads a file an older one stored. Once a load
+has every file of its revision, other revisions of the same repo are removed.
+
+**Memory.** A file is downloaded straight into the one `Uint8Array` the worker gets
+(sized from `meta.json`), and written to the `.part` and hashed chunk by chunk as it
+arrives; nothing holds a second copy of it (WebCrypto's `digest` would, which is why
+`sha256.js` exists: a streaming SHA-256 at about 175 MB/s in V8, faster than the
+download). The HTTP cache is bypassed (`cache: "no-store"`), or Chrome would keep part of
+the model a second time on disk. A cache hit streams the stored file into the same kind
+of array. ONNX Runtime then copies the bytes into its own memory, as it always has.
+
+**Integrity and interrupted downloads.** `meta.json` lists every other file's size and
+SHA-256, which are the Hub's LFS object ids too (`?blobs=true` on the API shows the same
+values), so no extra request is needed to check a file; `meta.json` itself comes from the
+pinned commit's immutable URL. A download becomes a stored file only after its length and
+hash match: the `.part` is renamed then. A file that does not match is deleted and the
+load fails with the reason ("nothing was stored, reload to try again"). A load that
+stops part-way (a network error, the tab closed) leaves the `.part`; the next load hashes
+what it holds ("verifying"), asks for the rest with a `Range` request, and if the
+finished file does not match, downloads it once more from the start. A server that
+answers the `Range` request with the whole file restarts it. The tokenizer and the
+OPT+ZEOS embedding share their bytes with nothing, but the embedding's data and the
+decoder's second data file are the same matrix (the same SHA-256): `OptZeosWorker.load`
+reads it once, so only the embedding's copy is downloaded and stored.
+
+**Quota and persistence.** Before downloading, the model thread compares what is still
+missing with `navigator.storage.estimate()` and fails with a message naming both figures
+if the origin cannot hold it; a `QuotaExceededError` mid-download deletes the `.part` and
+fails the same way. Chrome allows an origin a share of the disk's free space (10.7 GB on
+a disk with 18 GB free when this was measured; enough for the 2.4 GB). `startBrowserModel`
+asks `navigator.storage.persist()` first, so a granted origin is not evicted under storage
+pressure; Chrome decides without a prompt, by how much the site is used, and refused it
+to a fresh profile on localhost, so there the cache is "best effort" and the page says so.
+Two tabs downloading at once: the second cannot open the `.part` (an access handle is
+exclusive) and says another tab is downloading.
+
+**On the page.** Progress goes through the same bar and line as before, with the phase in
+the words: "downloading", "loading from the browser's cache", "verifying", then ONNX
+Runtime building the session (`describeModelProgress`). A line under it says where the
+model comes from, how much is cached, whether it is persistent, and the origin's usage and
+quota (`modelCacheStatus`), beside a "clear cached model" button (`modelCacheControls`,
+which removes the whole `zeos-model-cache` directory; a model already loaded stays in use
+until the page reloads). `coi_serviceworker.js` relays same-origin requests only and stores
+nothing: the Hub's files never pass through it, and a local export's pass through without
+being kept.
 
 ## The JavaScript machine seam
 
@@ -829,7 +924,15 @@ node --test packages/zeos-browser/tests/js/*.test.mjs
   the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
   `tests/js/model_channel.test.mjs` — what `SyncModelWorker` forwards. They need Node
   and skip without it.
+- `tests/js/model_cache.test.mjs` — the model cache over a fake Hub and an in-memory store
+  with `opfs_store.js`'s interface: a cache hit fetches nothing; the key holds the
+  revision, so another revision downloads its own file; an interrupted download is never
+  complete and resumes with a `Range` request (and restarts when the server ignores it);
+  a corrupt part, a wrong hash or a wrong length stores nothing; quota is checked before
+  downloading and a `QuotaExceededError` leaves no part; `sha256.js` against node:crypto.
+  `test_model_source.py` — the manifest fields `build.py` writes.
 
 No test in these suites runs the model, so none needs a GPU or the export. The model runs
 on WebGPU only, and its checks are the opt-in `tests/opt_zeos_webgpu.mjs` (see *The
-OPT+ZEOS worker*).
+OPT+ZEOS worker*). No test, default or opt-in, downloads the model from the Hugging Face
+Hub; the cache's tests are the Node ones above, with a fake server and store.
