@@ -266,6 +266,12 @@ try {
   const w = await OptZeosWorker.load({ ort, Tokenizer, read, source });
   const timings = { loadMs: performance.now() - began };
   log(`loaded in ${(timings.loadMs / 1000).toFixed(1)} s on ${w.backend}`);
+  // The checks below hide runs as short as one token (the password, the swaps): carry
+  // every run the worker can (`minSkip` at its floor, the convolution window), so the
+  // "carried past" variants carry them. The default `minSkip` (16) only runs shorter
+  // ones through the graph, which the "run" variants check; the clauses use it.
+  const defaultMinSkip = w.minSkip;
+  w.minSkip = w.convWindow;
   const { vocabSize } = w.info();
   const specials = specialIds(w);
   const prompts = await (await fetch("reference_prompts.json")).json();
@@ -427,6 +433,7 @@ try {
 
   // -- the interface clauses, on a worker with small snapshot spacing ----------------
   const t3 = performance.now();
+  w.minSkip = defaultMinSkip;
   await optZeosClauses(w, check);
   timings.clausesMs = performance.now() - t3;
   const stats = w.stats;
