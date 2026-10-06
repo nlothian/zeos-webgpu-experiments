@@ -862,6 +862,23 @@ while the step awaits the graph. `stub_worker.js` takes `{stepMs, positionMs}` o
 simulated latency so tests can poll, time out and cancel (`startNodeModel({stub})`,
 `NodeWorker(stub=...)`).
 
+What smaller chunks cost on WebGPU, measured by `export/bench/chunks.html`
+(`tests/opt_zeos_webgpu.mjs --page chunks.html`) with the 4B in Chrome on an Apple M1
+Max, while other jobs loaded the machine (median of five fresh prefills; a second
+session agreed within 10% except the 250-position rows at 256 and the graph's chunk,
+which it ran in about 835 ms):
+
+| positions | graph's chunk | 256 | 128 | 64 | 32 |
+|---|---|---|---|---|---|
+| 250 | 1132 ms (1 run) | 1103 ms (1) | 1098 ms (2) | 1315 ms (4) | 2039 ms (8) |
+| 1000 | 4328 ms (4) | 4416 ms (4) | 4560 ms (8) | 5619 ms (16) | 8825 ms (32) |
+
+So each extra run costs roughly 60 to 160 ms at 64 and 130 to 160 ms at 32; at 1000
+positions 128 is within 5% of the graph's chunk and 64 about 30% slower. A stop asked
+60 ms into a 1000-position step at `maxChunk` 64 landed 130 to 150 ms later, at the end
+of the first run (64 positions resident), and the resumed step matched the
+uninterrupted one bit for bit.
+
 **Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
 clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
 alone (see *Determinism* below); with more threads the model thread did not finish
