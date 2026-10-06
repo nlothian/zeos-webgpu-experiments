@@ -80,6 +80,26 @@ CHANNEL_BUSY: Final = "channel busy: decode in flight"
 #: slower than 256 in the benchmark (``bench/RESULTS.md``), from each run's fixed cost.
 DEFAULT_MAX_CHUNK: Final = 128
 
+#: The longest a cancelled step may take to be handed back (``_settle``, ``close``)
+#: before the channel is declared broken. A cancel lands within one prefill chunk, a
+#: second or two on WebGPU; a worker silent for this long has lost its device or died.
+DEFAULT_SETTLE_TIMEOUT_S: Final = 30.0
+
+
+class ChannelBroken(RuntimeError):
+    """A worker that did not hand back a cancelled step in time. The channel is marked
+    broken (``mark_broken``), so later calls refuse instead of waiting again."""
+
+
+def mark_broken(worker: object, reason: str) -> None:
+    """Mark ``worker``'s channel unusable: ``markBroken(reason)`` where the worker has one
+    (``PyodideAsyncWorker`` sets the JavaScript ``SyncModelWorker.broken``, which makes
+    every later call throw ``model channel unusable``), else nothing."""
+    marker = getattr(worker, "markBroken", None)
+    if callable(marker):
+        marker(reason)
+
+
 #: How long ``decode`` polls a step in flight before handing the kernel a stall.
 DEFAULT_STALL_MS: Final = 5.0
 

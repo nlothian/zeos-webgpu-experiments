@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from zeos.core.ids import JobId
 from zeos.machine.base import DecodeResult, tokens_from_text
 
+from zeos_space_invaders_web.contracts import DecodeCancelled, DecodeDone
 from zeos_space_invaders_web.fake_worker import FakePilotWorker
 from zeos_space_invaders_web.machine import PilotJsMachine
 
@@ -81,3 +82,19 @@ def until(
 
 def words(results: Sequence[DecodeResult]) -> list[str]:
     return [t.text for r in results for t in r.tokens]
+
+
+class SilentWorker(FakePilotWorker):
+    """A worker whose model thread has gone (a lost WebGPU device): once ``silent`` is set,
+    a step in flight is never handed back, whatever is asked of it."""
+
+    silent = False
+    broken: str | None = None
+
+    def pollDecode(self, timeoutMs: float) -> DecodeDone | DecodeCancelled | None:  # noqa: N802
+        if self.silent and self.inFlight:
+            return None
+        return super().pollDecode(timeoutMs)
+
+    def markBroken(self, reason: str) -> None:  # noqa: N802 - the channel's name
+        self.broken = reason

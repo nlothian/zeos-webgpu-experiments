@@ -48,9 +48,12 @@ ARM = "__ARM__"
 real = page.load_board
 def load(name, seed=None):
     spec = real(name, seed)
-    # Lives enough that the game outlasts the Stop, which is what is timed.
+    # Lives enough that the game outlasts the Stop, which is what is timed. The `cues`
+    # view, not `lead`: the lead view's aim search takes 100-250 ms under Pyodide when
+    # no shot lands within its depth (README, Known issues), longer than this tick, and
+    # this test is about the channel and Stop.
     rules = dataclasses.replace(spec.rules, lives=99)
-    return dataclasses.replace(spec, tick_seconds={TICK_S}, rules=rules)
+    return dataclasses.replace(spec, tick_seconds={TICK_S}, rules=rules, view="cues")
 page.load_board = load
 
 class Stop:

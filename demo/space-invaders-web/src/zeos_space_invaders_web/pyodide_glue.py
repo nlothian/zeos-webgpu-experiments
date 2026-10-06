@@ -113,6 +113,11 @@ class PyodideAsyncWorker:
     def inFlight(self) -> bool:
         return bool(self._js.inFlight)
 
+    def markBroken(self, reason: str) -> None:
+        """Make the JavaScript channel refuse every later call (``model channel
+        unusable``), as its own call timeout does; it is shared by later runs."""
+        self._js.broken = reason
+
 
 def attach(js_worker: Any) -> tuple[PyodideAsyncWorker, Bridge]:
     """The channel's worker and the bridge for it, as the machine and the prompt arm

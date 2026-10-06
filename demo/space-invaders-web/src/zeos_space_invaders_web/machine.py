@@ -74,14 +74,17 @@ from zeos_space_invaders.players.zeos.api_machine import ABI, Native
 
 from zeos_space_invaders_web.contracts import (
     DEFAULT_MAX_CHUNK,
+    DEFAULT_SETTLE_TIMEOUT_S,
     DEFAULT_STALL_MS,
     PREWARM_COMMANDS,
     AsyncModelWorker,
+    ChannelBroken,
     DecodeCancelled,
     DecodeDone,
     DecodeStats,
     StepLogEntry,
     StepOutcome,
+    mark_broken,
 )
 
 __all__ = [
@@ -102,16 +105,8 @@ PILOT_DESCRIPTORS: Mapping[str, Sequence[str]] = {"pilot": ("stdin", "stdout")}
 #: (``bench/RESULTS.md``); narrowed, every command was a valid move, in fewer tokens.
 PILOT_PAYLOADS: Mapping[str, Sequence[str]] = {"stdout": tuple(ACTIONS)}
 
-#: A threshold for ``uncapped_above``, off by default: a step with more positions than
-#: this to fill -- the first step over a descriptor body, a replay after the pager
-#: splices -- would run at the worker's own chunk, where the per-run overhead matters
-#: least. The price is that such a step can be cancelled only between the worker's own
-#: (2048-position) runs, so an inject, trunc or splice behind it waits seconds in
-#: ``_settle``.
-UNCAPPED_ABOVE = 1024
-
 #: How long one wait inside ``_settle`` lasts. A settle loops until the step is handed
-#: back, so this bounds only how often the loop wakes, not how long it waits.
+#: back or ``settle_timeout_s`` has passed; this bounds only how often the loop wakes.
 SETTLE_POLL_MS = 1000.0
 
 #: Where a turn goes to sleep, as the native machine reads it.
@@ -228,9 +223,9 @@ class _Round:
     #: Kernel offset where the round's first word went, so a splice knows whether it
     #: reached the command being said.
     start: int = 0
-    #: Model positions the worker holds KV for, as far as the machine knows: set from
-    #: each step's answer, lowered by a trunc or splice.
-    filled: int = 0
+    #: ``PilotJsMachine._epoch`` when the round's first step was begun: whether the
+    #: command being said began before or after the job was last descheduled.
+    epoch: int = 0
 
 
 @dataclass
@@ -259,9 +254,9 @@ class PilotJsMachine(JsMachine):
         turn_ends_at_call: bool = True,
         forbid_verbs: Sequence[str] = (),
         payloads: Mapping[str, Sequence[str]] = PILOT_PAYLOADS,
-        uncapped_above: int | None = None,
         tokenize_cache: int = 4096,
         step_log_size: int = 4096,
+        settle_timeout_s: float = DEFAULT_SETTLE_TIMEOUT_S,
     ) -> None:
         if stall_ms < 0:
             raise ValueError("stall_ms must be >= 0")
@@ -273,6 +268,8 @@ class PilotJsMachine(JsMachine):
             )
         if tokenize_cache < 0:
             raise ValueError("tokenize_cache must be >= 0")
+        if settle_timeout_s <= 0:
+            raise ValueError("settle_timeout_s must be > 0")
         super().__init__(
             worker,
             bridge=bridge,
@@ -282,7 +279,10 @@ class PilotJsMachine(JsMachine):
         )
         self._async = worker
         self.payloads = {k: tuple(v) for k, v in payloads.items()}
-        self._uncapped_above = uncapped_above
+        self._settle_timeout_s = settle_timeout_s
+        #: Why the channel is unusable, once a settle timed out; every later worker call
+        #: is refused.
+        self.broken: str | None = None
         self._stall_ms = stall_ms
         self._max_chunk = max_chunk
         self._turn_ends_at_call = turn_ends_at_call
@@ -291,6 +291,15 @@ class PilotJsMachine(JsMachine):
         self._native: dict[JobId, _Native] = {}
         self._rounds: dict[JobId, _Round] = {}
         self._flight: _Flight | None = None
+        #: Advances each time ``decode`` is asked for a different job than the last;
+        #: ``_left[job]`` is its value when ``job`` was last switched away from, i.e.
+        #: descheduled -- which is when a preemption takes the machine from a job.
+        self._epoch = 0
+        self._last_job: JobId | None = None
+        self._left: dict[JobId, int] = {}
+        #: ``invalidate`` calls that found the job's command begun after it was last
+        #: descheduled, and so left its step alone.
+        self.invalidations_skipped = 0
         #: Word to ids. A board is a few hundred words, each tokenized on its own, and a
         #: tokenize is a round trip to the model thread; boards repeat their words.
         self._token_cache: OrderedDict[str, list[int]] = OrderedDict()
@@ -363,12 +372,6 @@ class PilotJsMachine(JsMachine):
             self._token_cache.popitem(last=False)
         return list(ids)
 
-    def _rewind(self, ctx: Any, kv_at: int) -> None:
-        super()._rewind(ctx, kv_at)
-        for job, held in self._contexts.items():
-            if held is ctx and job in self._rounds:
-                self._rounds[job].filled = min(self._rounds[job].filled, kv_at)
-
     def _plan_step(self, job: JobId, *, allow_control: bool) -> _StepPlan:
         # Planning flushes and frames through synchronous worker calls.
         assert self._flight is None, "a step was planned with another in flight"
@@ -386,11 +389,9 @@ class PilotJsMachine(JsMachine):
             self._languages[descriptor] = language
         return language
 
-    def _with_chunk(self, options: object, pending: int) -> object:
+    def _with_chunk(self, options: object) -> object:
         """The step's options with ``maxChunk`` (a dict from ``PythonBridge``, a
-        JavaScript object from ``PyodideBridge``), left out for a long fill."""
-        if self._uncapped_above is not None and pending > self._uncapped_above:
-            return options
+        JavaScript object from ``PyodideBridge``)."""
         if isinstance(options, dict):
             return {**options, "maxChunk": self._max_chunk}  # pyright: ignore[reportUnknownVariableType]
         setattr(options, "maxChunk", self._max_chunk)  # noqa: B010 - a JsProxy attribute
@@ -401,7 +402,7 @@ class PilotJsMachine(JsMachine):
         step, so the flight is dropped before the error goes on up."""
         try:
             return normalise_poll(self._async.pollDecode(timeout_ms))
-        except BaseException:
+        except Exception:
             self._flight = None
             raise
 
@@ -419,21 +420,36 @@ class PilotJsMachine(JsMachine):
         flight = self._flight
         assert flight is not None and flight.cancelled_at is not None
         self.cancel_ms.append((time.monotonic() - flight.cancelled_at) * 1000.0)
+        del answer  # whatever the step answered, it is dropped (race rule 1)
         self._flight = None
-        rnd = self._rounds.get(flight.job)
-        if rnd is not None:
-            # A step that finished regardless filled everything it was planned against.
-            rnd.filled = answer["resident"]
+
+    def _usable(self) -> None:
+        if self.broken is not None:
+            raise ChannelBroken(f"model channel unusable: {self.broken}")
 
     def _settle(self) -> None:
         """Cancel the step in flight and wait for the channel to hand it back, so that a
-        synchronous worker call can be made. At most one prefill chunk."""
-        if self._flight is None:
+        synchronous worker call can be made: one prefill chunk, normally. A worker that
+        has not handed it back after ``settle_timeout_s`` has lost its device or died;
+        the channel is marked broken and ``ChannelBroken`` raised."""
+        self._usable()
+        flight = self._flight
+        if flight is None:
             return
         self._cancel()
-        answer = self._poll(SETTLE_POLL_MS)
+        deadline = time.monotonic() + self._settle_timeout_s
+        answer = self._poll(min(SETTLE_POLL_MS, self._settle_timeout_s * 1000.0))
         while answer is None:
-            answer = self._poll(SETTLE_POLL_MS)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                self._flight = None
+                self.broken = (
+                    f"a cancelled step of job {flight.job} was not handed back within "
+                    f"{self._settle_timeout_s:g} s"
+                )
+                mark_broken(self._async, self.broken)
+                raise ChannelBroken(f"model channel unusable: {self.broken}")
+            answer = self._poll(min(SETTLE_POLL_MS, left * 1000.0))
         self._drained(answer)
 
     def _cancel_job(self, job: JobId) -> None:
@@ -505,16 +521,29 @@ class PilotJsMachine(JsMachine):
         )
 
     def close(self) -> None:
-        """Cancel and drain any step in flight and destroy every context."""
-        self._settle()
-        self._native.clear()
-        super().close()
-        self._rounds.clear()
+        """Cancel and drain any step in flight and destroy every context. On a broken
+        channel the contexts are only forgotten: the worker cannot be asked to destroy
+        them, and ``close`` must not wait on it again."""
+        try:
+            if self.broken is None:
+                self._settle()
+        finally:
+            self._native.clear()
+            self._rounds.clear()
+            if self.broken is not None:
+                self._contexts.clear()
+        if self.broken is None:
+            super().close()
 
     # -- the five ops --------------------------------------------------------
 
     def decode(self, job: JobId, *, allow_control: bool) -> DecodeResult:
         began = time.monotonic()
+        if job != self._last_job:
+            self._epoch += 1
+            if self._last_job is not None:
+                self._left[self._last_job] = self._epoch
+            self._last_job = job
         native = self._native.get(job)
         if native is not None:
             # Served locally: the channel, and any step in flight on it, is untouched. A
@@ -554,15 +583,14 @@ class PilotJsMachine(JsMachine):
             self._log(drained_job, "cancelled", began, drained["stats"])
 
         if self._flight is None:
+            self._usable()
             plan = self._plan_step(job, allow_control=allow_control)
             now = time.monotonic()
-            pending = len(plan.ctx.ids) - rnd.filled
-            request_id = self._async.beginDecodeStep(
-                plan.ctx.key, self._with_chunk(plan.options, pending)
-            )
+            request_id = self._async.beginDecodeStep(plan.ctx.key, self._with_chunk(plan.options))
             self._flight = _Flight(job=job, plan=plan, request_id=request_id, begun=now)
             if rnd.opened is None:
                 rnd.opened = now
+                rnd.epoch = self._epoch
 
         flight = self._flight
         assert flight is not None
@@ -575,7 +603,6 @@ class PilotJsMachine(JsMachine):
             self._flight = None
             raise RuntimeError(f"job {job}: the worker cancelled a step nobody cancelled")
         self._flight = None
-        rnd.filled = answer["resident"]
         result = self._accept_step(flight.plan, answer["tokenId"], answer["attention"])
         self.steps += 1
         self._log(job, "token", began, answer["stats"])
@@ -635,7 +662,6 @@ class PilotJsMachine(JsMachine):
         shared = super().fork(parent, child)
         self._rounds.setdefault(child, _Round())
         self._rounds[child].auto_read = False
-        self._rounds[child].filled = self._rounds[parent].filled
         self._reset_round(child)
         return shared
 
@@ -727,8 +753,20 @@ class PilotJsMachine(JsMachine):
         start its command afresh, keeping the words already decoded (native
         ``partial="keep"``). A pending automatic ``read stdin`` goes too, as the native
         machine drops a finished reply's read with it. A no-op for a locally-served job,
-        or one with no context."""
+        or one with no context.
+
+        Also a no-op when the job's command -- in flight, or finished with its read
+        pending -- began after the job was last descheduled. The driver invalidates at
+        the end of a batch for every preemption in it, and a pilot preempted and resumed
+        inside one batch may already have begun a fresh command, which answers the world
+        as it is now; the command the preemption interrupted is gone already (the resume
+        notice's inject reset it)."""
         if job in self._native or job not in self._contexts:
+            return
+        left = self._left.get(job)
+        rnd = self._rounds[job]
+        if left is not None and (rnd.opened is not None or rnd.auto_read) and rnd.epoch > left:
+            self.invalidations_skipped += 1
             return
         self._cancel_job(job)
         self._reset_round(job)

@@ -13,15 +13,21 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from typing import Any, cast
 
 import pytest
-from machine_helpers import FakeClock, fake_worker
+from machine_helpers import FakeClock, SilentWorker, fake_worker
 from zeos_space_invaders.game import Game, Rules, snapshot
 from zeos_space_invaders.utils.views import LeadView
 
-from zeos_space_invaders_web.contracts import PromptArm, PromptArmFactory, PromptReply
+from zeos_space_invaders_web.contracts import (
+    ChannelBroken,
+    PromptArm,
+    PromptArmFactory,
+    PromptReply,
+)
 from zeos_space_invaders_web.fake_worker import (
     EOS_ID,
     IM_END_ID,
@@ -212,3 +218,17 @@ def test_an_error_reply_ends_the_request_and_close_still_returns() -> None:
     assert not player.busy
     player.close()
     assert worker.context_ids == ()
+
+
+def test_close_gives_up_on_a_worker_that_never_answers() -> None:
+    clock = FakeClock()
+    worker = SilentWorker(replies=("left right",), step_ms=50.0, clock=clock, sleep=clock.sleep)
+    player = BrowserPromptPlayer(worker, view=LeadView(), rules=Rules(), settle_timeout_s=0.05)
+    player.begin(*board())
+    worker.silent = True
+    began = time.monotonic()
+    with pytest.raises(ChannelBroken, match="not handed back within 0.05 s"):
+        player.close()
+    assert time.monotonic() - began < 5.0
+    assert worker.broken is not None and not player.busy
+    player.close()  # nothing left to wait for

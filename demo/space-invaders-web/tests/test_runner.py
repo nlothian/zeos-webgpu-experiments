@@ -15,6 +15,7 @@ its latency.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import replace
 from typing import Any
@@ -26,6 +27,7 @@ from zeos_space_invaders.players.zeos.player import (
 from zeos_space_invaders.runlog import Decision
 
 from zeos_space_invaders_web import boards
+from zeos_space_invaders_web import runner as runner_module
 from zeos_space_invaders_web.contracts import (
     BOARDS,
     BoardName,
@@ -95,6 +97,14 @@ class Fired:
 
 class FakeMachine:
     cancellations = 3
+
+
+@pytest.fixture(autouse=True)
+def batches_run_to_the_tick(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``FakeDriver`` counts batches as ticks (a move ``answer_after`` batches on, an
+    overrun per batch), so the zeos loop pumps to the tick here, as it did before it
+    pumped in slices; ``test_a_stop_lands_within_a_pump_slice`` covers the slices."""
+    monkeypatch.setattr(runner_module, "PUMP_SLICE_S", math.inf)
 
 
 class FakeDriver:
@@ -634,3 +644,29 @@ def test_a_held_reply_is_not_played_on_the_last_tick() -> None:
     assert all(r["tick_applied"] < 3 for r in runner.records)
     assert not arm.busy
     assert result.ticks == 3
+
+
+def test_a_stop_lands_within_a_pump_slice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stop flag is read between kernel batches, which last at most a slice."""
+    monkeypatch.setattr(runner_module, "PUMP_SLICE_S", 0.02)
+    clock = FakeClock()
+    driver = FakeDriver(clock, busy=True)
+    stop = LocalStop()
+    deadlines: list[float] = []
+    real = driver.run_kernel
+
+    def run_kernel(deadline: float | None = None) -> Decision | None:
+        assert deadline is not None
+        if driver.sensed:
+            deadlines.append(deadline)
+            if len(deadlines) == 3:
+                stop.set()
+        return real(deadline)
+
+    driver.run_kernel = run_kernel  # type: ignore[method-assign]
+    runner = WallClockZeosRunner(driver, spec(), clock=clock, stop=stop)
+    runner.run()
+    assert len(deadlines) == 3, "the loop pumped on after the stop"
+    gaps = [b - a for a, b in zip(deadlines, deadlines[1:], strict=False)]
+    assert all(gap <= 0.02 + 1e-9 for gap in gaps), gaps
+    assert runner.ended_at - deadlines[-1] <= 0.02 + 1e-9

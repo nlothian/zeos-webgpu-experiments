@@ -231,17 +231,17 @@ open, and the changes it made to `contracts.py`:
   decode.
 - **Optional extras.** `PilotJsMachine` also takes `tokenize_cache` (an LRU of words,
   default 4096, 0 for none: a board is tokenized a word at a time, and each tokenize is a
-  round trip to the model thread), `payloads`, `uncapped_above` and `step_log_size`. `BrowserPromptPlayer` also takes `bridge` and `max_chunk` (`None`, the
+  round trip to the model thread), `payloads`, `step_log_size` and `settle_timeout_s`.
+  `BrowserPromptPlayer` also takes `bridge`, `settle_timeout_s` and `max_chunk` (`None`, the
   default, leaves `maxChunk` out, so the worker fills in its own chunk). Both still match
   their `*Factory` Protocols.
 - **Defaults from the benchmark** (`bench/RESULTS.md`): `DEFAULT_MAX_CHUNK` is 256 (it
   was 64; below about 800 positions a run's fixed overhead made chunk 64 read a board
   1.65x slower), and `stall_ms` defaults to `DEFAULT_STALL_MS`, 5 (it was 1), both in
-  `contracts.py`. Every pilot step is capped at `max_chunk` by default. `uncapped_above`
-  (off by default; `UNCAPPED_ABOVE` = 1024 is the measured candidate) sends a step with
-  more positions than that to fill -- warm-up over a body, a replay after a splice --
-  without `maxChunk`; such a step can be cancelled only between the worker's own runs,
-  so an inject, trunc or splice behind it would wait seconds in `_settle`.
+  `contracts.py`. Every pilot step is capped at `max_chunk` (the integration notes
+  below set 128). An `uncapped_above` option that let long fills run at the worker's own
+  chunk was removed in the review round: nothing used it, and a step so sent could be
+  cancelled only between 2048-position runs.
 - **The pilot's grammar** is the native pilot ABI (`write`, `read`, `exit`) less
   `forbid_verbs` (off by default), over the aliases `descriptors` binds (default
   `{"pilot": ("stdin", "stdout")}`), with the payload of `payloads`' aliases narrowed to
@@ -431,6 +431,27 @@ disagree, this section says which holds.
 - **The prompt arm renders each turn once** (`BrowserPromptPlayer.render_turn` caches
   the request's rendering): the native `record` rendered it a second time, and the
   `lead` view's aim search behind it takes up to ~360 ms under Pyodide.
+- **A worker that stops answering** (review round). `_settle` and the prompt arm's
+  `close` wait at most `settle_timeout_s` (`contracts.DEFAULT_SETTLE_TIMEOUT_S`, 30 s)
+  for a cancelled step. On expiry they raise `contracts.ChannelBroken` and mark the
+  channel broken (`contracts.mark_broken`: `PyodideAsyncWorker.markBroken` sets the
+  JavaScript `SyncModelWorker.broken`, so later calls and later runs throw `model channel
+  unusable`, as the channel's own call timeout does). The machine then refuses every
+  worker call, and its `close` forgets the contexts without waiting again. A lost WebGPU
+  device therefore ends Stop with an error on the page rather than a hang.
+- **`invalidate` spares a command begun after the preemption** (review round). The
+  driver invalidates at the end of a batch for each preemption in it; a pilot preempted
+  and resumed inside one batch may already be saying a fresh command. The machine keeps
+  an epoch that advances whenever `decode` switches job, notes the epoch at which each
+  job was last switched away from, and the epoch at which its current command began; an
+  `invalidate` whose job's command (in flight, or finished with its read pending) began
+  after that is a no-op, counted in `invalidations_skipped`. A job never descheduled is
+  invalidated as before.
+- **Pump slices** (review round). The zeos loop pumps the kernel at most
+  `runner.PUMP_SLICE_S` (20 ms) at a time, and the prompt loop polls for at most that
+  long, so a Stop lands within a slice rather than within a tick. A batch that ends
+  before its slice with nothing written still means every job is blocked, and the loop
+  sleeps to the tick.
 - **Automation hooks.** `app.js` keeps `window.siRuns` (each `finished`, less journal
   and payload), `window.siErrors` and `window.siPhase`, which `tests/si_webgpu.mjs`
   reads.

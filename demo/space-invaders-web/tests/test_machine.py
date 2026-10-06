@@ -15,10 +15,20 @@ step that costs 10 ms is exactly ten 1 ms stalls and every test is exact.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
-from machine_helpers import BODY, PILOT, FakeClock, fake_worker, pilot, until, words
+from machine_helpers import (
+    BODY,
+    PILOT,
+    FakeClock,
+    SilentWorker,
+    fake_worker,
+    pilot,
+    until,
+    words,
+)
 from zeos.core.ids import JobId, TokenKind
 from zeos.machine.base import (
     ControlTokenViolation,
@@ -34,6 +44,7 @@ from zeos_space_invaders.players.zeos.api_machine import Native
 from zeos_space_invaders_web.contracts import (
     DEFAULT_MAX_CHUNK,
     PREWARM_COMMANDS,
+    ChannelBroken,
     PilotMachine,
     PilotMachineFactory,
 )
@@ -440,21 +451,6 @@ def test_the_defaults_are_the_benchs() -> None:
     machine = PilotJsMachine(worker)
     assert (machine._max_chunk, machine._stall_ms) == (128, 5.0) == (DEFAULT_MAX_CHUNK, 5.0)
     assert machine.forbid_verbs == () and machine.abi.verb("exit") is not None
-    assert machine._uncapped_above is None, "every step is capped unless asked"
-
-
-def test_a_long_fill_runs_at_the_workers_own_chunk() -> None:
-    """The first step over a body, or a replay after a splice, is not chunk-capped; the
-    steps after it, a board at a time, are."""
-    worker, _ = fake_worker()
-    machine = pilot(worker, body=" ".join(["w"] * 1500), uncapped_above=1024)
-    machine.decode(PILOT, allow_control=False)
-    assert worker.last_options is not None and worker.last_options["maxChunk"] is None
-    machine.decode(PILOT, allow_control=False)
-    assert worker.last_options["maxChunk"] == DEFAULT_MAX_CHUNK
-    machine.splice(PILOT, 0, 1, tokens_from_text("stub"))
-    machine.decode(PILOT, allow_control=False)
-    assert worker.last_options["maxChunk"] is None, "a replay of the whole context"
 
 
 def test_prewarm_covers_the_move_states() -> None:
@@ -568,3 +564,22 @@ def test_planning_with_a_step_in_flight_is_refused() -> None:
     machine, _worker = in_flight()
     with pytest.raises(AssertionError, match="in flight"):
         machine._plan_step(PILOT, allow_control=False)
+
+
+def test_a_worker_that_never_hands_back_a_cancelled_step_breaks_the_channel() -> None:
+    """A lost device must not hang Stop: the settle gives up after ``settle_timeout_s``,
+    marks the channel broken, and every later call refuses at once."""
+    clock = FakeClock()
+    worker = SilentWorker(("left",), step_ms=50.0, clock=clock, sleep=clock.sleep)
+    machine = pilot(worker, settle_timeout_s=0.05)
+    assert machine.decode(PILOT, allow_control=False).tokens == ()  # a step in flight
+    worker.silent = True
+    began = time.monotonic()
+    with pytest.raises(ChannelBroken, match="not handed back within 0.05 s"):
+        machine.inject(PILOT, tokens_from_text("board"))
+    assert time.monotonic() - began < 5.0
+    assert worker.broken is not None and machine.broken == worker.broken
+    with pytest.raises(ChannelBroken, match="model channel unusable"):
+        machine.decode(PILOT, allow_control=False)
+    machine.close()  # forgets the contexts without waiting on the worker again
+    assert not machine._contexts  # pyright: ignore[reportPrivateUsage]

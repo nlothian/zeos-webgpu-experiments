@@ -78,6 +78,10 @@ WARM_BATCH_S = 0.05
 #: Long enough for a ~3k-token system prompt at ~300 tok/s, with room to spare.
 WARM_TIMEOUT_S = 120.0
 
+#: The longest one kernel batch (zeos loop) or one poll of the prompt arm runs before
+#: the stop flag is read again.
+PUMP_SLICE_S = 0.02
+
 #: How far the zeos runner's clock may disagree with ``time.monotonic()``.
 CLOCK_TOLERANCE_S = 0.5
 
@@ -386,6 +390,8 @@ class WallClockZeosRunner(_WallClock):
             )
         self.driver = driver
         self.warm_timeout_s = warm_timeout_s
+        #: ``PUMP_SLICE_S`` when the runner was built.
+        self.pump_slice_s = PUMP_SLICE_S
         # The driver applies a write inside its own pump, so a job resumed in the
         # same breath sees the ship where the write put it.
         driver.controls = self.controls
@@ -442,13 +448,16 @@ class WallClockZeosRunner(_WallClock):
         if not self._finished():
             self._sense()
         while not self._finished():
-            decision = self._take(self.driver.run_kernel(deadline=self._due))
+            # Pumped a slice at a time, not to the tick: the stop flag is read between
+            # batches, so a Stop lands within a slice rather than within a tick.
+            slice_end = min(self._due, self.clock.now() + self.pump_slice_s)
+            decision = self._take(self.driver.run_kernel(deadline=slice_end))
             if self._tick_due():
                 if not self._finished():
                     self._sense()
-            elif decision is None:
-                # Nothing ran to the deadline and nothing was written: every job is
-                # blocked on a pipe, and only the next tick can feed one.
+            elif decision is None and self.clock.now() < slice_end:
+                # The batch ended before its deadline and nothing was written: every
+                # job is blocked on a pipe, and only the next tick can feed one.
                 self.clock.sleep(max(0.0, self._due - self.clock.now()))
         self._close()
         return self._result(
@@ -556,6 +565,8 @@ class WallClockPromptRunner(_WallClock):
             max_seconds=max_seconds,
         )
         self.player = player
+        #: ``PUMP_SLICE_S`` when the runner was built.
+        self.pump_slice_s = PUMP_SLICE_S
         self.warmed = False
         self.warm_s = 0.0
         self.replies: list[PromptReply] = []
@@ -586,7 +597,8 @@ class WallClockPromptRunner(_WallClock):
             if self._held is not None:
                 self.clock.sleep(wait)
             elif self.player.busy:
-                reply = self.player.poll(wait)
+                # A slice at a time: the poll waits on the channel, not on the stop flag.
+                reply = self.player.poll(min(wait, self.pump_slice_s))
                 if reply is not None:
                     self.replies.append(reply)
                     if self.controls.full:

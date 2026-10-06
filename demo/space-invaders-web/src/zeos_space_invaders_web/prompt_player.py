@@ -40,10 +40,13 @@ from zeos_space_invaders.game import Rules
 from zeos_space_invaders.players.base import PromptPlayer
 
 from zeos_space_invaders_web.contracts import (
+    DEFAULT_SETTLE_TIMEOUT_S,
     AsyncModelWorker,
+    ChannelBroken,
     DecodeCancelled,
     DecodeDone,
     PromptReply,
+    mark_broken,
 )
 from zeos_space_invaders_web.machine import normalise_poll
 
@@ -74,10 +77,14 @@ class BrowserPromptPlayer(PromptPlayer):
         max_new: int = 6,
         bridge: Bridge | None = None,
         max_chunk: int | None = None,
+        settle_timeout_s: float = DEFAULT_SETTLE_TIMEOUT_S,
     ) -> None:
         super().__init__(history=history, view=view, rules=rules)
         if max_new < 1:
             raise ValueError("max_new must be >= 1")
+        if settle_timeout_s <= 0:
+            raise ValueError("settle_timeout_s must be > 0")
+        self._settle_timeout_s = settle_timeout_s
         self._worker = worker
         self._bridge: Bridge = bridge or PythonBridge()
         self.max_new = max_new
@@ -245,7 +252,7 @@ class BrowserPromptPlayer(PromptPlayer):
         step and the request with it, so both are dropped before the error goes up."""
         try:
             return normalise_poll(self._worker.pollDecode(timeout_ms))
-        except BaseException:
+        except Exception:
             self._in_flight = False
             self._obs, self._info = None, {}
             raise
@@ -273,12 +280,27 @@ class BrowserPromptPlayer(PromptPlayer):
         return None if not self.replies else self.parsed / len(self.replies)
 
     def close(self) -> None:
-        """Cancel any request under way and destroy both contexts."""
+        """Cancel any request under way and destroy both contexts. A worker that does not
+        hand the cancelled step back within ``settle_timeout_s`` has lost its device or
+        died: the channel is marked broken, the contexts are forgotten rather than
+        destroyed, and ``ChannelBroken`` is raised."""
         if self._in_flight:
             self._worker.cancelDecode()
-            while self._in_flight and self._poll(_DRAIN_POLL_MS) is None:
-                pass
-            self._in_flight = False
+            deadline = time.monotonic() + self._settle_timeout_s
+            while self._in_flight:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    self._in_flight = False
+                    self._obs, self._info = None, {}
+                    self._decision = self._context = False
+                    reason = (
+                        "the prompt arm's cancelled step was not handed back within "
+                        f"{self._settle_timeout_s:g} s"
+                    )
+                    mark_broken(self._worker, reason)
+                    raise ChannelBroken(f"model channel unusable: {reason}")
+                if self._poll(min(_DRAIN_POLL_MS, left * 1000.0)) is not None:
+                    self._in_flight = False
         self._obs, self._info = None, {}
         if self._decision:
             self._worker.destroyContext(CONTEXT_ID)
