@@ -168,3 +168,36 @@ Each workstream edits only its own files; the table is the plan's.
 
 `load_board` already lives in `contracts.py`; `boards.py` re-exports or extends it rather
 than reimplementing it.
+
+## Runner notes
+
+Written by the runner workstream (`runner.py`); none changes a type in `contracts.py`.
+
+- **The zeos runner's clock tells `time.monotonic()` time.** `ZeosDriver._pump`
+  compares its deadline against `time.monotonic()`, and the runner passes the next
+  tick's due time on its `Clock` as that deadline. `MonotonicClock` qualifies, and so
+  does a Pyodide clock whose `now()` is `time.monotonic()` and whose `sleep()` is an
+  `Atomics.wait` on the control buffer. A clock in another time domain works only with
+  a driver that reads deadlines on it (the tests' fake driver).
+- **The constructors take more than the factories pin**, all keyword-only with
+  defaults: `max_ticks` (default the board's `max_steps`), `max_seconds`, and for the
+  zeos runner `warm_timeout_s` (default 120 s). The zeos runner's `driver` is typed as
+  `runner.ZeosDriverLike`, the part of `ZeosDriver` it uses, so the factory
+  (`driver: ZeosDriver`) is still satisfied. Both runners have `warm()`, which
+  `run()` calls if it has not been called.
+- **Warm-up ends when the kernel has nothing to run**: a batch that returns before its
+  deadline with no write, i.e. `Kernel.tick()` found no runnable job. In this case
+  that is the pilot blocked on `game.state`.
+- **`lag_ticks` for a pilot move is measured against the board the pilot read**, found
+  by the runner in the journal (`pipe.read` on `game.state`), not against
+  `Decision.tick`. The driver stamps a move with the newest board delivered, which runs
+  ahead of the one being answered whenever a board arrives mid-completion. For
+  `evade` the lag is against the threat's tick, as the driver stamps it.
+- **`RunResult.reflexes` and `Frame.reflexes` count moves `evade` made**, not threats
+  delivered (`ZeosDriver.reflexes`).
+- **`FrameSink.__call__` is not positional-only**, so `frames.append` does not
+  type-check as a sink; wrap it. Making the parameter positional-only (`frame: Frame, /`)
+  in `contracts.py` would let it.
+- `build_driver(machine, spec)` registers the reflex on the machine and builds a
+  `ZeosDriver` told the board's rules and view; `page.open_run` can use it for the
+  zeos arm.
