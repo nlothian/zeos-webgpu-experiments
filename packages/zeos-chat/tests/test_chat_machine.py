@@ -638,6 +638,25 @@ def test_a_scripted_conversation_writes_the_same_journal_every_time() -> None:
     assert scripted_journal() == scripted_journal()
 
 
+def test_journal_lines_returns_every_line_once_across_steps() -> None:
+    # ``step`` advances ``LiveRun.lines``'s own count every tick; ``journal_lines`` keeps
+    # its own, so a caller that reads it after each step (the site's dev journal view)
+    # sees every line, once, and together they are the journal.
+    run = open_chat(
+        ScriptedChatWorker(["Hello there.", "Bye."]), tool_classes={}, system_prompt=PROMPT
+    )
+    lines = run.journal_lines()
+    assert lines
+    for message in ("hi", "again"):
+        run.send_user(message)
+        until_waiting(run)
+        added = run.journal_lines()
+        assert added, "a step's lines reach journal_lines"
+        lines += added
+    assert run.journal_lines() == []
+    assert "".join(line + "\n" for line in lines).encode("utf-8") == run.journal_bytes()
+
+
 def sampled(seed: int) -> tuple[bytes, list[str]]:
     worker = SamplingWorker()
     run = open_chat(worker, tool_classes={}, system_prompt=PROMPT, seed=seed, sampling=Sampling())

@@ -102,6 +102,7 @@ from zeos.core.integrity import DEFAULT_THETA_READ
 from zeos.core.pcb import Job
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import CaseBundle, load_case
+from zeos.journal.codec import to_line
 from zeos_browser.js_machine import DEFAULT_BLOCK_SIZE, Bridge, PythonBridge, ZeosModelWorker
 from zeos_browser.live import LiveRun
 from zeos_browser.page import findings
@@ -269,6 +270,9 @@ class ChatRun:
         )
         self.kernel = self.run.kernel
         self._seen = 0
+        #: How many journal records ``journal_lines`` has returned. Its own count, not
+        #: ``LiveRun.lines``'s, which ``LiveRun.step`` advances on every tick.
+        self._journal_shown = 0
         #: Whether a delivery is queued for the next tick.
         self._queued = False
         #: How many journal events ``drain`` has counted writes in.
@@ -645,8 +649,13 @@ class ChatRun:
     # -- the journal ----------------------------------------------------------------
 
     def journal_lines(self) -> list[str]:
-        """Journal lines not yet returned, one JSON object each."""
-        return self.run.lines()
+        """Journal lines this method has not yet returned, one JSON object each, in
+        order: called after every ``step``, the calls together give the whole journal
+        (the site's dev journal view appends each call's lines)."""
+        self.run.lines()  # brings the journal up to the events so far
+        records = self.run.journal.records[self._journal_shown :]
+        self._journal_shown += len(records)
+        return [to_line(r.seq, r.event) for r in records]
 
     def journal_bytes(self) -> bytes:
         return self.run.journal_bytes()
