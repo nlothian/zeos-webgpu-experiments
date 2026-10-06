@@ -12,7 +12,7 @@ model decode step never blocks it: the machine *begins* a step over the channel,
 for its result with a bounded `Atomics.wait` (the loop's only sleep while a step is in
 flight), and *cancels* it when the job is preempted or its context changes. The model
 thread checks for a cancel before every prefill chunk, so a cancel lands within one
-chunk (`maxChunk`, 64 positions for a pilot step). Stop reaches the loop through a
+chunk (`maxChunk`, 256 positions for a pilot step). Stop reaches the loop through a
 control SharedArrayBuffer the page writes, because the loop never yields to the worker's
 event loop.
 
@@ -183,9 +183,24 @@ open, and the one change it made to `contracts.py`:
   model thread). `BrowserPromptPlayer` also takes `bridge` and `max_chunk` (`None`, the
   default, leaves `maxChunk` out, so the worker fills in its own chunk). Both still match
   their `*Factory` Protocols.
-- **The pilot's grammar** is the native pilot ABI (`write`, `read`, `exit`, no payload
-  cap) less `forbid_verbs`, over the aliases `descriptors` binds; the default is
-  `{"pilot": ("stdin", "stdout")}`.
+- **Defaults from the benchmark** (`bench/RESULTS.md`): `DEFAULT_MAX_CHUNK` is 256 (it
+  was 64; below about 800 positions a run's fixed overhead made chunk 64 read a board
+  1.65x slower), and `stall_ms` defaults to `DEFAULT_STALL_MS`, 5 (it was 1), both in
+  `contracts.py`. A step with more than `uncapped_above` (1024) positions to fill -- the
+  first step over a descriptor body, a replay after a splice -- is sent without
+  `maxChunk`, so warm-up and replay run at the worker's own chunk; such a step is
+  cancelled only between the worker's own runs. `uncapped_above=None` caps every step.
+- **The pilot's grammar** is the native pilot ABI (`write`, `read`, `exit`) less
+  `forbid_verbs` (off by default), over the aliases `descriptors` binds (default
+  `{"pilot": ("stdin", "stdout")}`), with the payload of `payloads`' aliases narrowed to
+  one of their words: by default `{"stdout": ("left", "right", "shoot")}`, so `write
+  stdout left;` is the only shape a move takes (free text let the 4B write `write stdout
+  left left left 1` on every board). `payloads={}` gives the free-text payload back. The
+  machine passes no `valued` aliases: `seat_maps` marks the pilot's `stdout` valued
+  (`game.controls` is world-backed), and a numeric payload could not name a move.
+- **Prewarm** walks each command as the worker tokenizes it and also warms the state
+  after each space, which covers the move states (about 6 per descriptor); each cold
+  state costs 1.6-2.1 s under Pyodide, so expect seconds of warm-up.
 - **What cancels, and what restarts the command.** Inject, trunc, splice, fork, a
   narrowing `set_mask`, block padding and `invalidate` cancel the job's step; the decode
   of another job (native or served) cancels whatever is in flight. Inject, trunc, fork,
@@ -201,7 +216,9 @@ open, and the one change it made to `contracts.py`:
 - **Step log.** A `decode` that drains a cancelled step and then begins the next logs a
   `cancelled` entry and then the entry for its own outcome. The automatic `read stdin`
   is logged as `native` (no worker call).
-- **The prompt arm** uses context id `prompt-arm:prompt`; its replies may use every id
+- **The prompt arm** prefills the system prompt into `prompt-prefix:prompt`, keeps it,
+  and forks each decision into `prompt-arm:prompt` (a truncate would rewind to the KV
+  snapshot below the prefix and replay ~170 positions every decision); its replies may use every id
   except the pad id and control ids other than `<|im_end|>` (the end-of-sequence id is
   allowed and ends the reply). `warm()` decodes and discards one step to make a lazily
   filling worker compute the system prompt.

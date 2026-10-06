@@ -29,7 +29,7 @@ from zeos_space_invaders_web.fake_worker import (
     PAD_ID,
     FakePilotWorker,
 )
-from zeos_space_invaders_web.prompt_player import CONTEXT_ID, BrowserPromptPlayer
+from zeos_space_invaders_web.prompt_player import CONTEXT_ID, PREFIX_ID, BrowserPromptPlayer
 
 
 def arm(
@@ -64,8 +64,8 @@ def test_the_class_meets_its_contract() -> None:
 def test_warm_prefills_the_system_prompt_before_any_board() -> None:
     player, worker, _ = arm()
     player.warm()
-    assert worker.context_ids == (CONTEXT_ID,)
-    assert worker.resident(CONTEXT_ID) == player._prefix > 0
+    assert worker.context_ids == (PREFIX_ID,)
+    assert worker.resident(PREFIX_ID) == player._prefix > 0
     assert worker.delivered == 1 and worker.filled == player._prefix
     player.warm()
     assert worker.delivered == 1, "warming twice prefills once"
@@ -103,14 +103,19 @@ def test_a_reply_stops_at_max_new_tokens() -> None:
     assert reply.tokens == 6 and reply.text == "one two three four five six"
 
 
-def test_each_request_starts_from_the_system_prompt() -> None:
-    """Truncated back to the prefix, so one request's board is not the next one's."""
+def test_each_request_is_forked_from_the_prefilled_prefix() -> None:
+    """Forked, not truncated: the prefix keeps its KV and is never refilled, and one
+    request's board is not the next one's."""
     player, worker, _ = arm(("left",), history=0)
     ask(player)
     first = worker.length(CONTEXT_ID)
+    filled = worker.filled
     ask(player)
     assert worker.length(CONTEXT_ID) == first
+    assert worker.length(PREFIX_ID) == player._prefix
     assert worker._contexts[CONTEXT_ID].ids[: player._prefix] == player._ids[: player._prefix]
+    assert worker.filled - filled == first - player._prefix, "only the turn was filled"
+    assert sorted(worker.context_ids) == sorted((PREFIX_ID, CONTEXT_ID))
 
 
 def test_only_im_end_and_eos_among_the_reserved_ids_may_be_said() -> None:

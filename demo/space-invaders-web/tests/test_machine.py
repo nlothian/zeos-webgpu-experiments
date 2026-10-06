@@ -386,3 +386,75 @@ def test_the_fake_clock_is_what_the_worker_sleeps_on() -> None:
     machine = pilot(worker, stall_ms=100.0)
     assert words([machine.decode(PILOT, allow_control=False)]) == ["write"]
     assert clock.slept == pytest.approx(0.005), "a poll returns the moment the step lands"
+
+
+# --- the move grammar and the bench's defaults ----------------------------------------
+
+
+def test_the_pilots_payload_is_one_move() -> None:
+    """A free-text payload let the 4B write ``write stdout left left left 1``."""
+    worker, _ = fake_worker()
+    language = pilot(worker)._language("pilot")
+    start = language.start
+    for command in ("write stdout left;", " write stdout right;", "write stdout shoot;"):
+        assert language.walk(start, command)[1] == 1
+        assert language.advance(start, command) != ()
+    for command in ("write stdout left left;", "write stdout 1;", "write stdout lefty;"):
+        assert language.advance(start, command) == (), command
+    assert language.advance(start, "write stdin anything at all;") != (), "other pipes are free"
+    assert language.advance(start, "read stdin;") != () and language.advance(start, "exit;") != ()
+
+
+def test_a_free_payload_is_still_available() -> None:
+    worker, _ = fake_worker()
+    language = pilot(worker, payloads={})._language("pilot")
+    assert language.advance(language.start, "write stdout left left;") != ()
+
+
+def test_the_seat_maps_valued_stdout_never_reaches_the_pilots_grammar() -> None:
+    """``seat_maps`` marks the pilot's stdout valued, because ``game.controls`` is
+    world-backed; passed on, the grammar would demand a number and no move could be said."""
+    from zeos.descriptor.loader import load_case
+    from zeos.machine.seat import seat_maps
+    from zeos_space_invaders.players.zeos import CASE_ROOT
+
+    bundle = load_case(CASE_ROOT)
+    _aliases, valued = seat_maps(bundle.descriptors, bundle.pipes, abi=pilot_abi())
+    assert "stdout" in valued["pilot"], "the trap this test guards against is gone"
+    worker, _ = fake_worker()
+    machine = pilot(worker)
+    assert machine.valued("pilot") == ()
+    language = machine._language("pilot")
+    assert language.advance(language.start, "write stdout left;") != ()
+    assert language.advance(language.start, "write stdout 3;") == ()
+
+
+def test_the_defaults_are_the_benchs() -> None:
+    worker, _ = fake_worker()
+    machine = PilotJsMachine(worker)
+    assert (machine._max_chunk, machine._stall_ms) == (256, 5.0) == (DEFAULT_MAX_CHUNK, 5.0)
+    assert machine.forbid_verbs == () and machine.abi.verb("exit") is not None
+
+
+def test_a_long_fill_runs_at_the_workers_own_chunk() -> None:
+    """The first step over a body, or a replay after a splice, is not chunk-capped; the
+    steps after it, a board at a time, are."""
+    worker, _ = fake_worker()
+    machine = pilot(worker, body=" ".join(["w"] * 1500))
+    machine.decode(PILOT, allow_control=False)
+    assert worker.last_options is not None and worker.last_options["maxChunk"] is None
+    machine.decode(PILOT, allow_control=False)
+    assert worker.last_options["maxChunk"] == DEFAULT_MAX_CHUNK
+    machine.splice(PILOT, 0, 1, tokens_from_text("stub"))
+    machine.decode(PILOT, allow_control=False)
+    assert worker.last_options["maxChunk"] is None, "a replay of the whole context"
+
+
+def test_prewarm_covers_the_move_states() -> None:
+    worker, _ = fake_worker()
+    machine = pilot(worker)
+    machine.prewarm()
+    states = {state for (_key, state, _control) in machine._mask._cache}
+    language = machine._language("pilot")
+    head = language.advance(language.start, "write stdout ")
+    assert head in states, "the state a move is chosen from is warm"

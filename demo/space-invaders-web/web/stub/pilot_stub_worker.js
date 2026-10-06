@@ -16,7 +16,8 @@
 //     a leading space, sorted;
 //   * a whitespace tokenizer (ASCII whitespace only), unknown words as <unk>;
 //   * a script per kind of context, read from the context id "<job>:<descriptor>": a
-//     "prompt" context answers the open assistant turn with the next reply, a word per
+//     "prompt" context answers the open assistant turn with the next reply (counted over
+//     all prompt contexts), a word per
 //     token already in the turn, then <|im_end|> (and says <|im_end|> with no assistant
 //     turn open); any other context is a pilot and says `write stdout <move>;` for the
 //     next move, a word per step (`reads: true` adds `read stdin;` after each), dropping
@@ -100,6 +101,8 @@
       this.vocab = SPECIAL.concat([...all].sort(byCodeUnit));
       this.ids = new Map(this.vocab.map((piece, i) => [piece, i]));
       this.contexts = new Map();
+      // Assistant turns answered over every prompt context, so forks of one prefix take turns.
+      this.promptTurns = 0;
       // What serveChannel (frames.js) reads off a worker: `pieces` walks
       // meta.tokenizerSize ids, and `backend` names the execution provider.
       this.meta = { tokenizerSize: this.vocab.length, vocabSize: this.vocab.length };
@@ -132,7 +135,7 @@
       }
       const piece = pending[0];
       if (!ok(piece)) throw new Error(`${jobId}: the token mask refuses the script's next word ${JSON.stringify(piece)}`);
-      return { tokenId: this.ids.get(piece), pending: pending.slice(1), issued, replyAt: ctx.replyAt };
+      return { tokenId: this.ids.get(piece), pending: pending.slice(1), issued, replyAt: ctx.replyAt, newTurn: false };
     }
 
     chooseReply(jobId, ctx, ok) {
@@ -144,17 +147,18 @@
           break;
         }
       }
+      const newTurn = at >= 0 && at !== ctx.replyAt;
       let piece;
       let issued = ctx.issued;
       if (at < 0) {
         piece = SPECIAL[IM_END_ID];
       } else {
-        issued = ctx.issued + (at !== ctx.replyAt ? 1 : 0);
-        const words = this.reply(issued - 1);
+        issued = newTurn ? this.promptTurns : ctx.issued;
+        const words = this.reply(issued);
         piece = words[Math.min(ctx.ids.length - at - 2, words.length - 1)];
       }
       if (!ok(piece)) throw new Error(`${jobId}: the token mask refuses the script's next word ${JSON.stringify(piece)}`);
-      return { tokenId: this.ids.get(piece), pending: [], issued, replyAt: at >= 0 ? at : ctx.replyAt };
+      return { tokenId: this.ids.get(piece), pending: [], issued, replyAt: at >= 0 ? at : ctx.replyAt, newTurn };
     }
 
     // -- identity -----------------------------------------------------------
@@ -274,6 +278,7 @@
       ctx.pending = choice.pending;
       ctx.issued = choice.issued;
       ctx.replyAt = choice.replyAt;
+      if (choice.newTurn) this.promptTurns += 1;
       ctx.spoken = true;
       return { tokenId: choice.tokenId, attention: null, resident: ctx.kv, stats };
     }

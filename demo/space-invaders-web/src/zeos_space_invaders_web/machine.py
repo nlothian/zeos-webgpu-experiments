@@ -41,8 +41,9 @@ and the next step for the context resumes from there (race rule 3).
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from zeos.core.ids import JobId, TokenKind
 from zeos.machine.abi import SyscallABI
@@ -63,10 +64,13 @@ from zeos_coop_count_web.js_machine import (
     JsMachine,
     _StepPlan,  # pyright: ignore[reportPrivateUsage]
 )
+from zeos_coop_count_web.token_mask import CommandLanguage
+from zeos_space_invaders.game import ACTIONS
 from zeos_space_invaders.players.zeos.api_machine import ABI, Native
 
 from zeos_space_invaders_web.contracts import (
     DEFAULT_MAX_CHUNK,
+    DEFAULT_STALL_MS,
     PREWARM_COMMANDS,
     AsyncModelWorker,
     DecodeCancelled,
@@ -78,6 +82,8 @@ from zeos_space_invaders_web.contracts import (
 
 __all__ = [
     "PILOT_DESCRIPTORS",
+    "PILOT_PAYLOADS",
+    "PayloadLanguage",
     "PilotJsMachine",
     "SETTLE_POLL_MS",
     "normalise_poll",
@@ -86,6 +92,16 @@ __all__ = [
 
 #: The pipe aliases the pilot binds (``goals/pilot.md``); the grammar offers no other.
 PILOT_DESCRIPTORS: Mapping[str, Sequence[str]] = {"pilot": ("stdin", "stdout")}
+
+#: The words a payload may be, per pipe alias: the pilot's ``stdout`` takes one move.
+#: With a free-text payload the 4B wrote ``write stdout left left left 1`` on every board
+#: (``bench/RESULTS.md``); narrowed, every command was a valid move, in fewer tokens.
+PILOT_PAYLOADS: Mapping[str, Sequence[str]] = {"stdout": tuple(ACTIONS)}
+
+#: A step with more positions than this to fill -- the first step over a descriptor
+#: body, a replay after the pager splices -- runs at the worker's own chunk: at a few
+#: thousand positions the per-run overhead dominates, and a chunk cap only slows it.
+UNCAPPED_ABOVE = 1024
 
 #: How long one wait inside ``_settle`` lasts. A settle loops until the step is handed
 #: back, so this bounds only how often the loop wakes, not how long it waits.
@@ -104,6 +120,53 @@ def pilot_abi(forbid_verbs: Sequence[str] = ()) -> SyscallABI:
     return SyscallABI(
         verbs=verbs, aliases=ABI.aliases, terminator=ABI.terminator, max_text=ABI.max_text
     )
+
+
+_WORD = 7  # (7, alt, word, p): p characters of the alternative's payload word matched
+
+
+class PayloadLanguage(CommandLanguage):
+    """``CommandLanguage`` with the text payload of some pipe aliases narrowed to a choice
+    of literal words, the terminator straight after.
+
+    Verbs, pipes and the rest of the syntax are the ABI's as before; only a text verb's
+    payload on an alias in ``payloads`` changes, from any run of characters to exactly one
+    of that alias's words. The automaton gains one kind of state, ``(7, alt, word, p)``:
+    ``p`` characters of word ``word`` matched after alternative ``alt``'s head.
+    """
+
+    def __init__(
+        self,
+        abi: SyscallABI,
+        pipes: Sequence[str],
+        *,
+        valued: Sequence[str] = (),
+        payloads: Mapping[str, Sequence[str]],
+    ) -> None:
+        super().__init__(abi, pipes, valued=valued)
+        self._words: dict[int, tuple[str, ...]] = {}
+        for i, alt in enumerate(self._alternatives):
+            parts = alt.head.split(" ")
+            if alt.tail == 1 and len(parts) == 3 and parts[1] in payloads:  # a text payload
+                words = tuple(payloads[parts[1]])
+                if not words or any(not w or w[0] == " " for w in words):
+                    raise ValueError(f"payload words for {parts[1]!r} must be non-empty words")
+                self._words[i] = words
+
+    def _tail(self, state: tuple[int, ...], char: str) -> tuple[tuple[int, ...], ...]:
+        words = self._words.get(state[1])
+        if words is None:
+            return super()._tail(state, char)
+        return tuple((_WORD, state[1], w, 1) for w, word in enumerate(words) if word[0] == char)
+
+    def _step(self, state: tuple[int, ...], char: str) -> Iterable[tuple[int, ...]]:
+        if state[0] != _WORD:
+            return super()._step(state, char)
+        _, i, w, p = state
+        word = self._words[i][w]
+        if p == len(word):
+            return self._terminate(i) if char == self.abi.terminator[0] else ()
+        return ((_WORD, i, w, p + 1),) if word[p] == char else ()
 
 
 def _stats(raw: object) -> DecodeStats:
@@ -162,6 +225,9 @@ class _Round:
     #: Kernel offset where the round's first word went, so a splice knows whether it
     #: reached the command being said.
     start: int = 0
+    #: Model positions the worker holds KV for, as far as the machine knows: set from
+    #: each step's answer, lowered by a trunc or splice.
+    filled: int = 0
 
 
 @dataclass
@@ -185,10 +251,12 @@ class PilotJsMachine(JsMachine):
         bridge: Bridge | None = None,
         descriptors: Mapping[str, Sequence[str]] | None = None,
         block_size: int = 16,
-        stall_ms: float = 1.0,
+        stall_ms: float = DEFAULT_STALL_MS,
         max_chunk: int = DEFAULT_MAX_CHUNK,
         turn_ends_at_call: bool = True,
         forbid_verbs: Sequence[str] = (),
+        payloads: Mapping[str, Sequence[str]] = PILOT_PAYLOADS,
+        uncapped_above: int | None = UNCAPPED_ABOVE,
         tokenize_cache: int = 4096,
     ) -> None:
         if stall_ms < 0:
@@ -203,6 +271,8 @@ class PilotJsMachine(JsMachine):
             block_size=block_size,
         )
         self._async = worker
+        self.payloads = {k: tuple(v) for k, v in payloads.items()}
+        self._uncapped_above = uncapped_above
         self._stall_ms = stall_ms
         self._max_chunk = max_chunk
         self._turn_ends_at_call = turn_ends_at_call
@@ -270,9 +340,29 @@ class PilotJsMachine(JsMachine):
         self._token_cache[text] = ids
         return list(ids)
 
-    def _with_chunk(self, options: object) -> object:
-        """The step's options with ``maxChunk``: a dict from ``PythonBridge``, a
-        JavaScript object from ``PyodideBridge``."""
+    def _rewind(self, ctx: Any, kv_at: int) -> None:
+        super()._rewind(ctx, kv_at)
+        for job, held in self._contexts.items():
+            if held is ctx and job in self._rounds:
+                self._rounds[job].filled = min(self._rounds[job].filled, kv_at)
+
+    def _language(self, descriptor: str) -> CommandLanguage:
+        language = self._languages.get(descriptor)
+        if language is None:
+            language = PayloadLanguage(
+                self.abi,
+                self.aliases(descriptor),
+                valued=self.valued(descriptor),
+                payloads=self.payloads,
+            )
+            self._languages[descriptor] = language
+        return language
+
+    def _with_chunk(self, options: object, pending: int) -> object:
+        """The step's options with ``maxChunk`` (a dict from ``PythonBridge``, a
+        JavaScript object from ``PyodideBridge``), left out for a long fill."""
+        if self._uncapped_above is not None and pending > self._uncapped_above:
+            return options
         if isinstance(options, dict):
             return {**options, "maxChunk": self._max_chunk}  # pyright: ignore[reportUnknownVariableType]
         setattr(options, "maxChunk", self._max_chunk)  # noqa: B010 - a JsProxy attribute
@@ -290,12 +380,18 @@ class PilotJsMachine(JsMachine):
         flight.cancelled_at = time.monotonic()
         self.cancellations += 1
 
-    def _drained(self) -> None:
+    def _drained(self, answer: DecodeDone | DecodeCancelled) -> None:
         """The cancelled step has been handed back; whatever it answered is dropped."""
         flight = self._flight
         assert flight is not None and flight.cancelled_at is not None
         self.cancel_ms.append((time.monotonic() - flight.cancelled_at) * 1000.0)
         self._flight = None
+        rnd = self._rounds.get(flight.job)
+        if rnd is not None:
+            # A step that finished regardless filled everything it was planned against.
+            rnd.filled = (
+                answer["resident"] if answer["cancelled"] is True else len(flight.plan.ctx.ids)
+            )
 
     def _settle(self) -> None:
         """Cancel the step in flight and wait for the channel to hand it back, so that a
@@ -303,9 +399,10 @@ class PilotJsMachine(JsMachine):
         if self._flight is None:
             return
         self._cancel()
-        while self._poll(SETTLE_POLL_MS) is None:
-            pass
-        self._drained()
+        answer = self._poll(SETTLE_POLL_MS)
+        while answer is None:
+            answer = self._poll(SETTLE_POLL_MS)
+        self._drained(answer)
 
     def _cancel_job(self, job: JobId) -> None:
         if self._flight is not None and self._flight.job == job:
@@ -395,12 +492,13 @@ class PilotJsMachine(JsMachine):
             elif flight.plan.allow_control != allow_control:
                 self._cancel()  # planned under the other token mask
         if self._flight is not None and self._flight.cancelled_at is not None:
-            if self._poll(self._stall_ms) is None:
+            drained = self._poll(self._stall_ms)
+            if drained is None:
                 self.stalls += 1
                 self._log(job, "stall", began)
                 return self._stall()
-            self._drained()
-            self._log(job, "cancelled", began)
+            self._drained(drained)
+            self._log(job, "cancelled", began, drained["stats"])
 
         rnd = self._rounds[job]
         if self._flight is None:
@@ -416,7 +514,10 @@ class PilotJsMachine(JsMachine):
                 )
             plan = self._plan_step(job, allow_control=allow_control)
             now = time.monotonic()
-            request_id = self._async.beginDecodeStep(plan.ctx.key, self._with_chunk(plan.options))
+            pending = len(plan.ctx.ids) - rnd.filled
+            request_id = self._async.beginDecodeStep(
+                plan.ctx.key, self._with_chunk(plan.options, pending)
+            )
             self._flight = _Flight(job=job, plan=plan, request_id=request_id, begun=now)
             if rnd.opened is None:
                 rnd.opened = now
@@ -433,10 +534,11 @@ class PilotJsMachine(JsMachine):
             if flight.cancelled_at is None:
                 flight.cancelled_at = time.monotonic()
                 self.cancellations += 1
-            self._drained()
+            self._drained(answer)
             self._log(job, "cancelled", began, answer["stats"])
             return self._stall()
         self._flight = None
+        rnd.filled = len(flight.plan.ctx.ids)
         result = self._accept_step(flight.plan, answer["tokenId"], answer["attention"])
         self.steps += 1
         self._log(job, "token", began, answer["stats"])
@@ -496,6 +598,7 @@ class PilotJsMachine(JsMachine):
         shared = super().fork(parent, child)
         self._rounds.setdefault(child, _Round())
         self._rounds[child].auto_read = False
+        self._rounds[child].filled = self._rounds[parent].filled
         self._reset_round(child)
         return shared
 
@@ -597,7 +700,8 @@ class PilotJsMachine(JsMachine):
     ) -> float:
         """Walk ``commands`` through ``descriptor``'s grammar as the worker tokenizes
         them, with and without the leading space a job's later commands carry, filling
-        the mask cache for every round state on the way. Returns the milliseconds it
+        the mask cache for every round state a step chooses from on the way, and for the
+        state after each space. Returns the milliseconds it
         took. Synchronous; called before the clock starts."""
         began = time.monotonic()
         self._settle()
@@ -612,4 +716,11 @@ class PilotJsMachine(JsMachine):
                     state = language.advance(state, self._pieces[token_id])
                     if not state:
                         break
+                # And after each space, for a model that puts the space at the end of a
+                # token where the worker's tokenizer puts it at the start of the next.
+                for at, char in enumerate(text):
+                    if char == " " and at:
+                        spaced = language.advance(language.start, text[: at + 1])
+                        if spaced:
+                            self._mask.allowed(descriptor, language, spaced, allow_control=False)
         return (time.monotonic() - began) * 1000.0

@@ -20,7 +20,8 @@ What it has:
   with a single leading space if any space preceded it, ``<unk>`` if the vocabulary
   lacks it. A board or a descriptor body is mostly ``<unk>``, which costs nothing;
 * **a script per kind of context**, read from the context id (``"<job>:<descriptor>"``):
-  a ``prompt`` context answers each assistant turn it is given with the next reply, a
+  a ``prompt`` context answers each assistant turn it is given with the next reply (the
+  replies are counted over all prompt contexts, so forks of one prefix take turns), a
   word per step, then ``<|im_end|>``, reading where it is from the context (so a step
   outside an assistant turn, such as the warm-up's, says ``<|im_end|>`` and moves
   nothing on); any other context is a pilot and says ``write stdout <move>;`` for the
@@ -114,7 +115,7 @@ class _Context:
     ids: list[int] = field(default_factory=list[int])
     #: Positions whose KV the simulated model holds; ``ids[kv:]`` are pending.
     kv: int = 0
-    #: Commands (pilot) or replies (prompt) begun so far.
+    #: Pilot: commands begun so far. Prompt: the reply the open turn is given.
     issued: int = 0
     #: Prompt only: where the assistant turn being answered opens, -1 for none.
     reply_at: int = -1
@@ -131,6 +132,8 @@ class _Choice:
     pending: tuple[str, ...]
     issued: int
     reply_at: int
+    #: Prompt only: this token opens an assistant turn the worker has not answered.
+    new_turn: bool = False
 
 
 @dataclass
@@ -214,6 +217,9 @@ class FakePilotWorker:
         self._contexts: dict[str, _Context] = {}
         self._flight: _Flight | None = None
         self._next_request = 0
+        #: Assistant turns answered over every prompt context: a decision forked from a
+        #: shared prefix still gets the next reply.
+        self._prompt_turns = 0
 
         #: What the steps did, for tests: delivered tokens, cancelled steps, the
         #: positions filled and the options the last step was begun with.
@@ -268,15 +274,16 @@ class FakePilotWorker:
             ),
             -1,
         )
+        new_turn = at >= 0 and at != ctx.reply_at
         if at < 0:
             piece, issued = SPECIAL[IM_END_ID], ctx.issued
         else:
-            issued = ctx.issued + (at != ctx.reply_at)
-            words = self._reply(issued - 1)
+            issued = self._prompt_turns if new_turn else ctx.issued
+            words = self._reply(issued)
             piece = words[min(len(ctx.ids) - at - 2, len(words) - 1)]
         if not ok(piece):
             raise ValueError(f"{key}: the token mask refuses the script's next word {piece!r}")
-        return _Choice(self._ids[piece], (), issued, at if at >= 0 else ctx.reply_at)
+        return _Choice(self._ids[piece], (), issued, at if at >= 0 else ctx.reply_at, new_turn)
 
     # -- identity ------------------------------------------------------------
 
@@ -457,6 +464,7 @@ class FakePilotWorker:
         ctx.pending = list(flight.choice.pending)
         ctx.issued = flight.choice.issued
         ctx.reply_at = flight.choice.reply_at
+        self._prompt_turns += flight.choice.new_turn
         ctx.spoken = True
         self.delivered += 1
         return {

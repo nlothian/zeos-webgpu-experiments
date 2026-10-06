@@ -17,7 +17,7 @@ from typing import Any
 
 from machine_helpers import PILOT, fake_worker, pilot, until, words
 
-from zeos_space_invaders_web.contracts import AsyncModelWorker
+from zeos_space_invaders_web.contracts import DEFAULT_MAX_CHUNK, AsyncModelWorker
 from zeos_space_invaders_web.pyodide_glue import PyodideAsyncWorker
 
 
@@ -70,7 +70,7 @@ def test_the_adapter_is_an_async_worker_the_machine_can_drive() -> None:
     assert worker.tokenize("write stdout") == channel.inner.tokenize("write stdout")
     machine = pilot(PyodideAsyncWorker(channel, to_js=to_js))  # pyright: ignore[reportArgumentType]
     assert words(until(machine, PILOT, op="read")) == ["write", " stdout", " left;"]
-    assert channel.converted and all(c["maxChunk"] == 64 for c in channel.converted)
+    assert channel.converted and all(c["maxChunk"] == DEFAULT_MAX_CHUNK for c in channel.converted)
     assert worker.inFlight is False
 
 

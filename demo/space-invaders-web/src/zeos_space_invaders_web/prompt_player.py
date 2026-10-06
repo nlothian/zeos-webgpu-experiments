@@ -10,7 +10,9 @@
 history of recent turns and the same reply parser -- with the request issued over the
 worker channel a token at a time. It owns one worker context, framed in ChatML as
 ``JsMachine`` frames a job: the system prompt is a ``system`` turn prefilled once by
-``warm``; each request truncates back to it, appends a ``user`` turn holding the history
+``warm`` into a prefix context that is kept; each request forks a fresh context from it
+(a truncate would rewind to the worker's last KV snapshot below the prefix and replay the
+rest every decision), appends a ``user`` turn holding the history
 and the board, opens the ``assistant`` turn and decodes. Every step is begun and polled,
 so ``poll`` returns within its timeout whether or not the reply is complete, and the run
 loop keeps ticking the world while the model answers.
@@ -36,9 +38,11 @@ from zeos_space_invaders.players.base import PromptPlayer
 from zeos_space_invaders_web.contracts import AsyncModelWorker, PromptReply
 from zeos_space_invaders_web.machine import normalise_poll
 
-__all__ = ["CONTEXT_ID", "BrowserPromptPlayer"]
+__all__ = ["CONTEXT_ID", "PREFIX_ID", "BrowserPromptPlayer"]
 
-#: The arm's worker context. The descriptor part says ``prompt`` to a stub worker.
+#: The arm's worker contexts: the prefilled system prompt, and the decision forked from
+#: it. The descriptor part says ``prompt`` to a stub worker.
+PREFIX_ID = "prompt-prefix:prompt"
 CONTEXT_ID = "prompt-arm:prompt"
 
 #: How long one wait lasts when ``close`` drains a cancelled step.
@@ -88,6 +92,7 @@ class BrowserPromptPlayer(PromptPlayer):
         self._options: object | None = None
 
         self._context = False
+        self._decision = False
         self._prefix = 0
         self._ids: list[int] = []
         self._pieces: dict[int, str] = {}
@@ -146,13 +151,13 @@ class BrowserPromptPlayer(PromptPlayer):
         one step is decoded and thrown away to make it compute the prefix now."""
         if self._context:
             return
-        self._worker.createContext(CONTEXT_ID)
+        self._worker.createContext(PREFIX_ID)
         self._context = True
         prompt = cast("str", self.prompt)
         self._ids = self._turn("system", prompt)
         self._prefix = len(self._ids)
-        self._worker.append(CONTEXT_ID, self._bridge.ids(self._ids))
-        self._worker.decodeStep(CONTEXT_ID, self._bridge.options(None, None))
+        self._worker.append(PREFIX_ID, self._bridge.ids(self._ids))
+        self._worker.decodeStep(PREFIX_ID, self._bridge.options(None, None))
 
     def begin(self, obs: str, info: Mapping[str, object]) -> None:
         if self.busy:
@@ -160,7 +165,10 @@ class BrowserPromptPlayer(PromptPlayer):
         self.warm()
         rendered = cast("str", self.render_turn(obs, info))
         turn = self._turn("user", rendered) + self._turn("assistant", "", close=False)
-        self._worker.truncate(CONTEXT_ID, self._prefix)
+        if self._decision:
+            self._worker.destroyContext(CONTEXT_ID)
+        self._worker.fork(PREFIX_ID, CONTEXT_ID)
+        self._decision = True
         self._ids = self._ids[: self._prefix] + turn
         self._worker.append(CONTEXT_ID, self._bridge.ids(turn))
         self._obs, self._info = obs, info
@@ -226,13 +234,16 @@ class BrowserPromptPlayer(PromptPlayer):
         return None if not self.replies else self.parsed / len(self.replies)
 
     def close(self) -> None:
-        """Cancel any request under way and destroy the context."""
+        """Cancel any request under way and destroy both contexts."""
         if self._in_flight:
             self._worker.cancelDecode()
             while normalise_poll(self._worker.pollDecode(_DRAIN_POLL_MS)) is None:
                 pass
             self._in_flight = False
         self._obs, self._info = None, {}
-        if self._context:
+        if self._decision:
             self._worker.destroyContext(CONTEXT_ID)
+            self._decision = False
+        if self._context:
+            self._worker.destroyContext(PREFIX_ID)
             self._context = False

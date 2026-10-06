@@ -72,9 +72,14 @@ FRAME_OFFSET: Final = 16
 #: wants the channel must ``cancelDecode()`` and drain ``pollDecode`` first.
 CHANNEL_BUSY: Final = "channel busy: decode in flight"
 
-#: Prefill chunk for a pilot step: small enough that a cancel lands within one chunk of
-#: a board being read. Warm-up and replay use the worker's own (larger) default.
-DEFAULT_MAX_CHUNK: Final = 64
+#: Prefill chunk for a pilot step: a cancel lands within one chunk of a board being
+#: read. 256, not smaller: below about 800 positions each run carries a fixed overhead
+#: that made chunk 64 read a board 1.65x slower (``bench/RESULTS.md``). Warm-up and
+#: replay use the worker's own (larger) default.
+DEFAULT_MAX_CHUNK: Final = 256
+
+#: How long ``decode`` polls a step in flight before handing the kernel a stall.
+DEFAULT_STALL_MS: Final = 5.0
 
 
 class DecodeOptions(TypedDict):
@@ -268,7 +273,7 @@ class PilotMachineFactory(Protocol):
         bridge: Bridge | None = None,
         descriptors: Mapping[str, Sequence[str]] | None = None,
         block_size: int = 16,
-        stall_ms: float = 1.0,
+        stall_ms: float = DEFAULT_STALL_MS,
         max_chunk: int = DEFAULT_MAX_CHUNK,
         turn_ends_at_call: bool = True,
         forbid_verbs: Sequence[str] = (),
@@ -299,8 +304,9 @@ class PromptReply:
 class PromptArm(Protocol):
     """``BrowserPromptPlayer``: the prompt loop over the same worker, without blocking.
 
-    Owns one worker context. ``warm`` prefills the system prompt before the clock starts;
-    each ``begin`` truncates back to it, appends the history and the board, and starts an
+    Owns two worker contexts. ``warm`` prefills the system prompt into one before the
+    clock starts; each ``begin`` forks the other from it, appends the history and the
+    board, and starts an
     unconstrained reply of at most ``max_new`` tokens through ``beginDecodeStep``.
     """
 
