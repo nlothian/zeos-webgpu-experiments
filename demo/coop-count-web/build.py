@@ -16,9 +16,9 @@ page itself and the generic model-thread JavaScript from ``packages/zeos-browser
 which is how the page finds them: a static host lists no directories. The directory is
 emptied first, so what is served is exactly what this run built.
 
-When ``npm install`` has been run in ``packages/zeos-browser`` it also copies ONNX Runtime
-Web and the tokenizer into ``vendor/`` and names the model in the manifest, which is what
-offers the model machine on the page. The page downloads the model from the Hugging Face
+When ``npm install`` has been run in ``packages/zeos-browser`` it also copies the tokenizer
+into ``vendor/``, names jsDelivr's copy of the installed ONNX Runtime Web as ``ort_url``,
+and names the model in the manifest, which is what offers the model machine on the page. The page downloads the model from the Hugging Face
 Hub at a pinned commit, once, and keeps it in the browser's storage
 (``zeos_browser.model_source``). ``--model [DIR]`` also links a local export (by default
 ``packages/zeos-browser/models/Qwen3.5-4B-ZEOS-OPT``) into ``models/`` and loads that by
@@ -64,17 +64,9 @@ GENERIC = (
     "frames.js",
 )
 NODE_MODULES = BROWSER / "node_modules"
-#: What the model thread imports, from the npm packages zeos-browser's package.json pins.
+#: What the model thread imports from the page, from the npm packages zeos-browser's
+#: package.json pins. ONNX Runtime Web is loaded from jsDelivr (``model_source.ort_url``).
 VENDOR = {
-    "onnxruntime-web": (
-        NODE_MODULES / "onnxruntime-web" / "dist",
-        (
-            # The WebGPU build and the WebAssembly module it loads; nothing else runs.
-            "ort.webgpu.min.mjs",
-            "ort-wasm-simd-threaded.asyncify.mjs",
-            "ort-wasm-simd-threaded.asyncify.wasm",
-        ),
-    ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
 
@@ -117,6 +109,7 @@ def build(
             (dist / "vendor" / name).mkdir(parents=True)
             for file in files:
                 shutil.copy2(source / file, dist / "vendor" / name / file)
+        manifest["ort_url"] = model_source.ort_url(NODE_MODULES)
         manifest |= model_source.model_fields(
             dist,
             local=model,

@@ -28,7 +28,8 @@ Every command runs from the repository root.
 # 1. Python packages.
 uv sync --all-packages
 
-# 2. ONNX Runtime Web and the tokenizer, which build.py copies into the page.
+# 2. The tokenizer, which build.py copies into the page, and the ONNX Runtime Web
+#    version it names, which the page loads from jsDelivr.
 npm install --prefix packages/zeos-browser
 
 # 3. Assemble the page into demo/coop-count-web/web/dist/.
@@ -70,8 +71,9 @@ load with `?model=huggingface` or `?model=local` in the URL. `--hf-repo` and
 sources (`model_sources`) and the default (`model_source`).
 
 **Serving it elsewhere.** `web/dist/` is a static site: upload it to any file host. The
-page fetches Pyodide from the jsDelivr CDN and the model from the Hub, so the browser
-needs a network connection the first time. The language model needs the page
+page fetches Pyodide and ONNX Runtime Web from the jsDelivr CDN and the model from the
+Hub, so the browser needs a network connection the first time. No file in it is over
+25 MiB, the most Cloudflare Pages takes. The language model needs the page
 cross-origin isolated: `serve.py` sends the two headers that takes, and on a host that
 cannot send them `coi_serviceworker.js` adds them in the browser after one reload; the
 Hub's responses are CORS responses, which the isolation admits. With `--model`,

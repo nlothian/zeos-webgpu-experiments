@@ -31,6 +31,7 @@ const state = {
   gpu: null, // null unknown, else {ok, why}
   model: null, // the export's name, from the manifest
   source: null, // where the model loads from (model_host.js's modelSource), or why it cannot
+  ortUrl: null, // onnxruntime-web's ort.webgpu.min.mjs, from the manifest
   refreshCache: () => {}, // redraws the model cache line
   stub: false, // whether the build has the Space Invaders stub (web/stub/)
   describe: null,
@@ -174,7 +175,7 @@ async function ensureModel() {
   const started = performance.now();
   const model = await startBrowserModel({
     model: state.source,
-    ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
+    ortWebgpuUrl: state.ortUrl,
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     onProgress: onModelProgress,
     onPersisted: () => state.refreshCache(),
@@ -426,7 +427,9 @@ const handlers = {
     state.model = model;
     if (model !== null) {
       try {
-        state.source = modelSource(await (await fetch("manifest.json")).json());
+        const manifest = await (await fetch("manifest.json")).json();
+        state.source = modelSource(manifest);
+        state.ortUrl = manifest.ort_url;
         $("model-cache-row").hidden = false;
         state.refreshCache = modelCacheControls({
           status: $("model-cache"),

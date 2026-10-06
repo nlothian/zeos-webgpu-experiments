@@ -30,7 +30,10 @@ A page needs nothing prepared: it downloads the OPT+ZEOS export from the Hugging
 at a pinned commit, the first time the model machine runs (about 2.4 GB of the files are
 read), and keeps it in the browser's storage, so a reload, or the browser started again,
 reads it from disk instead (*Loading and caching the model*, below). `npm install` here
-is still needed, for ONNX Runtime Web and the tokenizer each page's `build.py` copies in.
+is still needed: each page's `build.py` copies the tokenizer in, and names ONNX Runtime
+Web on jsDelivr at the version installed here (`model_source.ort_url`). The page loads
+ONNX Runtime from there because its WebAssembly module (25.5 MiB) is over the largest
+file some static hosts accept (25 MiB on Cloudflare Pages).
 
 To run a page on a local export instead (to try a change to the graph, say), make the
 export, then build the page with `--model`, which links it into the page and loads it by

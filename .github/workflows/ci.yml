@@ -107,7 +107,8 @@ jobs:
   browser-packages:
     # The browser layer and the chat agent (packages/zeos-browser, packages/zeos-chat)
     # and the coop-count-web demo built on them: the chat machine's security tests, the
-    # Pyodide determinism gate, and the JavaScript worker, channel and cache tests. No
+    # Pyodide determinism gate, the JavaScript worker, channel and cache tests, and the
+    # check that both browser demos assemble into a site Cloudflare Pages accepts. No
     # test here runs the model (it runs on WebGPU only) or downloads it; the tests that
     # read the export's tokenizer skip without it. They need Node and zeos-browser's npm
     # packages.
@@ -139,6 +140,8 @@ jobs:
       - name: Run coop-count-web's tests
         working-directory: demo/coop-count-web
         run: uv run --frozen pytest --durations=15
+      - name: Run the demo site's tests
+        run: uv run --frozen pytest demo/site/tests --durations=15
       - name: Run the JavaScript tests
         run: node --test packages/zeos-browser/tests/js/*.test.mjs
 

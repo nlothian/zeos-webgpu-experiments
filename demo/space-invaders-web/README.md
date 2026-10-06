@@ -14,8 +14,8 @@ model is the comparison.
 
 ## Getting started
 
-The page uses zeos-browser's npm install (ONNX Runtime Web, the tokenizer, and the
-Pyodide the Node tests use), and downloads the model from the Hugging Face Hub the first
+The page uses zeos-browser's npm install (the tokenizer, the version of ONNX Runtime
+Web the page loads from jsDelivr, and the Pyodide the Node tests use), and downloads the model from the Hugging Face Hub the first
 time it runs (see *Loading and caching the model* in
 [`packages/zeos-browser`](../../packages/zeos-browser/README.md)). From the repository
 root:

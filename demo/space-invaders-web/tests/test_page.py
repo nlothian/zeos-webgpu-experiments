@@ -21,6 +21,7 @@ from types import ModuleType
 from typing import Any, cast, get_type_hints
 
 import pytest
+from zeos_browser import model_source
 
 from zeos_space_invaders_web import contracts, page
 from zeos_space_invaders_web.contracts import (
@@ -387,7 +388,8 @@ def test_build_assembles_everything_the_page_fetches(built: tuple[Path, dict[str
         }
         assert set(manifest["model_sources"]) == {"huggingface", "local"}
         assert (dist / "models" / "Tiny-ZEOS-OPT").is_symlink()
-        assert (dist / "vendor" / "onnxruntime-web" / "ort.webgpu.min.mjs").is_file()
+        assert manifest["ort_url"] == model_source.ort_url(build.NODE_MODULES)
+        assert not (dist / "vendor" / "onnxruntime-web").exists()
         assert (dist / "vendor" / "tokenizers" / "tokenizers.min.mjs").is_file()
     else:
         assert manifest["model"] is None

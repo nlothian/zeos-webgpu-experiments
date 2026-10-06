@@ -24,6 +24,7 @@ const state = {
   count: 0,
   digests: new Map(), // digest -> rows showing it
   source: null, // where the model loads from (model_host.js's modelSource)
+  ortUrl: null, // onnxruntime-web's ort.webgpu.min.mjs, from the manifest
   refreshCache: () => {}, // redraws the model cache line
 };
 
@@ -354,7 +355,9 @@ const handlers = {
     if (model) {
       try {
         modelHost = await import("./model_host.js");
-        state.source = modelHost.modelSource(await (await fetch("manifest.json")).json());
+        const manifest = await (await fetch("manifest.json")).json();
+        state.source = modelHost.modelSource(manifest);
+        state.ortUrl = manifest.ort_url;
         $("model-cache-row").hidden = false;
         state.refreshCache = modelHost.modelCacheControls({
           status: $("model-cache"),
@@ -463,7 +466,7 @@ async function ensureModel() {
   setStatus(`loading ${source.name} on the GPU`);
   const model = await modelHost.startBrowserModel({
     model: source,
-    ortWebgpuUrl: "vendor/onnxruntime-web/ort.webgpu.min.mjs",
+    ortWebgpuUrl: state.ortUrl,
     tokenizersUrl: "vendor/tokenizers/tokenizers.min.mjs",
     onProgress: onModelProgress,
     onPersisted: () => state.refreshCache(),

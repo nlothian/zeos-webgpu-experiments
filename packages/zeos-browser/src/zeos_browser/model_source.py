@@ -20,12 +20,19 @@ The manifest's fields::
         "huggingface": {"name": ..., "endpoint": "https://huggingface.co", "repo": ...,
                         "revision": "<40-hex commit>"},
         "local": {"name": ..., "path": "models/<name>/"},  # only with --model
-    }
+    },
+    "ort_url": "<onnxruntime-web's ort.webgpu.min.mjs on jsDelivr>",
+
+ONNX Runtime Web comes from jsDelivr, not from the page: its WebAssembly module is larger
+than a single file may be on some static hosts (25 MiB on Cloudflare Pages). jsDelivr
+serves the npm package's files unchanged, with the CORS and CORP headers a cross-origin
+isolated page needs, as it does Pyodide.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 from pathlib import Path
@@ -41,6 +48,9 @@ HF_REPO = "nlothian/Qwen3.5-4B-ZEOS-OPT_Q4F16"
 HF_REVISION = "f71e07f80aa6d20f66c69575facae9813a053c5e"
 #: Where ``export/opt_zeos_surgery.py`` writes the export, for ``--model`` with no value.
 LOCAL_EXPORT = Path(__file__).resolve().parents[2] / "models" / "Qwen3.5-4B-ZEOS-OPT"
+
+#: onnxruntime-web's WebGPU build on jsDelivr, for the version npm installed.
+ORT_CDN = "https://cdn.jsdelivr.net/npm/onnxruntime-web@{version}/dist/ort.webgpu.min.mjs"
 
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _ENDPOINT = re.compile(r"https?://[^/?#]+")
@@ -102,3 +112,14 @@ def model_fields(
         sources["local"] = {"name": local.name, "path": f"models/{local.name}/"}
         default = "local"
     return {"model": sources[default]["name"], "model_source": default, "model_sources": sources}
+
+
+def ort_url(node_modules: Path) -> str:
+    """The manifest's ``ort_url``: jsDelivr's copy of the onnxruntime-web npm installed.
+
+    The installed version, not the one ``package.json`` asks for, so the page loads the
+    files the Node tests ran.
+    """
+    package = node_modules / "onnxruntime-web" / "package.json"
+    version = json.loads(package.read_text(encoding="utf-8"))["version"]
+    return ORT_CDN.format(version=version)
