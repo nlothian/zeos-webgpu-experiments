@@ -192,7 +192,12 @@ CPython and Pyodide alarm alike. `STATUS` and `STUB`
 stay case-sensitive, with only invisible characters dropped, since lower-case `<status>`
 and `<stub>` are common in genuine XML and an alarm that fires on real data teaches
 everyone to ignore it. `<KERNELS>`, `<faultcode>`, `<soap:Fault>`, `<STUBBORN>` and
-`<status>` do not alarm. The model-side `FrameGuard` bans the same names under the same
+`<status>` do not alarm. A name ends where a reader sees it end: it is matched across
+what the fold drops, but a dropped character after it ends it (`<KER\u200bNEL\u200bS>`,
+`<STA\u200bTUS\u200bx>`), and so does a look-alike after an ASCII letter, even one that
+folds to a name character (`<fault‐x>`, `<kernel１>`); a look-alike continues a name
+that ends in one (`<ｋｅｒｎｅｌｓ>`), and a plain ASCII name character continues any name
+(`<КERNELS>`). The model-side `FrameGuard` bans the same names under the same
 policy, folded across the pieces of the turn. The alarm is advisory: what the agent can do
 is set by its capabilities and its integrity, which no text can change (text can persuade;
 only the kernel can permit), and persuasion that spells no tag, `SYSTEM OVERRIDE: ...`, is

@@ -19,6 +19,20 @@ may hold (an ASCII letter, digit, ``_``, ``-``, ``.`` or ``:``). So ``"<KERNEL>`
 is text ending in ``<FAULT``, whose attributes follow; ``<KERNELS>``, ``<STUBBORN>`` and
 ``&lt;KERNEL&gt;`` are not.
 
+**Where a name ends** is where a reader sees it end, which is not always where the
+``strip`` or the ``fold`` would put it. Both matches below match a name across the
+characters they drop, but the name's follower is read from the text as it is: a
+character the track drops ends the name, and so does a non-ASCII character after a name
+whose last letter is ASCII, even when it folds to a name character. A look-alike of a
+name character continues a name that also ends in a look-alike, and a plain ASCII name
+character continues any name. So ``<KER\\u200bNEL\\u200bS>``, ``<STA\\u200bTUS\\u200bx>``,
+``<fault\\u2010x>`` with a hyphen look-alike and ``<kernel\\uff11>`` with a fullwidth
+digit are imitations, although they strip or fold to ``<KERNELS>``, ``<STATUSx>``,
+``<FAULT-X>`` and ``<KERNEL1>``; ``<ｋｅｒｎｅｌｓ>`` in fullwidth, ``<КERNELS>`` with a
+Cyrillic ``К`` and ``<kerne\\u013as>`` are not. A combining accent is dropped, so it ends
+the name it follows: ``<kernel\\u0301s>`` alarms, where the precomposed ``<kerne\\u013as>``
+does not.
+
 The names are matched in two ways, because they are not equally rare in real data.
 
 ``KERNEL``, ``RESUME`` and ``FAULT`` (``FOLDED_FRAMES``) almost never appear as bare
@@ -36,8 +50,8 @@ itself is only upper-cased. So ``<kernel>``, ``<ReSuMe x=1>``, ``<KER\\u200bNEL>
 ``<RESUɱE>``, ``<ᴋᴇʀɴᴇʟ>`` in small capitals and ``‹FAULT›`` are imitations;
 ``<kernels>``, ``<faultcode>``, ``<soap:Fault>`` and the ASCII ``<kerne1>`` are not.
 
-``STATUS`` and ``STUB`` are matched case-sensitively, in the text and in the text with
-only the characters a reader does not see dropped (``strip``): the kernel writes its
+``STATUS`` and ``STUB`` are matched case-sensitively, in the text with only the
+characters a reader does not see dropped (``strip``): the kernel writes its
 frames in capitals, and lower-case ``<status>`` or ``<stub>`` is ordinary markup in the
 XML and API data tools return, so alarming on it would make the alarm noise and escape
 real data. ``<ST\\u200bATUS>`` is an imitation; ``<status>`` and ``<ЅTATUS>`` with a
@@ -111,20 +125,75 @@ def _load() -> dict[int, str]:
 
 _FOLD: dict[int, str] = _load()
 _STRIP: dict[int, str] = {c: "" for c, folded in _FOLD.items() if not folded}
-_SAME: dict[int, str] = {}
+
+#: What a match reads in place of a character it drops, and in front of each character a
+#: non-ASCII character folds to. Both are C0 controls the fold drops, so neither survives
+#: from the text itself.
+_DROPPED = "\x01"
+_LOOKALIKE = "\x02"
+
+
+def _marked(table: dict[int, str]) -> dict[int, str]:
+    """``table`` as a match reads it: a dropped character as ``_DROPPED``, and every
+    character a non-ASCII one maps to behind a ``_LOOKALIKE``, so a match can tell where
+    a name ends in the text a reader sees (``_tag``)."""
+    marked: dict[int, str] = {}
+    for code, mapped in table.items():
+        if not mapped:
+            marked[code] = _DROPPED
+        elif code < 0x80:
+            marked[code] = mapped
+        else:
+            marked[code] = "".join(_LOOKALIKE + c for c in mapped)
+    return marked
+
+
+_STRIP_MARKED: dict[int, str] = _marked(_STRIP)
+_FOLD_MARKED: dict[int, str] = _marked(_FOLD)
 
 _NAME = "(?:" + "|".join(FRAMES) + ")"
 
 #: The kernel's own frame, which begins its text.
 _OPENER = re.compile(r"^</?" + _NAME + r"(?=[\s>]|$)")
 
-#: A frame tag anywhere in stripped text: the name not continued as a longer tag name.
-_TAG = re.compile(r"(?:<|\\u003[cC]|\\x3[cC])/?" + _NAME + r"(?![A-Za-z0-9_.:-])")
+#: Before each character of an opening or a name after its first: any characters
+#: dropped, then the mark of a look-alike, if it is one.
+_GAP = f"{_DROPPED}*{_LOOKALIKE}?"
 
-#: The same for a folded frame, in folded text, where every ASCII letter is a capital.
-_FOLDED_TAG = re.compile(
-    r"(?:<|\\U003C|\\X3C)/?(?:" + "|".join(FOLDED_FRAMES) + r")(?![A-Z0-9_.:-])"
-)
+
+def _tag(openings: Sequence[str], names: Sequence[str], continues: str) -> re.Pattern[str]:
+    """A frame tag anywhere in marked text: an opening, an optional ``/`` and a name,
+    matched across dropped characters, and not continued as a longer tag name.
+
+    ``continues`` is the class of a character a tag name may hold. What follows the name
+    continues it when a reader would see the name run on: a plain ASCII character of
+    ``continues``, or, after a name whose last letter is a look-alike, a look-alike of
+    one (``<ｋｅｒｎｅｌｓ>``). A dropped character ends the name (``<KER\\u200bNEL\\u200bS>``),
+    and so does a look-alike after an ASCII letter (``<fault\\u2010x>``,
+    ``<kernel\\uff11>``).
+    Each gap is a run of one character then an optional other, so the scan stays linear.
+    """
+
+    def spelled(literal: str) -> str:
+        return re.escape(literal[0]) + "".join(_GAP + re.escape(c) for c in literal[1:])
+
+    def name(text: str) -> str:
+        last = re.escape(text[-1])
+        return (
+            "".join(_GAP + re.escape(c) for c in text[:-1])
+            + f"{_DROPPED}*(?:{_LOOKALIKE}{last}(?!{_LOOKALIKE}?{continues})|{last}(?!{continues}))"
+        )
+
+    opening = "(?:" + "|".join(spelled(o) for o in openings) + ")"
+    return re.compile(opening + f"(?:{_GAP}/)?" + "(?:" + "|".join(name(n) for n in names) + ")")
+
+
+#: A frame tag in marked stripped text.
+_TAG = _tag(OPENINGS, FRAMES, "[A-Za-z0-9_.:-]")
+
+#: The same for a folded frame, in marked folded text, where every ASCII letter is a
+#: capital.
+_FOLDED_TAG = _tag(("<", "\\U003C", "\\X3C"), FOLDED_FRAMES, "[A-Z0-9_.:-]")
 
 #: A JSON escape of a bracket, which ``shown`` writes as the entity a bracket is.
 _ESCAPED_BRACKET = re.compile(r"\\u003[cCeE]|\\x3[cCeE]")
@@ -147,13 +216,13 @@ def strip(text: str) -> str:
 
 def spells_frame(text: str) -> bool:
     """Whether text spells a frame tag, opening or closing, anywhere in it: any of
-    ``FRAMES`` in the text or its ``strip``, or any of ``FOLDED_FRAMES`` in its ``fold``.
-    The text as it is counts too, so ``<KERNEL`` followed by a zero-width space and an
-    ``S`` is an imitation: the model reads the name end at the invisible character."""
+    ``FRAMES`` in its ``strip``, or any of ``FOLDED_FRAMES`` in its ``fold``, the name
+    ending where a reader sees it end (module docstring). So ``<KERNEL`` followed by a
+    zero-width space and an ``S`` is an imitation: the model reads the name end at the
+    invisible character."""
     return (
-        _TAG.search(text) is not None
-        or _TAG.search(strip(text)) is not None
-        or _FOLDED_TAG.search(fold(text)) is not None
+        _TAG.search(text.translate(_STRIP_MARKED)) is not None
+        or _FOLDED_TAG.search(text.translate(_FOLD_MARKED)) is not None
     )
 
 
@@ -216,7 +285,7 @@ def _touched(run: Sequence[Token]) -> set[int]:
         at += len(piece)
     text = "".join(pieces)
     spans: list[tuple[int, int]] = []
-    for table, pattern in ((_SAME, _TAG), (_STRIP, _TAG), (_FOLD, _FOLDED_TAG)):
+    for table, pattern in ((_STRIP_MARKED, _TAG), (_FOLD_MARKED, _FOLDED_TAG)):
         origin: list[int] = []
         out: list[str] = []
         for index, char in enumerate(text):

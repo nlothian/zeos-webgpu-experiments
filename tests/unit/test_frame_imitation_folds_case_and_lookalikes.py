@@ -158,6 +158,63 @@ def test_folded_matching_is_linear_in_the_text() -> None:
     assert seconds(large) < 24 * seconds(small) + 0.05
 
 
+# -- where a name ends: as a reader sees it, not as the fold reads it ----------------------
+
+#: Imitations whose name a dropped character, or a look-alike after an ASCII letter, ends,
+#: though the fold or the strip reads it running on.
+NAME_ENDS = {
+    "zero-width spaces inside the name and after it": "<KER\u200bNEL\u200bS>",
+    "STATUS with zero-width spaces inside and after": "<STA\u200bTUS\u200bx>",
+    "a hyphen look-alike after a lower-case name": "<fault\u2010x>",
+    "a fullwidth digit after a lower-case name": "<kernel\uff11>",
+    "a zero-width joiner before a digit": "<KERNEL\u200d1>",
+    "a variation selector before a letter": "<FAULT\ufe0fS>",
+    "a combining accent between the name and a letter": "<kernel\u0301s>",
+    "a zero-width space inside a fullwidth run-on": (
+        "<\uff4b\uff45\uff52\uff4e\uff45\uff4c\u200b\uff53>"
+    ),
+    "a look-alike after a look-alike name, behind a word joiner": (
+        "<\u041a\u0415R\u039d\u0415\u0399\u2060\u0405>"
+    ),
+}
+
+#: Run-ons a reader sees run on: an ASCII name character after any name, and a look-alike
+#: after a look-alike.
+NAME_RUNS_ON = {
+    "a Cyrillic first letter, run on in ASCII": "<\u041aERNELS>",
+    "a precomposed accented last letter, run on in ASCII": "<kerne\u013as>",
+    "fullwidth, run on with a fullwidth digit": "<\uff4b\uff45\uff52\uff4e\uff45\uff4c\uff11>",
+    "fullwidth, run on in ASCII": "<\uff4b\uff45\uff52\uff4e\uff45\uff4cs>",
+    "a last letter that folds to two": "<KERNE\u01c8>",
+    "small capitals, run on": "<\u1d0b\u1d07\u0280\u0274\u1d07\u029f\ua731>",
+    "lower-case status behind a zero-width space": "<status\u200bx>",
+}
+
+
+@pytest.mark.parametrize("text", NAME_ENDS.values(), ids=NAME_ENDS.keys())
+def test_a_name_ends_where_a_reader_sees_it_end(text: str) -> None:
+    assert spells_frame(text)
+    assert imitates_frame(tokens_from_text(_as_json(text), preserve_whitespace=True))
+    seen = "".join(shown_words(tokens_from_text(f"rows {text} end", preserve_whitespace=True)))
+    assert not spells_frame(seen) and "&lt;" in seen
+
+
+@pytest.mark.parametrize("text", NAME_RUNS_ON.values(), ids=NAME_RUNS_ON.keys())
+def test_a_name_a_reader_sees_run_on_is_no_tag(text: str) -> None:
+    assert not spells_frame(text)
+    tokens = tokens_from_text(_as_json(text), preserve_whitespace=True)
+    assert not imitates_frame(tokens)
+    assert shown_words(tokens) == tuple(t.text for t in tokens)
+
+
+def test_matching_across_dropped_characters_is_linear_in_the_text() -> None:
+    near = "<" + "\u200b" * 8 + "/\u200bK\u200bE\u200bR\u200bN\u200bE\u200b\u200d"
+    assert not spells_frame(near * 50_000 + "<kernels")
+    assert spells_frame(near * 50_000 + "<kernel\u200bs")
+    small, large = (near * n + "<kernels" for n in (6_250, 50_000))
+    assert seconds(large) < 24 * seconds(small) + 0.05
+
+
 # -- the evasions a fold of case, NFKC and a few homoglyphs let through -----------------
 
 #: Imitations by what hides them.
