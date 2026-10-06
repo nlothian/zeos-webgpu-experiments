@@ -178,6 +178,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .verdicts .unjudged .tag { color: var(--muted); }
 .verdicts .detail { display: block; color: var(--muted); font-size: 12px; }
 
+.sub-h { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.measures { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: 13px; }
+.measures dt { color: var(--muted); }
+.measures dd { margin: 0; font-variant-numeric: tabular-nums; }
+.measures .bad { color: var(--hot); }
+.tuned { color: var(--hot); }
 .table-box { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }

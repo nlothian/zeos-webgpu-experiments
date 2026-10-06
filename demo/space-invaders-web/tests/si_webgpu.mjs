@@ -67,6 +67,10 @@ function otherGpuProcesses() {
     .filter(Boolean)
     .map(([, pid, ppid, cpu, command]) => ({ pid: Number(pid), ppid: Number(ppid), cpu: Number(cpu), command }));
   const mine = new Set([process.pid]);
+  // And this script's ancestors: the shell that started it names it on its command line.
+  const parent = new Map(rows.map((row) => [row.pid, row.ppid]));
+  const ancestors = new Set();
+  for (let pid = parent.get(process.pid); pid && pid > 1; pid = parent.get(pid)) ancestors.add(pid);
   for (let grew = true; grew; ) {
     grew = false;
     for (const row of rows) {
@@ -77,7 +81,7 @@ function otherGpuProcesses() {
     }
   }
   return rows
-    .filter((row) => !mine.has(row.pid) && GPU_USERS.test(row.command) && !row.command.includes("ps -axo"))
+    .filter((row) => !mine.has(row.pid) && !ancestors.has(row.pid) && GPU_USERS.test(row.command))
     .map((row) => ({
       pid: row.pid,
       cpu: row.cpu,

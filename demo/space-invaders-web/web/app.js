@@ -70,8 +70,11 @@ async function checkGpu() {
   }
 }
 
+const TUNE = new URLSearchParams(location.search).get("tune");
+
 function renderChecks() {
   const parts = [];
+  if (TUNE) parts.push(`<span class="tuned">tuned: ${TUNE.replace(/[<>&]/g, "")}</span>`);
   const item = (ok, text) => `<span class="${ok ? "good" : "bad"}">${text}: ${ok ? "yes" : "no"}</span>`;
   parts.push(item(state.isolated, "cross-origin isolated"));
   if (state.gpu !== null) parts.push(item(state.gpu.ok, "WebGPU adapter"));
@@ -216,6 +219,8 @@ function resetLive() {
   }
   state.catchup = 0;
   state.lastFrame = null;
+  $("measures").replaceChildren();
+  $("measures-h").hidden = true;
 }
 
 function showFrame(frame) {
@@ -282,6 +287,49 @@ function renderVerdicts(verdicts, arm) {
   }
 }
 
+/** "1 kill", "3 kills". */
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+/** The run's own measurements (RunResult.extras), beside the verdicts. */
+function renderMeasures(result) {
+  const x = result.extras ?? {};
+  const rows = [];
+  const add = (label, value, bad = false) => value !== null && value !== undefined && rows.push([label, value, bad]);
+  const ms = (o) => (o ? `${Math.round(o.mean)} mean / ${Math.round(o.p95 ?? o.max)} p95 / ${Math.round(o.max)} max ms` : null);
+  if (x.warm_s !== undefined) add("warm-up", `${fmt(x.warm_s)} s${x.prewarm_ms ? ` (mask prewarm ${fmt(x.prewarm_ms / 1000)} s)` : ""}`);
+  add("loop overrun", ms(x.overrun_ms));
+  add("catch-up ticks", String(result.catchup_ticks));
+  if (x.pilot_moves !== undefined) {
+    add("pilot moves", `${x.pilot_valid_moves} of ${x.pilot_moves} valid${x.pilot_exits ? `, ${x.pilot_exits} exits` : ""}`, x.pilot_valid_moves !== x.pilot_moves);
+    add("pilot request to move", x.roundtrip_s ? `${fmt(x.roundtrip_s.mean)} mean / ${fmt(x.roundtrip_s.max)} max s` : null);
+    add("cancel latency", ms(x.cancel_ms));
+    if (x.longest_pilot_gap) {
+      const g = x.longest_pilot_gap;
+      add("longest gap between pilot moves", `${fmt(g.seconds)} s (ticks ${g.from_tick}–${g.to_tick})`);
+    }
+    add("pager splices", String(x.journal_splices ?? x.splices ?? 0), (x.journal_splices ?? 0) > 0);
+    const faults = x.faults ?? [];
+    add("kernel faults", faults.length ? faults.map((f) => `${f.fault} (${f.job})`).join(", ") : "none", faults.length > 0);
+  }
+  if (x.replies !== undefined) {
+    add("replies", `${x.replies}, ${x.reply_latency_s ? `${fmt(x.reply_latency_s.mean)} s mean` : ""}`);
+    if (x.unparsed?.length) add("unparsed", x.unparsed.slice(0, 3).map((t) => JSON.stringify(t)).join(", "), true);
+  }
+  const list = $("measures");
+  list.replaceChildren();
+  for (const [label, value, bad] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    if (bad) dd.className = "bad";
+    list.append(dt, dd);
+  }
+  $("measures-h").hidden = rows.length === 0;
+}
+
 function fmt(n, digits = 1) {
   return n === null || n === undefined ? "–" : Number(n).toFixed(digits);
 }
@@ -301,6 +349,8 @@ function recordRun(run, result, verdicts) {
     [fmt(result.lag_ticks.p95, 0), true],
     [String(result.preemptions), true],
     [String(result.cancellations), true],
+    [String(result.extras?.pilot_moves ?? result.extras?.replies ?? "–"), true],
+    [result.extras?.warm_s === undefined ? "–" : `${fmt(result.extras.warm_s)} s`, true],
     [result.parse_rate === null ? "–" : `${Math.round(result.parse_rate * 100)}%`, true],
     [judged.length ? `${passed}/${judged.length}` : verdicts.length ? "not judged" : "–", false],
   ];
@@ -421,13 +471,14 @@ const handlers = {
             : "out of ticks";
     $("summary").textContent =
       `${ARM_NAMES[run.arm]} on ${run.board}, seed ${r.seed ?? "none"}: ${how} after ${r.ticks} ticks — ` +
-      `${r.lives} lives, ${r.kills} kills, ${r.decisions} moves (${r.reflexes} by the reflex), ` +
+      `${r.lives === 1 ? "1 life" : `${r.lives} lives`}, ${plural(r.kills, "kill")}, ${plural(r.decisions, "move")} (${r.reflexes} by the reflex), ` +
       `lag ${fmt(r.lag_ticks.mean)} mean / ${fmt(r.lag_ticks.p95, 0)} p95 ticks, ` +
       `${r.preemptions} preemptions, ${r.cancellations} cancellations, overrun ${Math.round(r.overrun_ms)} ms` +
       (r.parse_rate === null ? "." : `, ${Math.round(r.parse_rate * 100)}% of replies parsed.`);
     renderVerdicts(finished.verdicts, run.arm);
+    renderMeasures(r);
     recordRun(run, r, finished.verdicts);
-    setStatus(`${how}: ${r.kills} kills, ${r.lives} lives left after ${r.ticks} ticks`);
+    setStatus(`${how}: ${plural(r.kills, "kill")}, ${r.lives === 1 ? "1 life" : `${r.lives} lives`} left after ${r.ticks} ticks`);
     refreshControls();
     showDebugger(finished.payload);
   },
