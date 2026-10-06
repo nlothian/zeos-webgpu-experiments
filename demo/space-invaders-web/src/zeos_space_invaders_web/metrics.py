@@ -78,6 +78,26 @@ def overrun_stats(overruns_ms: Sequence[float]) -> OverrunStats:
     }
 
 
+class Spread(TypedDict):
+    """Mean, nearest-rank 95th percentile and maximum, rounded to 3 places."""
+
+    mean: float
+    p95: float
+    max: float
+
+
+def spread(values: Sequence[float]) -> Spread:
+    """``Spread`` of ``values``; all 0.0 for none. What a run's extras report for its
+    overruns, cancel latencies and round trips."""
+    if not values:
+        return {"mean": 0.0, "p95": 0.0, "max": 0.0}
+    return {
+        "mean": round(sum(values) / len(values), 3),
+        "p95": round(percentile(values, 95), 3),
+        "max": round(float(max(values)), 3),
+    }
+
+
 def due_ticks(now: float, due: float, interval: float) -> int:
     """How many tick intervals have fallen due by ``now``: 0 before ``due``, else
     one for ``due`` itself and one more for each whole interval since.

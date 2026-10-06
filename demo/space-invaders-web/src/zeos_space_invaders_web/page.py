@@ -25,9 +25,7 @@ from __future__ import annotations
 import dataclasses
 import gc
 import json
-import math
 import random
-import statistics
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -67,7 +65,6 @@ from zeos_space_invaders_web.contracts import (
     DecisionRecord,
     Frame,
     FrameSink,
-    LagStats,
     MonotonicClock,
     PromptReply,
     Run,
@@ -76,6 +73,7 @@ from zeos_space_invaders_web.contracts import (
     load_board,
 )
 from zeos_space_invaders_web.machine import PilotJsMachine
+from zeos_space_invaders_web.metrics import lag_stats, spread
 from zeos_space_invaders_web.prompt_player import BrowserPromptPlayer
 from zeos_space_invaders_web.runner import (
     WallClockPromptRunner,
@@ -231,20 +229,6 @@ def make_frame(
         "preemptions": preemptions,
         "cancellations": cancellations,
         "reflexes": reflexes,
-    }
-
-
-def lag_stats(lags: Sequence[float]) -> LagStats:
-    """Mean, median, 95th percentile (nearest rank) and maximum; all 0.0 for none."""
-    if not lags:
-        return {"mean": 0.0, "p50": 0.0, "p95": 0.0, "max": 0.0}
-    ordered = sorted(float(x) for x in lags)
-    rank = max(0, math.ceil(0.95 * len(ordered)) - 1)
-    return {
-        "mean": statistics.fmean(ordered),
-        "p50": float(statistics.median(ordered)),
-        "p95": ordered[rank],
-        "max": ordered[-1],
     }
 
 
@@ -510,12 +494,12 @@ ZEOS_MACHINE_OPTIONS: dict[str, Any] = {}
 PROMPT_OPTIONS: dict[str, Any] = {}
 #: Runner keywords for either arm (``max_ticks``, ``max_seconds``).
 RUNNER_OPTIONS: dict[str, Any] = {}
-#: The pilot's starvation limit in the web demo. A temporary workaround: the kernel
+#: The pilot's starvation limit in the web demo, a workaround: the kernel
 #: compares ``KernelConfig.starvation_limit`` (8) with a preemption count that never
 #: resets, and a model slower than the tick is running when nearly every threat
 #: arrives, so the reflex's preemptions retire the pilot within a minute of play.
-#: ``fix/starvation-progress`` makes the count reset on progress; once that lands, this
-#: override goes and the kernel's own default applies again.
+#: Branch ``fix/starvation-progress`` (not merged) resets the count on progress; with it,
+#: this override is unnecessary.
 STARVATION_LIMIT = 10_000
 #: ``KernelConfig`` fields the zeos arm's kernel is built with, over the native case's.
 DEFAULT_ZEOS_KERNEL_OPTIONS: Final[Mapping[str, Any]] = {"starvation_limit": STARVATION_LIMIT}
@@ -693,21 +677,6 @@ def _stopped(stop: StopFlag | None) -> bool:
     return stop is not None and bool(stop.is_set())
 
 
-def _percentile(values: Sequence[float], q: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    return float(ordered[max(0, math.ceil(q * len(ordered)) - 1)])
-
-
-def _overruns(values: Sequence[float]) -> dict[str, float]:
-    return {
-        "mean": round(statistics.fmean(values), 3) if values else 0.0,
-        "p95": round(_percentile(values, 0.95), 3),
-        "max": round(max(values), 3) if values else 0.0,
-    }
-
-
 class ZeosRun:
     """The zeos arm: ``PilotJsMachine`` over the channel, ``ZeosDriver`` over it,
     ``WallClockZeosRunner`` on the wall clock.
@@ -819,9 +788,9 @@ class ZeosRun:
             "warm_s": self.warm_s,
             "runner_warm_s": runner.warm_s,
             "prewarm_ms": self.prewarm_ms,
-            "overrun_ms": _overruns(runner.overruns_ms),
-            "cancel_ms": _overruns(machine.cancel_ms),
-            "roundtrip_s": _overruns(machine.roundtrips),
+            "overrun_ms": spread(runner.overruns_ms),
+            "cancel_ms": spread(machine.cancel_ms),
+            "roundtrip_s": spread(machine.roundtrips),
             "step_totals": dict(machine.step_totals),
             "positions_total": machine.positions_total,
             "fill_ms_total": round(machine.fill_ms_total, 1),
@@ -909,9 +878,9 @@ class PromptRun:
         result.extras = {
             "machine": "stub" if self.context.stub else "model",
             "warm_s": self.runner.warm_s,
-            "overrun_ms": _overruns(self.runner.overruns_ms),
+            "overrun_ms": spread(self.runner.overruns_ms),
             "replies": len(replies),
-            "reply_latency_s": _overruns([r.latency for r in replies]),
+            "reply_latency_s": spread([r.latency for r in replies]),
             "unparsed": [r.text for r in replies if not r.parsed][:20],
             "worker_calls": self.worker.summary(),
             "gc": pauses.summary(),

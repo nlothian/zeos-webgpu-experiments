@@ -119,25 +119,44 @@ function start({ arm, board, seed, machine, tune = "" }) {
     post("frame", frame);
     for (const decision of frame.decisions) post("decision", decision);
   });
-  const run = page.open_run.callKwargs(arm, board, seed ?? null, worker, {
-    stub: machine === "stub",
-    on_frame: onFrame,
-    stop,
-    clock,
-  });
+  // The first error wins: a run that fails and then fails to close reports why it
+  // failed, and every proxy is destroyed on every path.
+  let failure = null;
   try {
-    post("warming", { arm, board });
-    run.warm();
-    post("started", { arm, board, seed, machine, stopped: stop.is_set() });
-    const result = run.run();
-    const finished = JSON.parse(page.finished_json(result, CASE_ROOT));
-    result.destroy();
-    post("finished", { ...finished, stopped: stop.is_set() });
+    const run = page.open_run.callKwargs(arm, board, seed ?? null, worker, {
+      stub: machine === "stub",
+      on_frame: onFrame,
+      stop,
+      clock,
+    });
+    try {
+      post("warming", { arm, board });
+      run.warm();
+      post("started", { arm, board, seed, machine, stopped: stop.is_set() });
+      const result = run.run();
+      try {
+        const finished = JSON.parse(page.finished_json(result, CASE_ROOT));
+        post("finished", { ...finished, stopped: stop.is_set() });
+      } finally {
+        result.destroy();
+      }
+    } catch (err) {
+      failure = err;
+    } finally {
+      try {
+        run.close();
+      } catch (err) {
+        failure ??= err;
+      } finally {
+        run.destroy();
+      }
+    }
+  } catch (err) {
+    failure ??= err;
   } finally {
-    run.close();
-    run.destroy();
     onFrame.destroy();
   }
+  if (failure !== null) throw failure;
 }
 
 const handlers = { attachModel, start };

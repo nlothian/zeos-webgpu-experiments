@@ -406,7 +406,8 @@ function download(name, text, type) {
   link.href = URL.createObjectURL(new Blob([text], { type }));
   link.download = name;
   link.click();
-  URL.revokeObjectURL(link.href);
+  // After the click has been handled: a browser may still be starting the download.
+  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
 }
 
 const runName = (run) => `space-invaders-${run.arm}-${run.board}-seed${run.seed ?? "none"}-${run.machine}`;
@@ -540,7 +541,7 @@ $("stop").addEventListener("click", () => {
   // word every iteration, and its sleeps wait on it.
   Atomics.store(control, CONTROL_STOP, 1);
   Atomics.notify(control, CONTROL_STOP);
-  setStatus("stopping at the next tick");
+  setStatus("stopping");
 });
 
 $("download").addEventListener("click", () => {

@@ -1,0 +1,120 @@
+{
+ "note": "Tuning comparison: chunk 128, window 4096, zeos arm on the default board, quiet GPU.",
+ "tune": "{\"zeos\":{\"max_chunk\":128}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 2703,
+      "cpu": 0,
+      "active": false,
+      "command": "/bin/zsh -c source /Users/nlothian/.claude/shell-snapshots/snapshot-zsh-1791244198860-59rzzg.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL"
+     },
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 2703,
+      "cpu": 0,
+      "active": false,
+      "command": "/bin/zsh -c source /Users/nlothian/.claude/shell-snapshots/snapshot-zsh-1791244198860-59rzzg.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL"
+     },
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 3,
+   "kills": 5,
+   "ticks": 242,
+   "decisions": 44,
+   "lag_ticks": {
+    "mean": 6.2,
+    "p95": 8,
+    "max": 8
+   },
+   "preemptions": 19,
+   "cancellations": 20,
+   "reflexes": 19,
+   "overrun_ms": {
+    "mean": 15.167,
+    "p95": 6.67,
+    "max": 1124.305
+   },
+   "catchup_ticks": 5,
+   "warm_s": {
+    "page": 17.19,
+    "python": 15.833,
+    "prewarm_ms": 5179.7
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 410.567,
+    "p95": 939.315,
+    "max": 950.595
+   },
+   "roundtrip_s": {
+    "mean": 3.292,
+    "p95": 4.002,
+    "max": 10.613
+   },
+   "syscall_adherence": {
+    "moves": 25,
+    "valid": 25,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 126,
+    "stall": 14977,
+    "cancelled": 7,
+    "native": 63
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "cancelled",
+    "positions": 640,
+    "chunks": 5,
+    "fill_ms": 3708.2949998378754,
+    "wall_ms": 4.210000000000491
+   },
+   "splices": 4,
+   "journal_splices": 4,
+   "context_ids": {
+    "1": 10446
+   },
+   "pilot_context": {},
+   "kernel_options": {
+    "starvation_limit": 10000
+   },
+   "longest_pilot_gap": {
+    "ticks": 87,
+    "seconds": 43.5,
+    "from_tick": 155,
+    "to_tick": 242,
+    "splices": 4
+   },
+   "faults": []
+  }
+ ]
+}

@@ -3,7 +3,7 @@
 **Status: playable on WebGPU.** Both players run on the real model in the browser. The
 ZEOS arm plays a full 600-tick default game, with the four criteria passing. Two
 settings differ from the native demo (see *Settings that differ from the native demo*):
-- the kernel's starvation limit is raised, as a temporary workaround;
+- the kernel's starvation limit is raised, as a workaround;
 - the pilot's context window is enlarged so the pager does not act.
 
 The port puts [`../space-invaders`](../space-invaders/) in a static web page: the ZEOS
@@ -55,7 +55,10 @@ here to coop-count-web's.
   adapter, and whether the build has the model.
 - **Phases:** *loading model* (with a download bar, model machine only), *warming* (the
   system prompt is prefilled before the game clock starts), *playing*, *finished*.
-  **Stop** ends a run at the next tick.
+  **Stop** is read between 20 ms slices of the loop, so it ends a run within about 20 ms
+  plus the step under way, which can be the lead view's aim search (see *Known issues*). If the
+  model thread stops answering, Stop gives up after 30 s and the page shows the error;
+  later runs on that model refuse until the page is reloaded.
 - **The board:** drawn on a canvas, sharp at any zoom. Under it, the last move: who made
   it (`pilot`, `evade` or `prompt`), how many ticks late it landed, and `PREEMPTED` when
   the reflex took the machine from the pilot. A late move outlines the column the ship
@@ -102,7 +105,7 @@ earlier chunk and the native window.
 These are set on the kernel the web demo builds. The native case files and
 `build_kernel` are unchanged, and there is no copy of the case.
 
-- **Starvation limit 10,000 (temporary workaround), `page.STARVATION_LIMIT`.**
+- **Starvation limit 10,000 (a workaround), `page.STARVATION_LIMIT`.**
   - The kernel faults a job when its preemption count passes `KernelConfig.starvation_limit`
     (8), and the scheduler never resets that count. The case does not set the limit.
   - A pilot that takes several ticks a move is running when most threats arrive, so
@@ -110,9 +113,9 @@ These are set on the kernel the web demo builds. The native case files and
     ticks and the default board in about 120 (simulated over 40 seeds).
   - With the native limit the pilot was faulted 6–12 s into an ablation game and never
     moved again.
-  - The branch `fix/starvation-progress` makes the count reset when a job makes progress.
-    Once it lands, the override is to be removed. `?tune={"kernel":{"starvation_limit":8}}`
-    brings back the native limit.
+  - Branch `fix/starvation-progress` (not merged) resets the count on progress; with it,
+    this override is unnecessary. `?tune={"kernel":{"starvation_limit":8}}` brings back
+    the native limit.
 - **Pilot context window 32,768, not 4096, `page.DEFAULT_PILOT_CONTEXT`.**
   - When the pager splices a span out, the model must compute every position after the
     splice point again: the DeltaNet layers' state cannot be cut. The earliest span the
@@ -163,6 +166,10 @@ as lag.
 | prompt, ablation, 60 s, before² | unknown | 0 / 0 / 66 | 9.3 / 11 / 11 | 7 | – | – | parse 86% |
 | prompt, ablation, after | quiet | 0 / 1 / 73 | 8.9 / 12 / 12 | 7 | – | – | parse 86% |
 
+Sources, in [`bench/results/webgpu/`](bench/results/webgpu/):
+- *before*: `wave2.json`, `wave2_prompt.json` (prompt rows), `diag_nostarve.json` (¹);
+- *after*: `final_60.json`, `final_120.json`, `final_300.json` (the full game).
+
 ¹ With the starvation limit lifted, as a diagnosis; the native limit would have faulted
 the pilot. The replay rate it implies (6.3 ms a position) is close to the benchmark's
 quiet 5.4 ms at chunk 256 (about 16 s for 2,961 positions), so contention, if any, was
@@ -192,13 +199,18 @@ lasting until game over.
 | chunk 256, window 32768 | 36 moves, lag 6.6 / 12 / 21, 10.5 s gap, cancel max 2.2 s | lag p95 28 and 34 (2 runs), 7 and 5 moves |
 | chunk 128, window 32768 | 33 moves, lag 7.2 / 12 / 14, 7 s gap, cancel max 1.5 s | lag p95 16 and 19, 8 and 8 moves |
 
+Sources, in [`bench/results/webgpu/`](bench/results/webgpu/): `q_c256w4.json`,
+`q_c128w4.json`, `q_c256w32.json`, `q_c128w32.json` (default board) and
+`qa_c256w32.json`, `qa_c256w32b.json`, `qa_c128w32.json`, `qa_c128w32b.json` (ablation).
+Each file's `note` names its settings, and each row carries the contention check.
+
 **Kept as they were:**
 - `stall_ms` stays 5. The loop's overrun p95 was about 7 ms on the default board, so
   nothing pointed at it.
 - The mask prewarm stays on. A cold grammar state costs 1.6–2.1 s under Pyodide, which
   would otherwise land mid-game.
 - The prompt loop keeps a history of 5. With 2, lag fell slightly (4.2 vs 5.1 ticks on
-  default) but the parse rate fell to 80–89%.
+  default) but the parse rate fell to 80–89% (`qp_h5.json`, `qp_h2.json`).
 
 ## Known issues
 
