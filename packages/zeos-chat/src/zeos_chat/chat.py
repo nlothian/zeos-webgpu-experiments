@@ -199,15 +199,6 @@ def open_chat(
         raise ValueError(f"gate_mode is one of {GATE_MODES}, not {gate_mode!r}")
     bundle = load_case(Path(case_dir) if case_dir is not None else CHAT_CASE)
     chat_pipes = pipes or ChatPipes()
-    if gate_mode == ATTENTION:
-        consulted = {chat_pipes.results, chat_pipes.history}
-        bundle = dataclasses.replace(
-            bundle,
-            pipes=tuple(
-                dataclasses.replace(p, session_floor=False) if p.name in consulted else p
-                for p in bundle.pipes
-            ),
-        )
     if len(bundle.descriptors) != 1:
         raise ValueError(
             f"a chat case has exactly one descriptor; {bundle.name} has {len(bundle.descriptors)}"
@@ -225,6 +216,17 @@ def open_chat(
     if blocking:
         raise ValueError(
             "refusing to run a tree that does not lint:\n" + "\n".join(f.render() for f in blocking)
+        )
+    if gate_mode == ATTENTION:
+        # After the lint, which refuses a tree that drops the floor on a ring-3 pipe
+        # itself: this run drops it because its host asked, by name.
+        consulted = {chat_pipes.results, chat_pipes.history}
+        bundle = dataclasses.replace(
+            bundle,
+            pipes=tuple(
+                dataclasses.replace(p, session_floor=False) if p.name in consulted else p
+                for p in bundle.pipes
+            ),
         )
     machine = ChatToolMachine(
         worker,

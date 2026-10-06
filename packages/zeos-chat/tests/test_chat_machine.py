@@ -33,6 +33,7 @@ from zeos.core.framing import FRAMES, spells_frame
 from zeos.core.ids import JobId, TokenKind
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import load_case
+from zeos.descriptor.schema import DescriptorError
 from zeos.machine.base import Token, tokens_from_text
 from zeos_browser.page import findings
 
@@ -1074,15 +1075,19 @@ def test_strict_is_the_default_journal() -> None:
     assert scripted_journal() == scripted_journal(gate_mode="strict")
 
 
-def test_a_case_can_declare_the_opt_out_itself(tmp_path: Path) -> None:
+def test_a_case_cannot_drop_the_floor_on_a_ring_three_pipe_itself(tmp_path: Path) -> None:
+    # Only the host's gate_mode does that, for a run; a tree that declares it is refused.
     case = tmp_path / "chat-agent"
     shutil.copytree(CHAT_CASE, case)
     pipes = case / "system" / "pipes.yaml"
     text = pipes.read_text()
     marker = "- name: tools.results\n"
     pipes.write_text(text.replace(marker, marker + "  session_floor: false\n"))
-    events = read_then_write(attend=attend_first, case_dir=case)
-    assert types(events) == ["arrived", "tool_call", "waiting"]
+    with pytest.raises(ValueError, match="external-session-floor-off"):
+        read_then_write(attend=attend_first, case_dir=case)
+    pipes.write_text(text.replace(marker, marker + '  session_floor: "false"\n'))
+    with pytest.raises(DescriptorError, match="session_floor is true or false"):
+        read_then_write(attend=attend_first, case_dir=case)
 
 
 # -- the tool's name, chosen masked ----------------------------------------------------

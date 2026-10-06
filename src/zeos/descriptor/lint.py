@@ -141,6 +141,7 @@ def lint(
     rings = {p.name: p.ring for p in pipes}
 
     findings.extend(_check_front_doors(pipes))
+    findings.extend(_check_session_floors(pipes))
 
     for name in sorted(descriptors):
         d = descriptors[name]
@@ -554,6 +555,30 @@ def _check_front_doors(pipes: Sequence[PipeSpec]) -> list[Finding]:
             )
         )
     return findings
+
+
+def _check_session_floors(pipes: Sequence[PipeSpec]) -> list[Finding]:
+    """An EXTERNAL pipe keeps its session floor.
+
+    Reading a ring-3 pipe sets the reader's session floor to 3 (MP's confused-deputy
+    rule), so a privileged write after it is refused whatever the reader attended. A
+    case that declares ``session_floor: false`` on one leaves only the watermark, which
+    moves on measured attention, between an injected instruction and the effect. That is
+    a choice a host makes for a run and names (``gate_mode`` in the coop-count-web chat),
+    not one a tree makes quietly for every run of it.
+    """
+    return [
+        Finding(
+            rule="external-session-floor-off",
+            severity=Severity.ERROR,
+            detail=(
+                f"pipe {str(spec.name)!r} is ring 3 and declares session_floor: false; a "
+                "job reading it would keep the floor of whatever it read before"
+            ),
+        )
+        for spec in pipes
+        if spec.ring is Ring.EXTERNAL and not spec.session_floor
+    ]
 
 
 def _check_resources(d: Descriptor, declared: Container[str]) -> list[Finding]:
