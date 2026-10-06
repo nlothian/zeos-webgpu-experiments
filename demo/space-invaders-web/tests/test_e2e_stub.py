@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -145,3 +145,46 @@ def test_the_zeos_clock_tells_monotonic_time() -> None:
     run = page.open_run("zeos", "default", SEED, worker, clock=Late())
     assert isinstance(run, page.ZeosRun)
     run.close()
+
+
+def test_a_long_run_with_many_preemptions_has_no_starvation_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The web demo's kernel is built with ``page.STARVATION_LIMIT``: the kernel's own
+    limit (8) would retire the pilot on its ninth preemption by the reflex."""
+    real = page.load_board
+
+    def load(name: BoardName, seed: int | None = None) -> BoardSpec:
+        spec = real(name, seed)
+        rules = dataclasses.replace(spec.rules, fire_chance=FIRE, lives=99)
+        return dataclasses.replace(spec, tick_seconds=TICK_S, rules=rules)
+
+    monkeypatch.setattr(page, "load_board", load)
+    monkeypatch.setitem(page.RUNNER_OPTIONS, "max_ticks", 240)
+    page.configure_json("")
+    worker = _worker()
+    run = page.open_run("zeos", "default", SEED, worker)
+    assert isinstance(run, page.ZeosRun)
+    assert run.driver.kernel.config.starvation_limit == page.STARVATION_LIMIT
+    try:
+        run.warm()
+        result = run.run()
+    finally:
+        run.close()
+    assert result.preemptions > 8, "the run did not preempt the pilot often enough to tell"
+    assert result.extras["faults"] == []
+    pilot = cast(int, result.extras["pilot_moves"])
+    assert pilot >= 1
+
+
+def test_tune_can_put_the_native_starvation_limit_back() -> None:
+    try:
+        page.configure_json('{"kernel": {"starvation_limit": 8}}')
+        assert page.ZEOS_KERNEL_OPTIONS == {"starvation_limit": 8}
+        run = page.open_run("zeos", "default", SEED, _worker())
+        assert isinstance(run, page.ZeosRun)
+        assert run.driver.kernel.config.starvation_limit == 8
+        run.close()
+    finally:
+        page.configure_json("")
+    assert page.ZEOS_KERNEL_OPTIONS == dict(page.DEFAULT_ZEOS_KERNEL_OPTIONS)

@@ -1,9 +1,8 @@
 # Space Invaders in the browser
 
-**Status: playable, with two known problems** (see *Measured* below): the kernel faults
-the pilot for starvation on its ninth preemption, which ends its play within about ten
-seconds on the ablation board, and a pager splice makes the pilot replay most of its
-context, about 19 s on WebGPU.
+**Status: playable.** One known problem (see *Measured* below): a pager splice makes the
+pilot replay most of its context, about 19 s on WebGPU. The kernel's starvation limit is
+raised for this demo as a temporary workaround (see *Starvation* below).
 
 The port puts [`../space-invaders`](../space-invaders/) in a static web page: the ZEOS
 kernel and the game run under Pyodide, and the pilot is served by
@@ -77,8 +76,8 @@ debugger shows the case's wiring only.
 
 `?tune=` on the page's URL overrides the arms' options for that page load, as JSON
 `{"zeos": {...}, "prompt": {...}, "kernel": {...}}` (`page.configure_json`): for example
-`?tune={"zeos":{"max_chunk":128}}`. `kernel` overrides the zeos arm's `KernelConfig`, for
-diagnosis only.
+`?tune={"zeos":{"max_chunk":128}}`. `kernel` overrides fields of the zeos arm's
+`KernelConfig`.
 
 ## Measured
 
@@ -92,18 +91,22 @@ Qwen3.5-4B-ZEOS-OPT on WebGPU in Chrome on an M1 Max, seed 7, `tests/si_webgpu.m
 | prompt | default | 2 | 0 | 120 | 5.5 / 7 | – | 8 s | parse rate 100% |
 | prompt | ablation | 0 | 0 | 66 | 9.3 / 11 | – | 7 s | parse rate 86% |
 
-Warm-up includes about 5 s (default) or 3.5 s (ablation) of mask prewarm. With the
-kernel's starvation limit lifted (`?tune={"kernel":{"starvation_limit":100000}}`, a
-diagnosis, not a fix), 120 s of each: on the default board the pilot made 25 moves, lag
+Warm-up includes about 5 s (default) or 3.5 s (ablation) of mask prewarm. These rows predate the
+raised starvation limit. With it lifted, 120 s of each: on the default board the pilot made 25 moves, lag
 8.7 / 12 ticks, but a pager splice made one step replay 2,961 positions (18.6 s), and
 the longest gap between pilot moves was 43.5 s; on the ablation board the ZEOS arm won
 (3 lives, 8 kills, 81 ticks).
 
-**Starvation.** `KernelConfig.starvation_limit` (8) is compared with a job's preemption
-count, which the scheduler only ever increments. The case does not set it. A pilot that
-takes several ticks a move is running when most threats arrive, so it is preempted by
-nearly every one; the ablation board reaches nine threats in about 40 ticks and the
-default board in about 120 (simulated over 40 seeds).
+**Starvation (temporary workaround).** `KernelConfig.starvation_limit` (8) is compared
+with a job's preemption count, which the scheduler only ever increments, and the case
+does not set it. A pilot that takes several ticks a move is running when most threats
+arrive, so it is preempted by nearly every one; the ablation board reaches nine threats
+in about 40 ticks and the default board in about 120 (simulated over 40 seeds), and the
+kernel then faults the pilot and it never moves again (the ablation row above). So the
+web demo builds its kernel with `starvation_limit` 10,000 (`page.STARVATION_LIMIT`); the
+native case and kernel are unchanged, and `?tune={"kernel":{"starvation_limit":8}}` puts
+the native limit back. The branch `fix/starvation-progress` resets the count when a job
+makes progress; once it lands, the override is to be removed.
 
 ## Layout
 

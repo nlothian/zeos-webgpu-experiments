@@ -85,6 +85,8 @@ __all__ = [
     "PROMPT_OPTIONS",
     "RUNNER_OPTIONS",
     "RUN_BUILDERS",
+    "DEFAULT_ZEOS_KERNEL_OPTIONS",
+    "STARVATION_LIMIT",
     "ZEOS_KERNEL_OPTIONS",
     "ZEOS_MACHINE_OPTIONS",
     "FakeRun",
@@ -503,16 +505,24 @@ ZEOS_MACHINE_OPTIONS: dict[str, Any] = {}
 PROMPT_OPTIONS: dict[str, Any] = {}
 #: Runner keywords for either arm (``max_ticks``, ``max_seconds``).
 RUNNER_OPTIONS: dict[str, Any] = {}
-#: ``KernelConfig`` fields to override on the zeos arm's kernel, for diagnosis only:
-#: empty (the default) is the native case's kernel exactly. ``starvation_limit`` is the
-#: one the integration measured: the kernel faults the pilot on its ninth preemption by
-#: default, and a preemption-heavy real-time game reaches that within a minute.
-ZEOS_KERNEL_OPTIONS: dict[str, Any] = {}
+#: The pilot's starvation limit in the web demo. A temporary workaround: the kernel
+#: compares ``KernelConfig.starvation_limit`` (8) with a preemption count that never
+#: resets, and a model slower than the tick is running when nearly every threat
+#: arrives, so the reflex's preemptions retire the pilot within a minute of play.
+#: ``fix/starvation-progress`` makes the count reset on progress; once that lands, this
+#: override goes and the kernel's own default applies again.
+STARVATION_LIMIT = 10_000
+#: ``KernelConfig`` fields the zeos arm's kernel is built with, over the native case's.
+DEFAULT_ZEOS_KERNEL_OPTIONS: Final[Mapping[str, Any]] = {"starvation_limit": STARVATION_LIMIT}
+#: The ``KernelConfig`` overrides in force; ``configure_json``'s ``kernel`` key changes
+#: them (``{"kernel": {"starvation_limit": 8}}`` is the native kernel again).
+ZEOS_KERNEL_OPTIONS: dict[str, Any] = dict(DEFAULT_ZEOS_KERNEL_OPTIONS)
 
 
 def configure_json(text: str) -> None:
     """Replace the arms' options from JSON text ``{"zeos": {...}, "prompt": {...},
-    "kernel": {...}}``; a key left out goes back to its defaults. ``si_worker.js`` passes the page's ``?tune=``
+    "kernel": {...}}``; a key left out goes back to its defaults, and ``kernel``'s fields
+    are laid over ``DEFAULT_ZEOS_KERNEL_OPTIONS``. ``si_worker.js`` passes the page's ``?tune=``
     query parameter through it before each run, which is how the tuning runs set
     ``max_chunk`` or ``stall_ms`` without a rebuild."""
     raw = cast(dict[str, Any], json.loads(text or "{}"))
@@ -524,6 +534,7 @@ def configure_json(text: str) -> None:
     PROMPT_OPTIONS.clear()
     PROMPT_OPTIONS.update(cast(dict[str, Any], raw.get("prompt", {})))
     ZEOS_KERNEL_OPTIONS.clear()
+    ZEOS_KERNEL_OPTIONS.update(DEFAULT_ZEOS_KERNEL_OPTIONS)
     ZEOS_KERNEL_OPTIONS.update(cast(dict[str, Any], raw.get("kernel", {})))
 
 
