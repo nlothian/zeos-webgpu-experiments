@@ -20,11 +20,14 @@ only when every job is blocked on a pipe. The prompt arm is the same clock with
 ``collect`` (inside ``run_kernel``) and ``verdicts``. The driver compares
 deadlines against ``time.monotonic()``, so the clock handed to the zeos runner
 must tell the same time; ``MonotonicClock`` does, and so does a clock that only
-changes how it sleeps.
+changes how it sleeps. Under Pyodide the page injects such a clock: ``now()`` is
+``time.monotonic()`` and ``sleep()`` an ``Atomics.wait`` on the control buffer, so a
+stop wakes it. The zeos runner refuses a clock that disagrees at construction.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
@@ -75,8 +78,12 @@ WARM_BATCH_S = 0.05
 #: Long enough for a ~3k-token system prompt at ~300 tok/s, with room to spare.
 WARM_TIMEOUT_S = 120.0
 
+#: How far the zeos runner's clock may disagree with ``time.monotonic()``.
+CLOCK_TOLERANCE_S = 0.5
+
 PREEMPTED = "job.preempted"
 READ = "pipe.read"
+FIRED = "vector.fired"
 
 
 # --- what the runner reads off its collaborators --------------------------------
@@ -89,6 +96,13 @@ class KernelEvents(Protocol):
     def events(self) -> Sequence[object]: ...
 
 
+class CountingMachine(Protocol):
+    """What the runner reads off the machine: ``DriverMachine.cancellations``."""
+
+    @property
+    def cancellations(self) -> int: ...
+
+
 class ZeosDriverLike(Protocol):
     """The part of ``ZeosDriver`` the runner drives; ``ZeosDriver`` is the one."""
 
@@ -99,9 +113,7 @@ class ZeosDriverLike(Protocol):
     def kernel(self) -> KernelEvents: ...
 
     @property
-    def machine(self) -> object:
-        """Read for its ``cancellations`` count only, which not every machine keeps."""
-        ...
+    def machine(self) -> CountingMachine: ...
 
     @property
     def started(self) -> bool: ...
@@ -172,6 +184,13 @@ class _WallClock:
         self.catchup_ticks = 0
         self.frames = 0
         self._unframed: list[DecisionRecord] = []
+        #: ``(board, info)`` of the tick just applied, rendered once for the frame
+        #: and whoever is handed the board next.
+        self._now: tuple[str, dict[str, Any]] | None = None
+        self.reflexes = 0
+        #: What the last frame carried, so a closing frame is sent only when the
+        #: page has not seen the end of the run.
+        self._framed: tuple[int, int, int, int] | None = None
         self._due = 0.0
         self._started_at = 0.0
         #: Clock time the loop exited, before the result is assembled (judging the
@@ -181,6 +200,13 @@ class _WallClock:
     def _info(self) -> dict[str, Any]:
         """``snapshot(game)``: what a view, the driver and a player are handed."""
         return cast(dict[str, Any], snapshot(self.game))
+
+    def _look(self) -> tuple[str, dict[str, Any]]:
+        """The board and snapshot as they are now; the tick's own when nothing has
+        moved since it was applied."""
+        if self._now is None:
+            self._now = (self.game.render(), self._info())
+        return self._now
 
     # -- the clock ------------------------------------------------------------
 
@@ -217,6 +243,7 @@ class _WallClock:
                 break
         self._due += due * self.tick_s
         self.catchup_ticks += applied - 1
+        self._now = None
         self._emit(catchup=applied - 1)
         return applied
 
@@ -245,6 +272,10 @@ class _WallClock:
         }
         self.records.append(record)
         self._unframed.append(record)
+        if by == "evade":
+            self.reflexes += 1
+        # A move changes the board, so the tick's rendering is stale.
+        self._now = None
         return record
 
     def _counts(self) -> tuple[int, int, int]:
@@ -252,9 +283,10 @@ class _WallClock:
         return 0, 0, 0
 
     def _emit(self, catchup: int) -> None:
-        info = self._info()
+        board, info = self._look()
         decisions, self._unframed = self._unframed, []
         preemptions, cancellations, reflexes = self._counts()
+        self._framed = (int(self.game.ticks), preemptions, cancellations, reflexes)
         self.frames += 1
         if self.on_frame is None:
             return
@@ -263,7 +295,7 @@ class _WallClock:
             "arm": self.arm,
             "board": self.spec.name,
             "tick": int(info["ticks"]),
-            "text": self.game.render(),
+            "text": board,
             "lives": int(info["lives"]),
             "kills": int(info["score"]) // 10,
             "score": int(info["score"]),
@@ -281,6 +313,13 @@ class _WallClock:
             "reflexes": reflexes,
         }
         self.on_frame(frame)
+
+    def _close(self) -> None:
+        """End the loop: note when, and send a closing frame if the last one sent
+        does not already carry every decision and the final totals."""
+        self.ended_at = self.clock.now()
+        if self._unframed or self._framed != (int(self.game.ticks), *self._counts()):
+            self._emit(catchup=0)
 
     def overrun_stats(self) -> OverrunStats:
         return overrun_stats(self.overruns_ms)
@@ -337,6 +376,14 @@ class WallClockZeosRunner(_WallClock):
             max_ticks=max_ticks,
             max_seconds=max_seconds,
         )
+        skew = self.clock.now() - time.monotonic()
+        if abs(skew) > CLOCK_TOLERANCE_S:
+            raise ValueError(
+                f"the clock is {skew:+.3f}s off time.monotonic(); ZeosDriver reads its "
+                "deadlines on time.monotonic(), so the zeos runner needs a clock that "
+                "tells the same time (MonotonicClock, or under Pyodide one whose now() "
+                "is time.monotonic() and whose sleep() is an Atomics.wait)"
+            )
         self.driver = driver
         self.warm_timeout_s = warm_timeout_s
         # The driver applies a write inside its own pump, so a job resumed in the
@@ -353,6 +400,11 @@ class WallClockZeosRunner(_WallClock):
         #: move answers. The driver stamps a move with the newest board delivered,
         #: which runs ahead of this whenever a board arrives mid-completion.
         self._answering: int | None = None
+        #: The tick of the newest threat handed to the driver, and of the one the
+        #: running reflex was dispatched for. The driver stamps a reflex move with
+        #: the tick of the latest reading, threat or board, which runs ahead.
+        self._threatened: int | None = None
+        self._evading: int | None = None
 
     # -- warming --------------------------------------------------------------
 
@@ -361,7 +413,8 @@ class WallClockZeosRunner(_WallClock):
 
         A batch that ends before its deadline without a write means ``tick()`` found
         nothing runnable: the pilot has blocked on ``game.state``. A pilot that has
-        not by ``warm_timeout_s`` is a machine that never yields, and is raised.
+        not by ``warm_timeout_s`` is a machine that never yields, and is raised. A
+        stop ends warm-up without marking it done.
         """
         if self.warmed:
             return
@@ -372,13 +425,13 @@ class WallClockZeosRunner(_WallClock):
             deadline = self.clock.now() + WARM_BATCH_S
             decision = self._take(self.driver.run_kernel(deadline=deadline))
             if decision is None and self.clock.now() < deadline:
+                self.warmed = True
                 break
             if self.clock.now() - began > self.warm_timeout_s:
                 raise TimeoutError(
                     f"the kernel was still busy {self.warm_timeout_s:g}s into warm-up"
                 )
         self.warm_s = round(self.clock.now() - began, 3)
-        self.warmed = True
 
     # -- the loop -------------------------------------------------------------
 
@@ -386,31 +439,34 @@ class WallClockZeosRunner(_WallClock):
         self.warm()
         self._start_clock()
         self._emit(catchup=0)
-        self._sense()
+        if not self._finished():
+            self._sense()
         while not self._finished():
             decision = self._take(self.driver.run_kernel(deadline=self._due))
             if self._tick_due():
-                if not self.game.over:
+                if not self._finished():
                     self._sense()
             elif decision is None:
                 # Nothing ran to the deadline and nothing was written: every job is
                 # blocked on a pipe, and only the next tick can feed one.
-                self.clock.sleep(self._due - self.clock.now())
-        self.ended_at = self.clock.now()
+                self.clock.sleep(max(0.0, self._due - self.clock.now()))
+        self._close()
         return self._result(
             preemptions=self.driver.preemptions,
             cancellations=self._cancellations(),
-            reflexes=self._reflexes(),
+            reflexes=self.reflexes,
             verdicts=self.driver.verdicts(),
             journal=self.driver.journal(),
         )
 
     def _sense(self) -> None:
-        board, info = self.game.render(), self._info()
-        # `sense` delivers the board unless the tick carries a threat; a read it
-        # wakes is journalled inside the call, so the stamp goes first.
+        board, info = self._look()
+        # `sense` delivers the board unless the tick carries a threat; a read or a
+        # dispatch it causes is journalled inside the call, so the stamp goes first.
         if threat_reading(info) is None:
             self._delivered = self.game.ticks
+        else:
+            self._threatened = self.game.ticks
         self.driver.sense(self.view.state(board, info), info, self.view.history(board, info))
 
     def _take(self, decision: Decision | None) -> Decision | None:
@@ -426,6 +482,8 @@ class WallClockZeosRunner(_WallClock):
         tick = self.game.ticks if decision.tick is None else decision.tick
         if by == "pilot" and self._answering is not None:
             tick = self._answering
+        elif by == "evade" and self._evading is not None:
+            tick = self._evading
         self._record(
             by,
             decision.action,
@@ -437,8 +495,9 @@ class WallClockZeosRunner(_WallClock):
         return decision
 
     def _scan(self) -> int:
-        """Read the journal since the last scan: count preemptions, and note which
-        board a read of ``game.state`` took. Returns the preemptions so far."""
+        """Read the journal since the last scan: count preemptions, note which board
+        a read of ``game.state`` took and which threat a reflex was dispatched for.
+        Returns the preemptions so far."""
         events = self.driver.kernel.events
         for event in events[self._event_cursor :]:
             kind = getattr(type(event), "KIND", "")
@@ -447,18 +506,18 @@ class WallClockZeosRunner(_WallClock):
             elif kind == READ and str(getattr(event, "pipe", "")) == str(GAME_STATE):
                 # `sense` keeps one board in the pipe, so a read takes the newest.
                 self._answering = self._delivered
+            elif kind == FIRED:
+                # The only vector is the threat's; a coalesced firing reads the newest.
+                self._evading = self._threatened
         self._event_cursor = len(events)
         return self._preemptions
 
     def _cancellations(self) -> int:
         """The machine's own count of steps it stopped wanting, not the kernel's."""
-        return int(getattr(self.driver.machine, "cancellations", 0))
-
-    def _reflexes(self) -> int:
-        return sum(1 for r in self.records if r["by"] == "evade")
+        return self.driver.machine.cancellations
 
     def _counts(self) -> tuple[int, int, int]:
-        return self._scan(), self._cancellations(), self._reflexes()
+        return self._scan(), self._cancellations(), self.reflexes
 
 
 # --- the prompt arm --------------------------------------------------------------
@@ -520,7 +579,7 @@ class WallClockPromptRunner(_WallClock):
         self._ask()
         while not self._finished():
             if self._tick_due():
-                if self._held is not None and not self.controls.full:
+                if self._held is not None and not self.controls.full and not self._finished():
                     self._play(self._held)
                 continue
             wait = max(0.0, self._due - self.clock.now())
@@ -536,7 +595,7 @@ class WallClockPromptRunner(_WallClock):
                         self._play(reply)
             else:
                 self._ask()
-        self.ended_at = self.clock.now()
+        self._close()
         parsed = sum(1 for r in self.replies if r.parsed)
         return self._result(
             preemptions=0,
@@ -546,10 +605,11 @@ class WallClockPromptRunner(_WallClock):
         )
 
     def _ask(self) -> None:
-        if self.game.over:
+        # Never on the tick that ends the run: nothing would collect the reply.
+        if self._finished():
             return
         self._asked_tick = self.game.ticks
-        self.player.begin(self.game.render(), self._info())
+        self.player.begin(*self._look())
 
     def _play(self, reply: PromptReply) -> None:
         self._held = None

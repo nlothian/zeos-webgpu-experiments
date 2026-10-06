@@ -33,6 +33,10 @@ class Delegate:
     def last_roundtrip(self):
         return self.inner.last_roundtrip
 
+    @property
+    def cancellations(self):
+        return self.inner.cancellations
+
     def create_context(self, job, descriptor):
         self.inner.create_context(job, descriptor)
 

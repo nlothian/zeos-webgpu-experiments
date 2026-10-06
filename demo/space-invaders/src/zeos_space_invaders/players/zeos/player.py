@@ -177,15 +177,22 @@ def threat_reading(info: dict) -> str | None:
 class DriverMachine(MachineBackend, Protocol):
     """What `ZeosDriver` and `build_kernel` need of the machine they are handed.
 
-    The kernel's `MachineBackend`, plus the three things the driver reads off the
-    machine itself: the pilot's request-to-syscall time for a decision, dropping a
-    preempted job's completion, and closing. `APIMachineBase` is one; a machine
-    over another transport (the browser port's) is another, with no common base.
+    The kernel's `MachineBackend`, plus what a driver and its runner read off the
+    machine itself: the pilot's request-to-syscall time for a decision, how many
+    generations it cancelled, dropping a preempted job's completion, and closing.
+    `APIMachineBase` is one; a machine over another transport (the browser port's)
+    is another, with no common base.
     """
 
     @property
     def last_roundtrip(self) -> float | None:
         """Request-to-syscall seconds of the last completed pilot command."""
+        ...
+
+    @property
+    def cancellations(self) -> int:
+        """Generations the machine stopped wanting; the machine's count, not the
+        kernel's (`ZeosDriver.preemptions` is that)."""
         ...
 
     def invalidate(self, job: JobId) -> None:

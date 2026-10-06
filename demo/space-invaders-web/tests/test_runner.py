@@ -15,10 +15,14 @@ its latency.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import Any
 
 import pytest
+from zeos_space_invaders.players.zeos.player import (
+    threat_reading,  # pyright: ignore[reportUnknownVariableType]
+)
 from zeos_space_invaders.runlog import Decision
 
 from zeos_space_invaders_web import boards
@@ -53,10 +57,11 @@ TICK = 0.5
 
 
 class FakeClock:
-    """Time that passes only when told to."""
+    """Time that passes only when told to; it starts at ``time.monotonic()``,
+    because the zeos runner refuses a clock that disagrees with the driver's."""
 
-    def __init__(self, start: float = 100.0) -> None:
-        self.t = start
+    def __init__(self, start: float | None = None) -> None:
+        self.t = time.monotonic() if start is None else start
         self.sleeps: list[float] = []
 
     def now(self) -> float:
@@ -84,6 +89,14 @@ class Read:
     pipe = "game.state"
 
 
+class Fired:
+    KIND = "vector.fired"
+
+
+class FakeMachine:
+    cancellations = 3
+
+
 class FakeDriver:
     """``ZeosDriverLike`` over fake time.
 
@@ -102,6 +115,7 @@ class FakeDriver:
         warm_batches: int = 2,
         answer_after: int | None = None,
         warm_move: bool = False,
+        evade_after: int = 3,
     ) -> None:
         self.clock = clock
         self.busy = busy
@@ -112,7 +126,10 @@ class FakeDriver:
         self.controls: Any = None
         self.last_applied = False
         self.kernel = FakeKernel()
-        self.machine = type("M", (), {"cancellations": 3})()
+        self.machine = FakeMachine()
+        self.evade_after = evade_after
+        self._evade_countdown: int | None = None
+        self._sense_tick = 0
         self.started = False
         self.sensed: list[int] = []
         self.batches = 0
@@ -138,6 +155,12 @@ class FakeDriver:
         # Busy only once a board has arrived: until then the pilot is blocked on it.
         if self.busy and self.sensed:
             self.clock.t = max(self.clock.t, deadline) + self.overrun_s
+        if self._evade_countdown is not None:
+            self._evade_countdown -= 1
+            if self._evade_countdown <= 0:
+                self._evade_countdown = None
+                # Stamped as the driver does: with the latest reading's tick.
+                return self._move("evade", "shoot", self._sense_tick)
         if self._countdown is not None:
             self._countdown -= 1
             if self._countdown <= 0:
@@ -152,8 +175,16 @@ class FakeDriver:
 
     def sense(self, board: str, info: dict[str, Any], note: object = None) -> None:
         assert isinstance(board, str) and note is not None
-        self._board_tick = int(info["ticks"])
-        self.sensed.append(self._board_tick)
+        self._sense_tick = int(info["ticks"])
+        self.sensed.append(self._sense_tick)
+        if threat_reading(info) is not None:
+            # The vector fires on the threat unless a reflex is already under way;
+            # either way the board is not delivered this tick.
+            if self._evade_countdown is None:
+                self.kernel.events.append(Fired())
+                self._evade_countdown = self.evade_after
+            return
+        self._board_tick = self._sense_tick
         if self.answer_after is not None and self._countdown is None:
             # A pilot between moves reads the board at once and starts on it.
             self.kernel.events.append(Read())
@@ -245,7 +276,7 @@ def test_an_idle_kernel_sleeps_to_each_tick_and_never_overruns() -> None:
     assert clock.now() - start == pytest.approx(2 * 0.05 + 6 * TICK)
     assert result.overrun_ms == 0.0
     # The board of every tick but the last is handed over; the last ends the run.
-    assert driver.sensed == [0, 1, 2, 3, 4, 5, 6]
+    assert driver.sensed == [0, 1, 2, 3, 4, 5]
     assert result.verdicts == [{"id": "fake", "passed": True}]
     assert result.journal == [{"seq": 0}]
     assert result.cancellations == 3
@@ -276,7 +307,7 @@ def test_an_overrunning_loop_catches_up_in_one_frame() -> None:
     assert result.overrun_ms == pytest.approx(3 * 2.5 * TICK * 1000)
     assert runner.overrun_stats()["max"] == pytest.approx(1250.0)
     # Only the newest board is handed over after a catch-up.
-    assert driver.sensed == [0, 3, 6, 9]
+    assert driver.sensed == [0, 3, 6]
 
 
 def test_a_catch_up_stops_at_the_last_tick() -> None:
@@ -331,8 +362,9 @@ def test_a_stop_during_warm_up_ends_it() -> None:
     driver = FakeDriver(clock, warm_batches=10**6)
     runner = WallClockZeosRunner(driver, spec(), clock=clock, stop=stop)
     runner.warm()
-    assert runner.warmed and driver.batches == 0
+    assert not runner.warmed and driver.batches == 0
     assert runner.run().ticks == 0
+    assert driver.sensed == [], "a stopped run handed the driver a board"
 
 
 def test_a_kernel_that_never_quiesces_fails_warm_up() -> None:
@@ -496,3 +528,109 @@ class RealArm:
 
     def close(self) -> None:
         pass
+
+
+def test_a_clock_off_monotonic_time_is_refused() -> None:
+    clock = FakeClock(start=100.0)
+    with pytest.raises(ValueError, match="time.monotonic"):
+        WallClockZeosRunner(FakeDriver(clock), spec(), clock=clock)
+
+
+def test_a_reflex_is_lagged_against_the_threat_it_was_dispatched_for() -> None:
+    clock = FakeClock()
+    driver = FakeDriver(clock, busy=True, evade_after=3)
+    runner = WallClockZeosRunner(driver, spec(), clock=clock, max_ticks=6)
+    # A bomb two rows up in the ship's column: a threat on the tick-0 reading.
+    runner.game.dangers = [[runner.game.rules.h - 3, runner.game.player]]
+    result = runner.run()
+    evades = [r for r in runner.records if r["by"] == "evade"]
+    assert len(evades) == 1 and result.reflexes == 1
+    # The tick-1 reading is a threat too, delivered while the reflex for tick 0 is
+    # under way; the driver stamps the move with it, the runner keeps tick 0.
+    assert evades[0]["tick"] == 0
+    assert evades[0]["lag_ticks"] == evades[0]["tick_applied"] > 0
+
+
+def _decision_frames(frames: list[Frame]) -> int:
+    return sum(len(f["decisions"]) for f in frames)
+
+
+@pytest.mark.parametrize("ending", ["stop", "max_seconds", "max_ticks"])
+def test_every_decision_reaches_a_frame(ending: str) -> None:
+    clock = FakeClock()
+    stop = LocalStop()
+    frames: list[Frame] = []
+
+    def sink(frame: Frame) -> None:
+        frames.append(frame)
+
+    driver = FakeDriver(clock, busy=True, answer_after=1, warm_move=True)
+    runner = WallClockZeosRunner(
+        driver,
+        spec(),
+        clock=clock,
+        on_frame=sink,
+        stop=stop,
+        max_ticks=7 if ending == "max_ticks" else None,
+        max_seconds=2.6 if ending == "max_seconds" else None,
+    )
+    if ending == "stop":
+        # Set by the move itself, after the tick's frame has gone out.
+        original = driver.run_kernel
+
+        def stopping(deadline: float | None = None) -> Decision | None:
+            decision = original(deadline)
+            if decision is not None and runner.game.ticks >= 4:
+                stop.set()
+            return decision
+
+        driver.run_kernel = stopping
+    result = runner.run()
+    assert result.decisions > 0
+    assert _decision_frames(frames) == result.decisions
+    last = frames[-1]
+    assert last["tick"] == result.ticks
+    assert (last["preemptions"], last["cancellations"], last["reflexes"]) == (
+        result.preemptions,
+        result.cancellations,
+        result.reflexes,
+    )
+
+
+@pytest.mark.parametrize("ending", ["stop", "max_seconds", "max_ticks"])
+def test_every_prompt_decision_reaches_a_frame(ending: str) -> None:
+    clock = FakeClock()
+    stop = LocalStop()
+    frames: list[Frame] = []
+    arm = FakeArm(clock, latency=0.3 * TICK, replies=["left"])
+
+    def sink(frame: Frame) -> None:
+        frames.append(frame)
+        if ending == "stop" and frame["tick"] >= 3:
+            stop.set()
+
+    runner = WallClockPromptRunner(
+        arm,
+        spec(),
+        clock=clock,
+        on_frame=sink,
+        stop=stop,
+        max_ticks=7 if ending == "max_ticks" else None,
+        max_seconds=2.6 if ending == "max_seconds" else None,
+    )
+    result = runner.run()
+    assert result.decisions > 0
+    assert _decision_frames(frames) == result.decisions
+    assert frames[-1]["tick"] == result.ticks
+    # No request is left under way once the run is over.
+    assert not arm.busy
+
+
+def test_a_held_reply_is_not_played_on_the_last_tick() -> None:
+    clock = FakeClock()
+    arm = FakeArm(clock, latency=0.25 * TICK, replies=["left", "right"])
+    runner = WallClockPromptRunner(arm, spec(), clock=clock, max_ticks=3)
+    result = runner.run()
+    assert all(r["tick_applied"] < 3 for r in runner.records)
+    assert not arm.busy
+    assert result.ticks == 3
