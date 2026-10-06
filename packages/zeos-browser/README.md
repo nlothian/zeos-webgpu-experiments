@@ -182,6 +182,9 @@ interface ZeosModelWorker {
             vocabSize: number };
   tokenize(text: string): Int32Array;        // no BOS, no special-token parsing
   piece(tokenId: number): string;            // the text of one token
+  // Optional. The bytes of a token whose piece is not whole characters (a byte of an
+  // emoji, which decodes to U+FFFD alone); asked only for such ids.
+  pieceBytes?(tokenId: number): Uint8Array;
   createContext(jobId: string): void;
   destroyContext(jobId: string): void;
   length(jobId: string): number;             // model tokens currently resident
@@ -787,8 +790,9 @@ a skip and exits 0. Run nothing else heavy on the GPU at the same time.
   the old snapshots thinning out; a replay after a past position is hidden, equal bit for
   bit to a fresh prefill; a skipped hidden run aligned with the chunks bit for bit the run
   executed; a narrowed mask on a second cache, switching back without a rewind, catching
-  up, and a third mask; one cache rewinding instead; a repeated step, `truncate` and
-  `fork`; `allowedTokens`, `sample` and the refusals; `maxChunk` cut at the snapshot
+  up, and a third mask; one cache rewinding instead; a hidden position or a `truncate`
+  past a stored snapshot restoring that snapshot, not the start; a repeated step,
+  `truncate` and `fork`; `allowedTokens`, `sample` and the refusals; `maxChunk` cut at the snapshot
   positions, to the same token (within KL 1e-2: two chunkings differ by about 4e-3 on
   WebGPU); a stopped step resumed bit for bit; and `load` refusing a backend other than
   WebGPU or an option it does not know. For `TransformersWorker`, over the
@@ -825,7 +829,10 @@ thread and a `SharedArrayBuffer`:
 - in the Pyodide worker, `SyncModelWorker` (`web/model_channel.js`) is the
   `ZeosModelWorker` `JsMachine` calls: each method posts the call on the port and blocks
   in `Atomics.wait` until the model thread has awaited the session and written the reply
-  into the buffer (`web/frames.js` is the encoding, typed arrays as raw bytes).
+  into the buffer (`web/frames.js` is the encoding, typed arrays as raw bytes). Every reply
+  names the request it answers, and a reply to any other request is refused: a call that
+  timed out is still answered later, so after a timeout every call refuses (the channel
+  is unusable) rather than take that late reply for its own.
 
 Pyodide's own `run_sync` would have needed the kernel entered through an async call and
 JavaScript Promise Integration, which not every browser ships; `Atomics.wait` works in
@@ -935,8 +942,10 @@ node --test packages/zeos-browser/tests/js/*.test.mjs
   times out and then returns the result, calls refuse while a step is in flight, a
   cancel lands between chunks and the step resumes from what it ran, a result that raced
   the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
-  `tests/js/model_channel.test.mjs` — what `SyncModelWorker` forwards. They need Node
-  and skip without it.
+  `tests/js/model_channel.test.mjs` — what `SyncModelWorker` forwards; a reply that comes
+  after its call timed out is never taken as a later call's (every later call refuses);
+  a second `SyncModelWorker` on the same buffer does not read the first one's last reply;
+  and partial pieces' bytes arrive in one call. They need Node and skip without it.
 - `tests/js/model_cache.test.mjs` — the model cache over a fake Hub and an in-memory store
   with `opfs_store.js`'s interface: a cache hit fetches nothing; the key holds the
   revision, so another revision downloads its own file; an interrupted download is never
