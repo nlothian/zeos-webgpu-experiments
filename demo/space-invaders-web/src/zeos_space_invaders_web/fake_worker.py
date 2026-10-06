@@ -22,7 +22,7 @@ What it has:
 * **a script per kind of context**, read from the context id (``"<job>:<descriptor>"``):
   a ``prompt`` context answers each assistant turn it is given with the next reply (the
   replies are counted over all prompt contexts, so forks of one prefix take turns), a
-  word per step, then ``<|im_end|>``, reading where it is from the context (so a step
+  word per step (a word per known token already in the turn), then ``<|im_end|>``, reading where it is from the context (so a step
   outside an assistant turn, such as the warm-up's, says ``<|im_end|>`` and moves
   nothing on); any other context is a pilot and says ``write stdout <move>;`` for the
   next of ``moves``, a word per step (``reads=True`` adds ``read stdin;`` after each).
@@ -280,7 +280,10 @@ class FakePilotWorker:
         else:
             issued = self._prompt_turns if new_turn else ctx.issued
             words = self._reply(issued)
-            piece = words[min(len(ctx.ids) - at - 2, len(words) - 1)]
+            # Words the turn holds already; unknown ones are its framing (the empty think
+            # block the prompt arm opens it with), not the reply.
+            said = sum(1 for t in ctx.ids[at + 2 :] if t != UNK_ID)
+            piece = words[min(said, len(words) - 1)]
         if not ok(piece):
             raise ValueError(f"{key}: the token mask refuses the script's next word {piece!r}")
         return _Choice(self._ids[piece], (), issued, at if at >= 0 else ctx.reply_at, new_turn)

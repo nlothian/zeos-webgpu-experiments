@@ -17,9 +17,13 @@ and the board, opens the ``assistant`` turn and decodes. Every step is begun and
 so ``poll`` returns within its timeout whether or not the reply is complete, and the run
 loop keeps ticking the world while the model answers.
 
-Replies are unconstrained, except that a control token other than ``<|im_end|>`` cannot
-be emitted. A reply ends at ``<|im_end|>``, at the end-of-sequence id, at a newline, or
-after ``max_new`` tokens, whichever comes first.
+The assistant turn opens with an empty think block (``ASSISTANT_OPEN``), the Qwen3 chat
+template's ``enable_thinking=False``: without it the 4B begins every reply with
+``<think>`` and six tokens never reach a move. Replies are unconstrained, except that a
+control token other than ``<|im_end|>`` cannot be emitted. A reply ends at
+``<|im_end|>``, at the end-of-sequence id, at a newline once it has said something other
+than a code fence (the 4B fences its move: ```` ```\nleft\n``` ````), or after
+``max_new`` tokens, whichever comes first.
 """
 
 # ``PromptPlayer`` is untyped, so what this class inherits from it is partly unknown.
@@ -43,12 +47,15 @@ from zeos_space_invaders_web.contracts import (
 )
 from zeos_space_invaders_web.machine import normalise_poll
 
-__all__ = ["CONTEXT_ID", "PREFIX_ID", "BrowserPromptPlayer"]
+__all__ = ["ASSISTANT_OPEN", "CONTEXT_ID", "PREFIX_ID", "BrowserPromptPlayer"]
 
 #: The arm's worker contexts: the prefilled system prompt, and the decision forked from
 #: it. The descriptor part says ``prompt`` to a stub worker.
 PREFIX_ID = "prompt-prefix:prompt"
 CONTEXT_ID = "prompt-arm:prompt"
+
+#: What the assistant turn opens with: an empty think block, so the model answers at once.
+ASSISTANT_OPEN = "<think>\n\n</think>\n\n"
 
 #: How long one wait lasts when ``close`` drains a cancelled step.
 _DRAIN_POLL_MS = 1000.0
@@ -169,7 +176,7 @@ class BrowserPromptPlayer(PromptPlayer):
             raise RuntimeError("a prompt request is already under way")
         self.warm()
         rendered = cast("str", self.render_turn(obs, info))
-        turn = self._turn("user", rendered) + self._turn("assistant", "", close=False)
+        turn = self._turn("user", rendered) + self._turn("assistant", ASSISTANT_OPEN, close=False)
         if self._decision:
             self._worker.destroyContext(CONTEXT_ID)
         self._worker.fork(PREFIX_ID, CONTEXT_ID)
@@ -204,9 +211,11 @@ class BrowserPromptPlayer(PromptPlayer):
                 return self._finish()
             piece = self._piece(token_id)
             if "\n" in piece:
-                self._text.append(piece.split("\n", 1)[0])
-                self._tokens += 1
-                return self._finish()
+                head = piece.split("\n", 1)[0]
+                if ("".join(self._text) + head).replace("`", "").strip():
+                    self._text.append(head)
+                    self._tokens += 1
+                    return self._finish()
             self._text.append(piece)
             self._tokens += 1
             if self._tokens >= self.max_new:

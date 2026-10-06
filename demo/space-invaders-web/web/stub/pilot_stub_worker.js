@@ -18,7 +18,8 @@
 //   * a script per kind of context, read from the context id "<job>:<descriptor>": a
 //     "prompt" context answers the open assistant turn with the next reply (counted over
 //     all prompt contexts), a word per
-//     token already in the turn, then <|im_end|> (and says <|im_end|> with no assistant
+//     known token already in the turn (unknown ones are framing, such as the empty
+//     think block), then <|im_end|> (and says <|im_end|> with no assistant
 //     turn open); any other context is a pilot and says `write stdout <move>;` for the
 //     next move, a word per step (`reads: true` adds `read stdin;` after each), dropping
 //     the rest of a command whose next word the step's allowedTokens refuses;
@@ -155,7 +156,11 @@
       } else {
         issued = newTurn ? this.promptTurns : ctx.issued;
         const words = this.reply(issued);
-        piece = words[Math.min(ctx.ids.length - at - 2, words.length - 1)];
+        // Words the turn holds already; unknown ones are its framing (the empty think
+        // block the prompt arm opens it with), not the reply.
+        let said = 0;
+        for (let i = at + 2; i < ctx.ids.length; i++) if (ctx.ids[i] !== UNK_ID) said++;
+        piece = words[Math.min(said, words.length - 1)];
       }
       if (!ok(piece)) throw new Error(`${jobId}: the token mask refuses the script's next word ${JSON.stringify(piece)}`);
       return { tokenId: this.ids.get(piece), pending: [], issued, replyAt: at >= 0 ? at : ctx.replyAt, newTurn };

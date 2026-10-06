@@ -29,7 +29,12 @@ from zeos_space_invaders_web.fake_worker import (
     PAD_ID,
     FakePilotWorker,
 )
-from zeos_space_invaders_web.prompt_player import CONTEXT_ID, PREFIX_ID, BrowserPromptPlayer
+from zeos_space_invaders_web.prompt_player import (
+    ASSISTANT_OPEN,
+    CONTEXT_ID,
+    PREFIX_ID,
+    BrowserPromptPlayer,
+)
 
 
 def arm(
@@ -139,6 +144,31 @@ def test_a_reply_ends_at_a_newline() -> None:
     player = BrowserPromptPlayer(worker, view=LeadView(), rules=Rules())
     reply = ask(player)
     assert reply.text == "left" and reply.tokens == 1
+
+
+def test_a_fence_before_the_move_does_not_end_the_reply() -> None:
+    class Fenced(FakePilotWorker):
+        def piece(self, tokenId: int) -> str:
+            text = super().piece(tokenId)
+            fence = {"left": "```\n", "right": "right\n```"}
+            return fence.get(text.strip(), text)
+
+    clock = FakeClock()
+    worker = Fenced(replies=("left right",), clock=clock, sleep=clock.sleep)
+    player = BrowserPromptPlayer(worker, view=LeadView(), rules=Rules())
+    reply = ask(player)
+    assert reply.text == "```\nright" and reply.action == "right" and reply.tokens == 2
+
+
+def test_the_assistant_turn_opens_with_an_empty_think_block() -> None:
+    clock = FakeClock()
+    worker = FakePilotWorker(replies=("left",), clock=clock, sleep=clock.sleep)
+    player = BrowserPromptPlayer(worker, view=LeadView(), rules=Rules())
+    ask(player)
+    tail = worker.tokenize("assistant\n" + ASSISTANT_OPEN)
+    ids = player._ids  # pyright: ignore[reportPrivateUsage]
+    at = max(i for i in range(len(ids) - len(tail) + 1) if ids[i : i + len(tail)] == tail)
+    assert at > player._prefix  # pyright: ignore[reportPrivateUsage]
 
 
 def test_begin_refuses_a_second_request() -> None:
