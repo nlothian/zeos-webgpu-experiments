@@ -16,7 +16,12 @@
 // file back out afterwards; --js loads a classic script, such as web/stub_worker.js,
 // into the global scope the script reaches as Pyodide's `js` module; --model starts the
 // model worker on a thread of its own (web/node_model_thread.mjs), as the page does, and
-// puts its synchronous face in that scope as `zeosModelWorker`. Nothing is mounted: the script sees exactly the
+// puts its synchronous face in that scope as `zeosModelWorker`; --pilot-stub OPTS_JSON does
+// the same for web/stub/pilot_stub_worker.js (tests/pilot_stub_thread.mjs), as
+// `zeosPilotStub`. The scope also has `zeosControl`, an Int32Array over a control
+// SharedArrayBuffer like the page's (slot 0 is Stop), and `zeosStopAfter(ms)`, which sets
+// Stop from another thread `ms` later -- the run loop never yields, so a timer on this
+// thread could not -- and records Date.now() at that moment in `zeosStoppedAt()`. Nothing is mounted: the script sees exactly the
 // filesystem the page builds, so a difference between the two runs is Pyodide's and
 // not the host's directory order.
 //
@@ -37,6 +42,7 @@ const copies = [];
 const fetches = [];
 const scripts = [];
 let model = null;
+let pilotStub = null;
 let script = null;
 for (let i = 0; i < args.length; i++) {
   const flag = args[i];
@@ -47,6 +53,7 @@ for (let i = 0; i < args.length; i++) {
   else if (flag === "--fetch") fetches.push(splitAt(args[++i], args[i].indexOf(":")));
   else if (flag === "--js") scripts.push(args[++i]);
   else if (flag === "--model") model = args[++i];
+  else if (flag === "--pilot-stub") pilotStub = JSON.parse(args[++i]);
   else script = flag;
 }
 if (!script) {
@@ -91,6 +98,24 @@ function copyTree(host, target) {
 }
 for (const [host, target] of copies) copyTree(host, target);
 for (const file of scripts) await import(pathToFileURL(path.resolve(file)).href);
+const controlSab = new SharedArrayBuffer(16);
+globalThis.zeosControl = new Int32Array(controlSab);
+globalThis.zeosStoppedAt = () => new Float64Array(controlSab)[1];
+globalThis.zeosStopAfter = (ms) => {
+  const { Worker } = globalThis.zeosWorkerThreads;
+  new Worker(
+    "const { workerData } = require('node:worker_threads');" +
+      "setTimeout(() => { const c = new Int32Array(workerData.sab);" +
+      " new Float64Array(workerData.sab)[1] = Date.now();" +
+      " Atomics.store(c, 0, 1); Atomics.notify(c, 0); }, workerData.ms);",
+    { eval: true, workerData: { sab: controlSab, ms } },
+  ).unref();
+};
+globalThis.zeosWorkerThreads = await import("node:worker_threads");
+if (pilotStub !== null) {
+  const { startPilotStub } = await import(pathToFileURL(path.join(here, "pilot_stub_thread.mjs")).href);
+  globalThis.zeosPilotStub = await startPilotStub(pilotStub);
+}
 if (model !== null) {
   const { startNodeModel } = await import(path.join(coop, "web", "node_model_thread.mjs"));
   globalThis.zeosModelWorker = await startNodeModel({ modelDir: path.resolve(model) });

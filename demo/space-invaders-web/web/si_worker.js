@@ -111,8 +111,9 @@ function workerFor(machine) {
 
 // The page clears control[CONTROL_STOP] before posting `start`, so a Stop pressed while
 // the model was loading is not lost.
-function start({ arm, board, seed, machine }) {
+function start({ arm, board, seed, machine, tune = "" }) {
   const worker = workerFor(machine);
+  page.configure_json(tune);
   const onFrame = page.json_sink((text) => {
     const frame = JSON.parse(text);
     post("frame", frame);

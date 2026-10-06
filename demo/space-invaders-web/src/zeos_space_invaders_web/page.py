@@ -22,6 +22,7 @@ verdicts' detail says so.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import random
@@ -84,12 +85,14 @@ __all__ = [
     "PROMPT_OPTIONS",
     "RUNNER_OPTIONS",
     "RUN_BUILDERS",
+    "ZEOS_KERNEL_OPTIONS",
     "ZEOS_MACHINE_OPTIONS",
     "FakeRun",
     "LoopClock",
     "PromptRun",
     "ZeosRun",
     "channel",
+    "configure_json",
     "RunContext",
     "RunBuilder",
     "describe_json",
@@ -500,6 +503,28 @@ ZEOS_MACHINE_OPTIONS: dict[str, Any] = {}
 PROMPT_OPTIONS: dict[str, Any] = {}
 #: Runner keywords for either arm (``max_ticks``, ``max_seconds``).
 RUNNER_OPTIONS: dict[str, Any] = {}
+#: ``KernelConfig`` fields to override on the zeos arm's kernel, for diagnosis only:
+#: empty (the default) is the native case's kernel exactly. ``starvation_limit`` is the
+#: one the integration measured: the kernel faults the pilot on its ninth preemption by
+#: default, and a preemption-heavy real-time game reaches that within a minute.
+ZEOS_KERNEL_OPTIONS: dict[str, Any] = {}
+
+
+def configure_json(text: str) -> None:
+    """Replace the arms' options from JSON text ``{"zeos": {...}, "prompt": {...},
+    "kernel": {...}}``; a key left out goes back to its defaults. ``si_worker.js`` passes the page's ``?tune=``
+    query parameter through it before each run, which is how the tuning runs set
+    ``max_chunk`` or ``stall_ms`` without a rebuild."""
+    raw = cast(dict[str, Any], json.loads(text or "{}"))
+    unknown = sorted(set(raw) - {"zeos", "prompt", "kernel"})
+    if unknown:
+        raise ValueError(f"cannot tune {unknown}: only 'zeos', 'prompt' and 'kernel'")
+    ZEOS_MACHINE_OPTIONS.clear()
+    ZEOS_MACHINE_OPTIONS.update(cast(dict[str, Any], raw.get("zeos", {})))
+    PROMPT_OPTIONS.clear()
+    PROMPT_OPTIONS.update(cast(dict[str, Any], raw.get("prompt", {})))
+    ZEOS_KERNEL_OPTIONS.clear()
+    ZEOS_KERNEL_OPTIONS.update(cast(dict[str, Any], raw.get("kernel", {})))
 
 
 def channel(worker: object) -> tuple[AsyncModelWorker, Bridge | None]:
@@ -596,6 +621,9 @@ class ZeosRun:
         self.machine = _TimedPilot(worker, bridge=bridge, **ZEOS_MACHINE_OPTIONS)
         self.machine.splices = []
         self.driver = build_driver(self.machine, context.spec)
+        if ZEOS_KERNEL_OPTIONS:
+            kernel = self.driver.kernel
+            kernel.config = dataclasses.replace(kernel.config, **ZEOS_KERNEL_OPTIONS)
         self.runner = WallClockZeosRunner(
             self.driver,
             context.spec,
@@ -667,6 +695,7 @@ class ZeosRun:
         biggest = max(steps, key=lambda e: e["positions"], default=None)
         return {
             "machine": "stub" if self.context.stub else "model",
+            "kernel_options": dict(ZEOS_KERNEL_OPTIONS),
             "warm_s": self.warm_s,
             "runner_warm_s": runner.warm_s,
             "prewarm_ms": self.prewarm_ms,

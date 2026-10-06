@@ -38,6 +38,11 @@ const state = {
 };
 
 const board = new BoardView($("board-canvas"));
+// What tests/si_webgpu.mjs reads: each finished run (less its journal and payload), the
+// errors shown, and the phase the page is in with when it was entered.
+window.siRuns = [];
+window.siErrors = [];
+window.siPhase = { phase: null, at: 0 };
 const control = state.isolated ? new Int32Array(new SharedArrayBuffer(CONTROL_BYTES)) : null;
 const worker = new Worker("si_worker.js", { type: "module" });
 const send = (type, body = {}, transfer = []) => worker.postMessage({ type, ...body }, transfer);
@@ -113,6 +118,7 @@ function skippedFor(machine) {
 /** Mark `phase` as the current one; `skipped` names phases this run has none of. */
 function setPhase(phase, skipped = []) {
   state.phase = phase;
+  window.siPhase = { phase, at: performance.now() };
   const at = PHASES.indexOf(phase);
   for (const li of $("phases").children) {
     const index = PHASES.indexOf(li.dataset.phase);
@@ -361,6 +367,7 @@ const handlers = {
   status: ({ text }) => setStatus(text),
   log: ({ text }) => log(text),
   error: ({ message, stack }) => {
+    window.siErrors.push(message);
     setStatus(message, true);
     log(stack || message);
     if (state.running) {
@@ -399,6 +406,7 @@ const handlers = {
     const run = state.started;
     state.running = false;
     state.last = { ...finished, run };
+    window.siRuns.push({ run, result: finished.result, verdicts: finished.verdicts, stopped: finished.stopped });
     setPhase("finished", skippedFor(run.machine));
     const r = finished.result;
     const end = state.lastFrame;
@@ -471,7 +479,9 @@ $("run").addEventListener("click", async () => {
     return;
   }
   setPhase("warming", skippedFor(machine));
-  send("start", state.started);
+  // `?tune={"zeos": {...}, "prompt": {...}}` overrides the arms' options for this page
+  // load (page.configure_json); the tuning runs use it.
+  send("start", { ...state.started, tune: new URLSearchParams(location.search).get("tune") ?? "" });
 });
 
 $("stop").addEventListener("click", () => {

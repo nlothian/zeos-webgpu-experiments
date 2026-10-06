@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from zeos_space_invaders_web import page
-from zeos_space_invaders_web.contracts import BoardName, BoardSpec, Frame, LocalStop
+from zeos_space_invaders_web.contracts import BoardName, BoardSpec, Frame, FrameSink, LocalStop
 from zeos_space_invaders_web.fake_worker import FakePilotWorker
 
 TICK_S = 0.05
@@ -51,11 +51,18 @@ def _worker(**kwargs: Any) -> FakePilotWorker:
     return FakePilotWorker(step_ms=20.0, position_ms=1.0, **kwargs)
 
 
+def _sink(frames: list[Frame]) -> FrameSink:
+    def sink(frame: Frame) -> None:
+        frames.append(frame)
+
+    return sink
+
+
 @pytest.mark.usefixtures("fast_board")
 def test_the_zeos_arm_passes_every_criterion_through_open_run() -> None:
     worker = _worker()
     frames: list[Frame] = []
-    run = page.open_run("zeos", "default", SEED, worker, on_frame=frames.append)
+    run = page.open_run("zeos", "default", SEED, worker, on_frame=_sink(frames))
     assert isinstance(run, page.ZeosRun)
     try:
         run.warm()
@@ -88,7 +95,7 @@ def test_the_zeos_arm_passes_every_criterion_through_open_run() -> None:
 def test_the_prompt_arm_finishes_and_reports_its_parse_rate() -> None:
     worker = _worker(replies=("left", "shoot", "right", "jump"))
     frames: list[Frame] = []
-    run = page.open_run("prompt", "default", SEED, worker, on_frame=frames.append)
+    run = page.open_run("prompt", "default", SEED, worker, on_frame=_sink(frames))
     assert isinstance(run, page.PromptRun)
     try:
         run.warm()
