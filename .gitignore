@@ -22,8 +22,16 @@ build/
 # tarball unless the root list names them too.
 runs/
 
-# A demo's npm install, for the same reason: the sdist builder reads only this file.
-node_modules/
+# A demo's or package's npm install, for the same reason: the sdist builder reads only
+# this file. No trailing slash, so a symlink to a shared install matches too.
+node_modules
+
+# Model exports and downloads, gigabytes each: a package's or demo's own `models/`,
+# often a symlink to a shared copy (no trailing slash, so the symlink matches too).
+# Covers checkouts made before the browser layer moved out of demo/coop-count-web,
+# whose `demo/coop-count-web/models` is still on disk.
+/demo/*/models
+/packages/*/models
 
 # Editor state -- personal to a checkout, never shared
 .vscode/
