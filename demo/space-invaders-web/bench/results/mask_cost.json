@@ -1,0 +1,460 @@
+{
+  "runtime": "cpython",
+  "aliases": [
+    "stdin",
+    "stdout"
+  ],
+  "valued": [],
+  "seat_maps_valued_pilot": [
+    "stdout"
+  ],
+  "prewarm_representable_with_seat_maps_valued": {
+    "write stdout left;": false,
+    "write stdout right;": false,
+    "write stdout shoot;": false,
+    "read stdin;": true
+  },
+  "language_alternatives": 6,
+  "pieces_load_s": 1.1067731659859419,
+  "jsmachine_init_s": 0.018687790958210826,
+  "vocab": 248077,
+  "language_build_ms": 0.061666942201554775,
+  "tokenmask_build_ms": 0.006415997631847858,
+  "start_state": {
+    "cold_ms": 267.03241700306535,
+    "warm_ms": 0.00011931249173358083,
+    "allowed_ids": 28
+  },
+  "walks": {
+    "write stdout left;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " left",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": false,
+            "ms": 261.1095830798149,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": false,
+            "ms": 278.60291698016226,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " left",
+            "cached": false,
+            "ms": 576.0843339376152,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 957.2162079857662,
+            "allowed_ids": 242713,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 4,
+        "cold_ms": 2073.0130419833586
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " left",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.00300002284348011,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.000750063918530941,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " left",
+            "cached": true,
+            "ms": 0.00037497375160455704,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.000333995558321476,
+            "allowed_ids": 242713,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "write stdout right;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " right",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": true,
+            "ms": 0.0009159557521343231,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.00037497375160455704,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " right",
+            "cached": true,
+            "ms": 0.00029208604246377945,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 858.1835830118507,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 1,
+        "cold_ms": 858.1835830118507
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " right",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.003250082954764366,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.0007499475032091141,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " right",
+            "cached": true,
+            "ms": 0.0003330642357468605,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.0004169996827840805,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "write stdout shoot;": [
+      {
+        "pieces": [
+          "write",
+          " stdout",
+          " shoot",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "write",
+            "cached": true,
+            "ms": 0.000500003807246685,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.00037497375160455704,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " shoot",
+            "cached": true,
+            "ms": 0.0002919696271419525,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.000750063918530941,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      },
+      {
+        "pieces": [
+          " write",
+          " stdout",
+          " shoot",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " write",
+            "cached": true,
+            "ms": 0.000333995558321476,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdout",
+            "cached": true,
+            "ms": 0.00037497375160455704,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": " shoot",
+            "cached": true,
+            "ms": 0.00037509016692638397,
+            "allowed_ids": 104900,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.000333995558321476,
+            "allowed_ids": 239345,
+            "token_allowed": true
+          }
+        ],
+        "states": 4,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ],
+    "read stdin;": [
+      {
+        "pieces": [
+          "read",
+          " stdin",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": "read",
+            "cached": true,
+            "ms": 0.00029208604246377945,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdin",
+            "cached": false,
+            "ms": 258.9690840104595,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": false,
+            "ms": 159.0971660334617,
+            "allowed_ids": 1,
+            "token_allowed": true
+          }
+        ],
+        "states": 3,
+        "new_states": 2,
+        "cold_ms": 418.0662500439212
+      },
+      {
+        "pieces": [
+          " read",
+          " stdin",
+          ";"
+        ],
+        "steps": [
+          {
+            "piece": " read",
+            "cached": true,
+            "ms": 0.004749977961182594,
+            "allowed_ids": 28,
+            "token_allowed": true
+          },
+          {
+            "piece": " stdin",
+            "cached": true,
+            "ms": 0.0007909256964921951,
+            "allowed_ids": 6,
+            "token_allowed": true
+          },
+          {
+            "piece": ";",
+            "cached": true,
+            "ms": 0.00037497375160455704,
+            "allowed_ids": 1,
+            "token_allowed": true
+          }
+        ],
+        "states": 3,
+        "new_states": 0,
+        "cold_ms": 0
+      }
+    ]
+  },
+  "prewarm_distinct_states": 7,
+  "prewarm_cold_total_ms": 3349.2628750391304,
+  "warm_hit_ms_max": 0.0001740000443533063,
+  "payload_states": [
+    {
+      "chars": 0,
+      "cached": false,
+      "ms": 865.3257499681786,
+      "allowed_ids": 246460
+    },
+    {
+      "chars": 1,
+      "cached": false,
+      "ms": 808.0407079542056,
+      "allowed_ids": 246247
+    },
+    {
+      "chars": 2,
+      "cached": false,
+      "ms": 837.0786249870434,
+      "allowed_ids": 245689
+    },
+    {
+      "chars": 3,
+      "cached": false,
+      "ms": 853.6518749315292,
+      "allowed_ids": 244586
+    },
+    {
+      "chars": 4,
+      "cached": true,
+      "ms": 0.0035830307751893997,
+      "allowed_ids": 242713
+    },
+    {
+      "chars": 5,
+      "cached": true,
+      "ms": 0.0008329516276717186,
+      "allowed_ids": 239345
+    },
+    {
+      "chars": 6,
+      "cached": false,
+      "ms": 854.0235830005258,
+      "allowed_ids": 233894
+    },
+    {
+      "chars": 7,
+      "cached": false,
+      "ms": 815.935124992393,
+      "allowed_ids": 225761
+    },
+    {
+      "chars": 8,
+      "cached": false,
+      "ms": 865.0947919813916,
+      "allowed_ids": 213860
+    },
+    {
+      "chars": 9,
+      "cached": false,
+      "ms": 834.555207984522,
+      "allowed_ids": 197414
+    },
+    {
+      "chars": 10,
+      "cached": false,
+      "ms": 782.7380830422044,
+      "allowed_ids": 176161
+    },
+    {
+      "chars": 11,
+      "cached": false,
+      "ms": 804.1509169852361,
+      "allowed_ids": 150272
+    },
+    {
+      "chars": 12,
+      "cached": false,
+      "ms": 711.9078750256449,
+      "allowed_ids": 120562
+    },
+    {
+      "chars": 13,
+      "cached": false,
+      "ms": 633.0652500037104,
+      "allowed_ids": 84978
+    },
+    {
+      "chars": 14,
+      "cached": false,
+      "ms": 523.5872500343248,
+      "allowed_ids": 49632
+    },
+    {
+      "chars": 15,
+      "cached": false,
+      "ms": 507.1936660679057,
+      "allowed_ids": 8896
+    },
+    {
+      "chars": 16,
+      "cached": false,
+      "ms": 200.29645902104676,
+      "allowed_ids": 1
+    }
+  ],
+  "payload_states_cold_total_ms": 10896.645165979862,
+  "bytes_from_bytearray_ms": 0.004712500376626849,
+  "copy_ms": 0.009056460112333298
+}

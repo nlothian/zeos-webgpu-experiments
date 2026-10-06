@@ -48,9 +48,18 @@ Issues = "https://github.com/metacognitionai/zeos/issues"
 zeos = "zeos.cli:main"
 
 [tool.uv.workspace]
-# The demos are workspace members: same venv and lockfile, but nothing from
-# demo/ ever ships in the zeos wheel.
-members = ["demo/counter", "demo/coop-count", "demo/space-invaders"]
+# The libraries the demos build on (packages/) and the demos (demo/) are workspace
+# members: same venv and lockfile, but nothing from packages/ or demo/ ever ships
+# in the zeos wheel.
+members = [
+    "packages/zeos-browser",
+    "packages/zeos-chat",
+    "demo/counter",
+    "demo/coop-count",
+    "demo/coop-count-web",
+    "demo/space-invaders",
+    "demo/space-invaders-web",
+]
 
 [dependency-groups]
 dev = [
@@ -70,11 +79,12 @@ build-backend = "hatchling.build"
 packages = ["src/zeos"]
 
 [tool.hatch.build.targets.sdist]
-# The sdist carries the demos, but not the model weights a demo downloads into
-# its own `models/`. Those are gitignored by each demo's own .gitignore, and
+# The sdist carries the demos and packages, but not the model weights one downloads
+# into its own `models/`. Those are gitignored by each one's own .gitignore, and
 # hatchling reads only the root one, so without this the sdist is gigabytes.
 exclude = [
     "demo/*/models",
+    "packages/*/models",
     # Agent instructions and CI wiring belong to the repository, not to a source
     # release: nothing in them is needed to build or read what is being shipped.
     ".github",

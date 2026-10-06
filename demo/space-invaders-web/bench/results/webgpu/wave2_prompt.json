@@ -1,0 +1,86 @@
+{
+ "note": "Wave 2 prompt arm after the empty-think-block fix; chunk/window as wave2. GPU state unknown (before the contention check).",
+ "tune": null,
+ "rows": [
+  {
+   "arm": "prompt",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "lives": 2,
+   "kills": 0,
+   "ticks": 120,
+   "decisions": 22,
+   "lag_ticks": {
+    "mean": 5.46,
+    "p95": 7,
+    "max": 7
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 28.256,
+    "p95": 254.03,
+    "max": 535.175
+   },
+   "catchup_ticks": 1,
+   "warm_s": {
+    "page": 7.95,
+    "python": 7.305,
+    "prewarm_ms": null
+   },
+   "parse_rate": 1,
+   "verdicts": [],
+   "replies": 22,
+   "reply_latency_s": {
+    "mean": 2.604,
+    "p95": 3.092,
+    "max": 3.117
+   },
+   "unparsed": [],
+   "quiet_gpu": null
+  },
+  {
+   "arm": "prompt",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "lives": 0,
+   "kills": 0,
+   "ticks": 66,
+   "decisions": 7,
+   "lag_ticks": {
+    "mean": 9.29,
+    "p95": 11,
+    "max": 11
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 3.568,
+    "p95": 6.935,
+    "max": 7.505
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 7.31,
+    "python": 7.298,
+    "prewarm_ms": null
+   },
+   "parse_rate": 0.857,
+   "verdicts": [],
+   "replies": 7,
+   "reply_latency_s": {
+    "mean": 1.858,
+    "p95": 2.21,
+    "max": 2.21
+   },
+   "unparsed": [
+    "The user wants me to play"
+   ],
+   "quiet_gpu": null
+  }
+ ]
+}

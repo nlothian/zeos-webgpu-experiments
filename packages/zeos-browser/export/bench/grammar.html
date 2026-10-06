@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>The grammar mask on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>The grammar mask on WebGPU</h1>
+    <p>
+      <code>JsMachine</code> under Pyodide, with its token mask, over the model on WebGPU, after
+      injected text written to talk the model out of the command language. Needs the page
+      cross-origin isolated, <code>npm install</code>, and the wheels
+      <code>tests/opt_zeos_webgpu.mjs</code> builds into <code>export/bench/wheels/</code>.
+      Query parameters: <code>model</code> (default <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>),
+      <code>ort</code> (the <code>ort.webgpu.min.mjs</code> to import). Run by
+      <code>node tests/opt_zeos_webgpu.mjs --page grammar.html</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="grammar.js"></script>
+  </body>
+</html>

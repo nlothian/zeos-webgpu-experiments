@@ -1,0 +1,560 @@
+{"block_size":16,"case":"coop-count-pipe","clock":{"token_clock":0,"virtual_ns":0},"kind":"kernel.started","seed":0,"seq":0}
+{"capacity_tokens":64,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.a2b","principal":"peer_job","ring":2,"seq":1,"transport":"local"}
+{"capacity_tokens":64,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.b2a","principal":"peer_job","ring":2,"seq":2,"transport":"local"}
+{"capacity_tokens":32,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.progress_a","principal":"device","ring":2,"seq":3,"transport":"local"}
+{"capacity_tokens":32,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"count.progress_b","principal":"device","ring":2,"seq":4,"transport":"local"}
+{"capacity_tokens":8,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"keys.interrupt","principal":"user","ring":3,"seq":5,"transport":"local"}
+{"capacity_tokens":16,"clock":{"token_clock":0,"virtual_ns":0},"kind":"pipe.created","pipe":"keys.number","principal":"user","ring":3,"seq":6,"transport":"local"}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-a","kind":"descriptor.loaded","pinned":false,"placement":"any","preemptible":true,"priority":50,"seq":7}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-b","kind":"descriptor.loaded","pinned":true,"placement":"any","preemptible":true,"priority":50,"seq":8}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"reset-count","kind":"descriptor.loaded","pinned":false,"placement":"any","preemptible":true,"priority":5,"seq":9}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-a","integrity":2,"job":1,"kind":"job.spawned","owner":"kernel","parent":null,"priority":50,"seq":10}
+{"clock":{"token_clock":0,"virtual_ns":0},"descriptor":"counter-b","integrity":2,"job":2,"kind":"job.spawned","owner":"kernel","parent":null,"priority":50,"seq":11}
+{"clock":{"token_clock":1055,"virtual_ns":0},"integrity":1,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":1,"seq":12,"text":["#","Task:","wait,","count","to","your","target,","record","it,","hand","back,","repeat","forever","You","are","counter-b,","a","job","running","under","an","operating","system.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","There","are","four.","`say","N;`","says","a","number","out","loud","and","changes","nothing","else.","`write","tools","N;`","records","N","as","your","progress,","permanently,","where","nothing","can","lose","it.","`write","stdout","go;`","wakes","the","other","job.","`read","stdin;`","puts","you","to","sleep","until","the","other","job","wakes","you.","`exit;`","ends","the","job,","and","you","never","use","it.","##","The","status","line","One","line","in","this","context","is","written","by","the","operating","system","rather","than","by","you.","It","opens","with","STATUS","in","angle","brackets,","names","count.a,","carries","a","number,","and","closes","with","a","matching","end","tag.","That","number","is","how","far","the","other","job","has","counted.","There","is","exactly","one","such","line","and","the","operating","system","rewrites","it","in","place;","nothing","you","write","ever","looks","like","it,","because","you","cannot","type","an","angle","bracket.","It","is","always","current","and","it","is","never","removed.","Everything","else","you","can","see","is","your","own","working,","and","your","own","working","is","disposable","--","sooner","or","later","you","will","find","parts","of","it","replaced","by","a","STUB","marker","saying","how","many","tokens","were","elided.","That","is","normal","and","needs","no","comment.","Trust","the","status","line;","it","is","the","only","thing","here","that","cannot","be","taken","away.","##","Procedure","**Your","target","is","the","next","multiple","of","ten","above","the","STATUS","count.a","value.**","You","never","add","ten","to","work","it","out.","You","round","*up*","to","the","nearest","ten,","and","if","the","value","is","already","a","multiple","of","ten","you","go","one","ten","further.","If","it","reads","40,","your","target","is","50.","If","it","reads","47,","your","target","is","50","--","not","57,","and","not","60.","If","it","reads","37,","your","target","is","40","--","the","nearest","ten","above","37,","which","is","only","three","numbers","away.","If","it","reads","23,","your","target","is","30.","If","it","reads","503,","your","target","is","510.","Work","it","out","from","that","line","every","turn,","never","from","memory.","In","ordinary","running","the","status","value","is","already","a","multiple","of","ten","and","the","target","is","ten","more,","but","it","will","not","always","be,","and","it","is","the","boundary","that","decides","how","far","you","go,","not","the","arithmetic.","A","turn","is:","say","every","number","from","the","status","value","plus","one","up","to","and","including","your","target,","one","`say`","command","each,","then","record.","Your","target","is","a","multiple","of","ten,","so","it","is","the","only","number","you","ever","say","that","ends","in","a","0","--","and","that","0","is","the","stop","signal.","From","47","the","whole","count","is","`say","48;`","`say","49;`","`say","50;`","`write","tools","50;`","--","50","ends","in","0,","so","no","say","follows","it.","From","9","it","is","a","single","number:","`say","10;`","`write","tools","10;`.","From","23","it","is","`say","24;`","through","`say","30;`","then","`write","tools","30;`.","A","say","of","a","number","ending","in","0","is","always","followed","by","`write","tools`","with","that","same","number,","never","by","another","say.","After","every","say,","two","checks,","in","this","order.","First","the","status","line:","if","it","no","longer","agrees","with","your","counting,","the","world","moved,","and","the","status","rule","below","is","what","you","follow.","Then","the","number","you","just","said:","if","it","ends","in","0","you","have","reached","your","target","and","the","next","command","is","`write","tools`","with","that","same","number;","if","it","does","not,","you","say","the","number","one","above","it.","The","digit","decides","when","you","stop","--","not","how","many","numbers","you","have","said.","When","and","only","when","you","have","said","the","target,","the","turn","ends","with","exactly","three","commands,","in","this","order,","none","of","them","skippable:","`write","tools","TARGET;`","then","`write","stdout","go;`","then","`read","stdin;`","Never","`write","tools`","a","number","below","your","target","--","below","the","target","the","command","is","always","`say`.","And","recording","is","not","waking:","if","you","record","and","then","sleep","without","`write","stdout","go;`,","the","other","job","is","never","woken,","so","it","never","wakes","you,","and","everything","stops.","Both,","in","that","order,","every","turn.","**The","command","after","a","`read","stdin;`","is","always","a","`say`.**","Being","woken","puts","you","at","the","start","of","a","turn:","the","first","number","is","one","above","the","status","value,","and","you","have","recorded","nothing","yet,","so","there","is","nothing","to","record","and","nobody","to","wake.","##","On","resume","**The","status","line","always","wins.**","If","the","STATUS","count.a","number","is","not","what","you","expected","--","if","it","jumped","far","ahead,","or","fell","back,","or","a","RESUME","notice","appeared","--","then","the","world","moved","while","you","were","away","and","**everything","you","said","before","is","void.**","Do","not","carry","on","from","it.","Start","again","from","the","status","value","plus","one","and","count","to","the","new","target,","which","may","be","far","above","where","you","had","got","to","or","far","below","it.","A","RESUME","notice","is","the","status","line's","news","told","twice:","it","appears","only","when","something","you","depend","on","changed,","shown","as","`before","->","after`,","and","when","it","tells","you","to","revalidate","your","plan,","that","means","work","the","target","out","afresh","from","the","STATUS","count.a","line","and","start","again","from","that","value","plus","one.","Take","no","number","from","the","notice","itself","--","it","tells","you","*that*","you","must","start","again,","never","*what*","to","count","to.","And","you","will","not","always","get","a","notice:","sometimes","the","world","moves","while","you","are","merely","asleep","and","nothing","is","said","at","all.","The","rule","does","not","depend","on","being","told;","the","status","line","is","the","truth","and","your","own","working","is","only","a","memory","of","one.","##","Your","first","turn","**Running","at","all","means","you","have","been","woken.**","You","are","held","back","until","the","other","job's","`go`","arrives,","and","the","operating","system","takes","that","`go`","off","the","pipe","itself","to","release","you,","so","it","is","already","spent","by","the","time","you","have","the","machine","--","a","`read","stdin;`","now","would","wait","for","a","second","message","that","nobody","is","going","to","send,","and","both","jobs","would","sleep","for","ever.","The","other","job","has","counted","first","and","its","number","is","on","the","status","line,","so","work","your","target","out","from","that","line","exactly","as","you","will","on","every","other","turn","and","start","one","above","it.","If","it","reads","ten,","your","target","is","twenty","and","your","next","command","is","`say","11;`"],"tokens":1055}
+{"clock":{"token_clock":1055,"virtual_ns":0},"integrity":1,"job":2,"kind":"segment.opened","perms":11,"ring":1,"segment":1,"seq":13}
+{"clock":{"token_clock":1055,"virtual_ns":0},"end":1055,"job":2,"kind":"segment.closed","segment":1,"seq":14,"start":0}
+{"allowed_blocks":66,"clock":{"token_clock":1055,"virtual_ns":0},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":15}
+{"block":65,"clock":{"token_clock":1056,"virtual_ns":0},"job":2,"kind":"machine.block_boundary","padding_tokens":1,"seq":16}
+{"clock":{"token_clock":1060,"virtual_ns":0},"integrity":0,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":0,"segment":2,"seq":17,"text":["<STATUS","count.a>","0","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":1060,"virtual_ns":0},"integrity":0,"job":2,"kind":"segment.opened","perms":5,"ring":0,"segment":2,"seq":18}
+{"clock":{"token_clock":1060,"virtual_ns":0},"end":1060,"job":2,"kind":"segment.closed","segment":2,"seq":19,"start":1056}
+{"allowed_blocks":67,"clock":{"token_clock":1060,"virtual_ns":0},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":20}
+{"clock":{"token_clock":1060,"virtual_ns":0},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":2,"seq":21}
+{"clock":{"token_clock":1060,"virtual_ns":0},"from_state":"ready","job":1,"kind":"job.state","seq":22,"to_state":"running"}
+{"clock":{"token_clock":1060,"virtual_ns":0},"job":1,"kind":"job.dispatched","priority":50,"seq":23}
+{"clock":{"token_clock":2048,"virtual_ns":0},"integrity":1,"job":1,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":3,"seq":24,"text":["#","Task:","count","to","your","target,","record","it,","hand","over,","repeat","forever","You","are","counter-a,","a","job","running","under","an","operating","system.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","There","are","four.","`say","N;`","says","a","number","out","loud","and","changes","nothing","else.","`write","tools","N;`","records","N","as","your","progress,","permanently,","where","nothing","can","lose","it.","`write","stdout","go;`","wakes","the","other","job.","`read","stdin;`","puts","you","to","sleep","until","the","other","job","wakes","you.","`exit;`","ends","the","job,","and","you","never","use","it.","##","The","status","line","One","line","in","this","context","is","written","by","the","operating","system","rather","than","by","you.","It","opens","with","STATUS","in","angle","brackets,","names","count.b,","carries","a","number,","and","closes","with","a","matching","end","tag.","That","number","is","how","far","the","other","job","has","counted.","There","is","exactly","one","such","line","and","the","operating","system","rewrites","it","in","place;","nothing","you","write","ever","looks","like","it,","because","you","cannot","type","an","angle","bracket.","It","is","always","current","and","it","is","never","removed.","Everything","else","you","can","see","is","your","own","working,","and","your","own","working","is","disposable","--","sooner","or","later","you","will","find","parts","of","it","replaced","by","a","STUB","marker","saying","how","many","tokens","were","elided.","That","is","normal","and","needs","no","comment.","Trust","the","status","line;","it","is","the","only","thing","here","that","cannot","be","taken","away.","##","Procedure","**Your","target","is","the","next","multiple","of","ten","above","the","STATUS","count.b","value.**","You","never","add","ten","to","work","it","out.","You","round","*up*","to","the","nearest","ten,","and","if","the","value","is","already","a","multiple","of","ten","you","go","one","ten","further.","If","it","reads","40,","your","target","is","50.","If","it","reads","47,","your","target","is","50","--","not","57,","and","not","60.","If","it","reads","37,","your","target","is","40","--","the","nearest","ten","above","37,","which","is","only","three","numbers","away.","If","it","reads","23,","your","target","is","30.","If","it","reads","503,","your","target","is","510.","Work","it","out","from","that","line","every","turn,","never","from","memory.","In","ordinary","running","the","status","value","is","already","a","multiple","of","ten","and","the","target","is","ten","more,","but","it","will","not","always","be,","and","it","is","the","boundary","that","decides","how","far","you","go,","not","the","arithmetic.","A","turn","is:","say","every","number","from","the","status","value","plus","one","up","to","and","including","your","target,","one","`say`","command","each,","then","record.","Your","target","is","a","multiple","of","ten,","so","it","is","the","only","number","you","ever","say","that","ends","in","a","0","--","and","that","0","is","the","stop","signal.","From","47","the","whole","count","is","`say","48;`","`say","49;`","`say","50;`","`write","tools","50;`","--","50","ends","in","0,","so","no","say","follows","it.","From","9","it","is","a","single","number:","`say","10;`","`write","tools","10;`.","From","23","it","is","`say","24;`","through","`say","30;`","then","`write","tools","30;`.","A","say","of","a","number","ending","in","0","is","always","followed","by","`write","tools`","with","that","same","number,","never","by","another","say.","After","every","say,","two","checks,","in","this","order.","First","the","status","line:","if","it","no","longer","agrees","with","your","counting,","the","world","moved,","and","the","status","rule","below","is","what","you","follow.","Then","the","number","you","just","said:","if","it","ends","in","0","you","have","reached","your","target","and","the","next","command","is","`write","tools`","with","that","same","number;","if","it","does","not,","you","say","the","number","one","above","it.","The","digit","decides","when","you","stop","--","not","how","many","numbers","you","have","said.","When","and","only","when","you","have","said","the","target,","the","turn","ends","with","exactly","three","commands,","in","this","order,","none","of","them","skippable:","`write","tools","TARGET;`","then","`write","stdout","go;`","then","`read","stdin;`","Never","`write","tools`","a","number","below","your","target","--","below","the","target","the","command","is","always","`say`.","And","recording","is","not","waking:","if","you","record","and","then","sleep","without","`write","stdout","go;`,","the","other","job","is","never","woken,","so","it","never","wakes","you,","and","everything","stops.","Both,","in","that","order,","every","turn.","**The","command","after","a","`read","stdin;`","is","always","a","`say`.**","Being","woken","puts","you","at","the","start","of","a","turn:","the","first","number","is","one","above","the","status","value,","and","you","have","recorded","nothing","yet,","so","there","is","nothing","to","record","and","nobody","to","wake.","##","On","resume","**The","status","line","always","wins.**","If","the","STATUS","count.b","number","is","not","what","you","expected","--","if","it","jumped","far","ahead,","or","fell","back,","or","a","RESUME","notice","appeared","--","then","the","world","moved","while","you","were","away","and","**everything","you","said","before","is","void.**","Do","not","carry","on","from","it.","Start","again","from","the","status","value","plus","one","and","count","to","the","new","target,","which","may","be","far","above","where","you","had","got","to","or","far","below","it.","A","RESUME","notice","is","the","status","line's","news","told","twice:","it","appears","only","when","something","you","depend","on","changed,","shown","as","`before","->","after`,","and","when","it","tells","you","to","revalidate","your","plan,","that","means","work","the","target","out","afresh","from","the","STATUS","count.b","line","and","start","again","from","that","value","plus","one.","Take","no","number","from","the","notice","itself","--","it","tells","you","*that*","you","must","start","again,","never","*what*","to","count","to.","And","you","will","not","always","get","a","notice:","sometimes","the","world","moves","while","you","are","merely","asleep","and","nothing","is","said","at","all.","The","rule","does","not","depend","on","being","told;","the","status","line","is","the","truth","and","your","own","working","is","only","a","memory","of","one.","##","Your","first","turn","You","go","first,","so","this","turn","is","yours","without","being","woken.","Work","the","target","out","from","the","STATUS","count.b","line","exactly","as","you","will","on","every","other","turn","--","it","reads","zero","now,","so","the","target","is","ten:","`say","1;`","through","`say","10;`,","then","record","ten.","Your","next","command","is","`say","1;`"],"tokens":988}
+{"clock":{"token_clock":2048,"virtual_ns":0},"integrity":1,"job":1,"kind":"segment.opened","perms":11,"ring":1,"segment":3,"seq":25}
+{"clock":{"token_clock":2048,"virtual_ns":0},"end":988,"job":1,"kind":"segment.closed","segment":3,"seq":26,"start":0}
+{"allowed_blocks":62,"clock":{"token_clock":2048,"virtual_ns":0},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":27}
+{"block":61,"clock":{"token_clock":2052,"virtual_ns":0},"job":1,"kind":"machine.block_boundary","padding_tokens":4,"seq":28}
+{"clock":{"token_clock":2056,"virtual_ns":0},"integrity":0,"job":1,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":0,"segment":4,"seq":29,"text":["<STATUS","count.b>","0","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2056,"virtual_ns":0},"integrity":0,"job":1,"kind":"segment.opened","perms":5,"ring":0,"segment":4,"seq":30}
+{"clock":{"token_clock":2056,"virtual_ns":0},"end":996,"job":1,"kind":"segment.closed","segment":4,"seq":31,"start":992}
+{"allowed_blocks":63,"clock":{"token_clock":2056,"virtual_ns":0},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":32}
+{"clock":{"token_clock":2056,"virtual_ns":0},"cost_tokens":4,"job":1,"kind":"vm.map_refreshed","obj":"count.b","segment":4,"seq":33}
+{"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"machine.decode","segment":5,"seq":34,"text":["say"],"tokens":1}
+{"block":62,"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":35}
+{"clock":{"token_clock":2057,"virtual_ns":1000000},"job":1,"kind":"vm.working_set","segments":1,"seq":36,"size_tokens":988}
+{"allowed_blocks":63,"clock":{"token_clock":2057,"virtual_ns":1000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":37}
+{"clock":{"token_clock":2058,"virtual_ns":2000000},"job":1,"kind":"machine.decode","segment":6,"seq":38,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2059,"virtual_ns":3000000},"job":1,"kind":"machine.decode","segment":6,"seq":39,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2060,"virtual_ns":4000000},"job":1,"kind":"machine.decode","segment":6,"seq":40,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2061,"virtual_ns":5000000},"job":1,"kind":"machine.decode","segment":6,"seq":41,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2062,"virtual_ns":6000000},"job":1,"kind":"machine.decode","segment":6,"seq":42,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2063,"virtual_ns":7000000},"job":1,"kind":"machine.decode","segment":6,"seq":43,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2064,"virtual_ns":8000000},"job":1,"kind":"machine.decode","segment":6,"seq":44,"text":["2"],"tokens":1}
+{"clock":{"token_clock":2065,"virtual_ns":9000000},"job":1,"kind":"machine.decode","segment":6,"seq":45,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2066,"virtual_ns":10000000},"job":1,"kind":"machine.decode","segment":6,"seq":46,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2067,"virtual_ns":11000000},"job":1,"kind":"machine.decode","segment":6,"seq":47,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2068,"virtual_ns":12000000},"job":1,"kind":"machine.decode","segment":6,"seq":48,"text":[" "],"tokens":1}
+{"block":63,"clock":{"token_clock":2068,"virtual_ns":12000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":49}
+{"clock":{"token_clock":2068,"virtual_ns":12000000},"job":1,"kind":"vm.working_set","segments":4,"seq":50,"size_tokens":1004}
+{"allowed_blocks":63,"clock":{"token_clock":2068,"virtual_ns":12000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":51}
+{"clock":{"token_clock":2069,"virtual_ns":13000000},"job":1,"kind":"machine.decode","segment":7,"seq":52,"text":["3"],"tokens":1}
+{"clock":{"token_clock":2070,"virtual_ns":14000000},"job":1,"kind":"machine.decode","segment":7,"seq":53,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2071,"virtual_ns":15000000},"job":1,"kind":"machine.decode","segment":7,"seq":54,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2072,"virtual_ns":16000000},"job":1,"kind":"machine.decode","segment":7,"seq":55,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2073,"virtual_ns":17000000},"job":1,"kind":"machine.decode","segment":7,"seq":56,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2074,"virtual_ns":18000000},"job":1,"kind":"machine.decode","segment":7,"seq":57,"text":["4"],"tokens":1}
+{"clock":{"token_clock":2075,"virtual_ns":19000000},"job":1,"kind":"machine.decode","segment":7,"seq":58,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2076,"virtual_ns":20000000},"job":1,"kind":"machine.decode","segment":7,"seq":59,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2077,"virtual_ns":21000000},"job":1,"kind":"machine.decode","segment":7,"seq":60,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2078,"virtual_ns":22000000},"job":1,"kind":"machine.decode","segment":7,"seq":61,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2079,"virtual_ns":23000000},"job":1,"kind":"machine.decode","segment":7,"seq":62,"text":["5"],"tokens":1}
+{"clock":{"token_clock":2080,"virtual_ns":24000000},"job":1,"kind":"machine.decode","segment":7,"seq":63,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2081,"virtual_ns":25000000},"job":1,"kind":"machine.decode","segment":7,"seq":64,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2082,"virtual_ns":26000000},"job":1,"kind":"machine.decode","segment":7,"seq":65,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2083,"virtual_ns":27000000},"job":1,"kind":"machine.decode","segment":7,"seq":66,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2084,"virtual_ns":28000000},"job":1,"kind":"machine.decode","segment":7,"seq":67,"text":["6"],"tokens":1}
+{"block":64,"clock":{"token_clock":2084,"virtual_ns":28000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":68}
+{"clock":{"token_clock":2084,"virtual_ns":28000000},"job":1,"kind":"vm.working_set","segments":5,"seq":69,"size_tokens":1020}
+{"allowed_blocks":64,"clock":{"token_clock":2084,"virtual_ns":28000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":70}
+{"clock":{"token_clock":2085,"virtual_ns":29000000},"job":1,"kind":"machine.decode","segment":8,"seq":71,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2086,"virtual_ns":30000000},"job":1,"kind":"machine.decode","segment":8,"seq":72,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2087,"virtual_ns":31000000},"job":1,"kind":"machine.decode","segment":8,"seq":73,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2088,"virtual_ns":32000000},"job":1,"kind":"machine.decode","segment":8,"seq":74,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2089,"virtual_ns":33000000},"job":1,"kind":"machine.decode","segment":8,"seq":75,"text":["7"],"tokens":1}
+{"clock":{"token_clock":2090,"virtual_ns":34000000},"job":1,"kind":"machine.decode","segment":8,"seq":76,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2091,"virtual_ns":35000000},"job":1,"kind":"machine.decode","segment":8,"seq":77,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2092,"virtual_ns":36000000},"job":1,"kind":"machine.decode","segment":8,"seq":78,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2093,"virtual_ns":37000000},"job":1,"kind":"machine.decode","segment":8,"seq":79,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2094,"virtual_ns":38000000},"job":1,"kind":"machine.decode","segment":8,"seq":80,"text":["8"],"tokens":1}
+{"clock":{"token_clock":2095,"virtual_ns":39000000},"job":1,"kind":"machine.decode","segment":8,"seq":81,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2096,"virtual_ns":40000000},"job":1,"kind":"machine.decode","segment":8,"seq":82,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2097,"virtual_ns":41000000},"job":1,"kind":"machine.decode","segment":8,"seq":83,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2098,"virtual_ns":42000000},"job":1,"kind":"machine.decode","segment":8,"seq":84,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2099,"virtual_ns":43000000},"job":1,"kind":"machine.decode","segment":8,"seq":85,"text":["9"],"tokens":1}
+{"clock":{"token_clock":2100,"virtual_ns":44000000},"job":1,"kind":"machine.decode","segment":8,"seq":86,"text":[";"],"tokens":1}
+{"block":65,"clock":{"token_clock":2100,"virtual_ns":44000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":87}
+{"clock":{"token_clock":2100,"virtual_ns":44000000},"job":1,"kind":"vm.working_set","segments":6,"seq":88,"size_tokens":1036}
+{"allowed_blocks":65,"clock":{"token_clock":2100,"virtual_ns":44000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":89}
+{"clock":{"token_clock":2101,"virtual_ns":45000000},"job":1,"kind":"machine.decode","segment":9,"seq":90,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2102,"virtual_ns":46000000},"job":1,"kind":"machine.decode","segment":9,"seq":91,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2103,"virtual_ns":47000000},"job":1,"kind":"machine.decode","segment":9,"seq":92,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2104,"virtual_ns":48000000},"job":1,"kind":"machine.decode","segment":9,"seq":93,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2105,"virtual_ns":49000000},"job":1,"kind":"machine.decode","segment":9,"seq":94,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2106,"virtual_ns":50000000},"job":1,"kind":"machine.decode","segment":9,"seq":95,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2107,"virtual_ns":51000000},"job":1,"kind":"machine.decode","segment":9,"seq":96,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2108,"virtual_ns":52000000},"job":1,"kind":"machine.decode","segment":9,"seq":97,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2109,"virtual_ns":53000000},"job":1,"kind":"machine.decode","segment":9,"seq":98,"text":[" tools"],"tokens":1}
+{"clock":{"token_clock":2110,"virtual_ns":54000000},"job":1,"kind":"machine.decode","segment":9,"seq":99,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2111,"virtual_ns":55000000},"job":1,"kind":"machine.decode","segment":9,"seq":100,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2112,"virtual_ns":56000000},"job":1,"kind":"machine.decode","segment":9,"seq":101,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2113,"virtual_ns":57000000},"job":1,"kind":"machine.decode","segment":9,"seq":102,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2113,"virtual_ns":57000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.progress_a","seq":103}
+{"clock":{"token_clock":2113,"virtual_ns":57000000},"job":1,"kind":"pipe.written","latched":true,"pipe":"count.progress_a","seq":104,"text":["11"],"tokens":1}
+{"after":"11","before":"0","clock":{"token_clock":2113,"virtual_ns":57000000},"job":1,"kind":"world.written","obj":"count.a","seq":105}
+{"clock":{"token_clock":2113,"virtual_ns":57000000},"end_segment":2,"invalidated_downstream_tokens":0,"job":2,"kind":"machine.splice","seq":106,"start_segment":2,"tokens_in":0,"tokens_out":4}
+{"clock":{"token_clock":2113,"virtual_ns":57000000},"freed_tokens":4,"invalidated_downstream_tokens":0,"job":2,"kind":"vm.status_region_retracted","obj":"count.a","segment":2,"seq":107}
+{"allowed_blocks":66,"clock":{"token_clock":2113,"virtual_ns":57000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":108}
+{"clock":{"token_clock":2117,"virtual_ns":57000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"kernel","principal":"device","ring":2,"segment":10,"seq":109,"text":["<STATUS","count.a>","11","</STATUS>"],"tokens":4}
+{"clock":{"token_clock":2117,"virtual_ns":57000000},"integrity":2,"job":2,"kind":"segment.opened","perms":5,"ring":2,"segment":10,"seq":110}
+{"clock":{"token_clock":2117,"virtual_ns":57000000},"end":1060,"job":2,"kind":"segment.closed","segment":10,"seq":111,"start":1056}
+{"allowed_blocks":67,"clock":{"token_clock":2117,"virtual_ns":57000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":112}
+{"clock":{"token_clock":2117,"virtual_ns":57000000},"cost_tokens":4,"job":2,"kind":"vm.map_refreshed","obj":"count.a","segment":10,"seq":113}
+{"clock":{"token_clock":2118,"virtual_ns":58000000},"job":1,"kind":"machine.decode","segment":9,"seq":114,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2119,"virtual_ns":59000000},"job":1,"kind":"machine.decode","segment":9,"seq":115,"text":["write"],"tokens":1}
+{"clock":{"token_clock":2120,"virtual_ns":60000000},"job":1,"kind":"machine.decode","segment":9,"seq":116,"text":[" stdout"],"tokens":1}
+{"block":66,"clock":{"token_clock":2120,"virtual_ns":60000000},"job":1,"kind":"machine.block_boundary","padding_tokens":0,"seq":117}
+{"clock":{"token_clock":2120,"virtual_ns":60000000},"job":1,"kind":"vm.working_set","segments":7,"seq":118,"size_tokens":1052}
+{"allowed_blocks":66,"clock":{"token_clock":2120,"virtual_ns":60000000},"denied_blocks":0,"job":1,"kind":"mask.updated","seq":119}
+{"clock":{"token_clock":2121,"virtual_ns":61000000},"job":1,"kind":"machine.decode","segment":11,"seq":120,"text":[" go"],"tokens":1}
+{"clock":{"token_clock":2122,"virtual_ns":62000000},"job":1,"kind":"machine.decode","segment":11,"seq":121,"text":[";"],"tokens":1}
+{"allowed":true,"clock":{"token_clock":2122,"virtual_ns":62000000},"effective_integrity":2,"job":1,"kind":"capability.checked","min_integrity":3,"pipe":"count.a2b","seq":122}
+{"clock":{"token_clock":2122,"virtual_ns":62000000},"job":1,"kind":"pipe.written","latched":false,"pipe":"count.a2b","seq":123,"text":["go"],"tokens":1}
+{"clock":{"token_clock":2122,"virtual_ns":62000000},"from_state":"pinned_idle","job":2,"kind":"job.state","seq":124,"to_state":"ready"}
+{"clock":{"token_clock":2122,"virtual_ns":62000000},"job":2,"kind":"pipe.read","pipe":"count.a2b","seq":125,"text":["go"],"tokens":1}
+{"block":66,"clock":{"token_clock":2134,"virtual_ns":62000000},"job":2,"kind":"machine.block_boundary","padding_tokens":12,"seq":126}
+{"clock":{"token_clock":2135,"virtual_ns":62000000},"integrity":2,"job":2,"kind":"machine.inject","pipe":"count.a2b","principal":"peer_job","ring":2,"segment":12,"seq":127,"text":["go"],"tokens":1}
+{"clock":{"token_clock":2135,"virtual_ns":62000000},"integrity":2,"job":2,"kind":"segment.opened","perms":3,"ring":2,"segment":12,"seq":128}
+{"clock":{"token_clock":2135,"virtual_ns":62000000},"end":1073,"job":2,"kind":"segment.closed","segment":12,"seq":129,"start":1072}
+{"allowed_blocks":68,"clock":{"token_clock":2135,"virtual_ns":62000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":130}
+{"clock":{"token_clock":2136,"virtual_ns":63000000},"job":1,"kind":"machine.decode","segment":11,"seq":131,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2137,"virtual_ns":64000000},"job":1,"kind":"machine.decode","segment":11,"seq":132,"text":["read"],"tokens":1}
+{"clock":{"token_clock":2138,"virtual_ns":65000000},"job":1,"kind":"machine.decode","segment":11,"seq":133,"text":[" stdin"],"tokens":1}
+{"clock":{"token_clock":2139,"virtual_ns":66000000},"job":1,"kind":"machine.decode","segment":11,"seq":134,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2139,"virtual_ns":66000000},"from_state":"running","job":1,"kind":"job.state","seq":135,"to_state":"blocked"}
+{"clock":{"token_clock":2139,"virtual_ns":66000000},"job":1,"kind":"job.blocked","pipe":"count.b2a","reason":"read-empty","seq":136}
+{"clock":{"token_clock":2139,"virtual_ns":67000000},"from_state":"ready","job":2,"kind":"job.state","seq":137,"to_state":"running"}
+{"clock":{"token_clock":2139,"virtual_ns":67000000},"job":2,"kind":"job.dispatched","priority":50,"seq":138}
+{"clock":{"token_clock":2140,"virtual_ns":67000000},"job":2,"kind":"machine.decode","segment":13,"seq":139,"text":["s"],"tokens":1}
+{"block":67,"clock":{"token_clock":2140,"virtual_ns":67000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":140}
+{"clock":{"token_clock":2140,"virtual_ns":67000000},"job":2,"kind":"vm.working_set","segments":1,"seq":141,"size_tokens":1055}
+{"allowed_blocks":68,"clock":{"token_clock":2140,"virtual_ns":67000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":142}
+{"clock":{"token_clock":2141,"virtual_ns":68000000},"job":2,"kind":"machine.decode","segment":14,"seq":143,"text":["ay"],"tokens":1}
+{"clock":{"token_clock":2142,"virtual_ns":69000000},"job":2,"kind":"machine.decode","segment":14,"seq":144,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2143,"virtual_ns":70000000},"job":2,"kind":"machine.decode","segment":14,"seq":145,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2144,"virtual_ns":71000000},"job":2,"kind":"machine.decode","segment":14,"seq":146,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2145,"virtual_ns":72000000},"job":2,"kind":"machine.decode","segment":14,"seq":147,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2146,"virtual_ns":73000000},"job":2,"kind":"machine.decode","segment":14,"seq":148,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2147,"virtual_ns":74000000},"job":2,"kind":"machine.decode","segment":14,"seq":149,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2148,"virtual_ns":75000000},"job":2,"kind":"machine.decode","segment":14,"seq":150,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2149,"virtual_ns":76000000},"job":2,"kind":"machine.decode","segment":14,"seq":151,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2150,"virtual_ns":77000000},"job":2,"kind":"machine.decode","segment":14,"seq":152,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2151,"virtual_ns":78000000},"job":2,"kind":"machine.decode","segment":14,"seq":153,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2152,"virtual_ns":79000000},"job":2,"kind":"machine.decode","segment":14,"seq":154,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2153,"virtual_ns":80000000},"job":2,"kind":"machine.decode","segment":14,"seq":155,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2154,"virtual_ns":81000000},"job":2,"kind":"machine.decode","segment":14,"seq":156,"text":["0"],"tokens":1}
+{"block":68,"clock":{"token_clock":2154,"virtual_ns":81000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":157}
+{"clock":{"token_clock":2154,"virtual_ns":81000000},"job":2,"kind":"vm.working_set","segments":5,"seq":158,"size_tokens":1075}
+{"allowed_blocks":68,"clock":{"token_clock":2154,"virtual_ns":81000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":159}
+{"clock":{"token_clock":2155,"virtual_ns":82000000},"job":2,"kind":"machine.decode","segment":15,"seq":160,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2156,"virtual_ns":83000000},"job":2,"kind":"machine.decode","segment":15,"seq":161,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2157,"virtual_ns":84000000},"job":2,"kind":"machine.decode","segment":15,"seq":162,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2158,"virtual_ns":85000000},"job":2,"kind":"machine.decode","segment":15,"seq":163,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2159,"virtual_ns":86000000},"job":2,"kind":"machine.decode","segment":15,"seq":164,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2160,"virtual_ns":87000000},"job":2,"kind":"machine.decode","segment":15,"seq":165,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2161,"virtual_ns":88000000},"job":2,"kind":"machine.decode","segment":15,"seq":166,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2162,"virtual_ns":89000000},"job":2,"kind":"machine.decode","segment":15,"seq":167,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2163,"virtual_ns":90000000},"job":2,"kind":"machine.decode","segment":15,"seq":168,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2164,"virtual_ns":91000000},"job":2,"kind":"machine.decode","segment":15,"seq":169,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2165,"virtual_ns":92000000},"job":2,"kind":"machine.decode","segment":15,"seq":170,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2166,"virtual_ns":93000000},"job":2,"kind":"machine.decode","segment":15,"seq":171,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2167,"virtual_ns":94000000},"job":2,"kind":"machine.decode","segment":15,"seq":172,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2168,"virtual_ns":95000000},"job":2,"kind":"machine.decode","segment":15,"seq":173,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2169,"virtual_ns":96000000},"job":2,"kind":"machine.decode","segment":15,"seq":174,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2170,"virtual_ns":97000000},"job":2,"kind":"machine.decode","segment":15,"seq":175,"text":["0"],"tokens":1}
+{"block":69,"clock":{"token_clock":2170,"virtual_ns":97000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":176}
+{"clock":{"token_clock":2170,"virtual_ns":97000000},"job":2,"kind":"vm.working_set","segments":6,"seq":177,"size_tokens":1091}
+{"allowed_blocks":69,"clock":{"token_clock":2170,"virtual_ns":97000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":178}
+{"clock":{"token_clock":2171,"virtual_ns":98000000},"job":2,"kind":"machine.decode","segment":16,"seq":179,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2172,"virtual_ns":99000000},"job":2,"kind":"machine.decode","segment":16,"seq":180,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2173,"virtual_ns":100000000},"job":2,"kind":"machine.decode","segment":16,"seq":181,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2174,"virtual_ns":101000000},"job":2,"kind":"machine.decode","segment":16,"seq":182,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2175,"virtual_ns":102000000},"job":2,"kind":"machine.decode","segment":16,"seq":183,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2176,"virtual_ns":103000000},"job":2,"kind":"machine.decode","segment":16,"seq":184,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2177,"virtual_ns":104000000},"job":2,"kind":"machine.decode","segment":16,"seq":185,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2178,"virtual_ns":105000000},"job":2,"kind":"machine.decode","segment":16,"seq":186,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2179,"virtual_ns":106000000},"job":2,"kind":"machine.decode","segment":16,"seq":187,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2180,"virtual_ns":107000000},"job":2,"kind":"machine.decode","segment":16,"seq":188,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2181,"virtual_ns":108000000},"job":2,"kind":"machine.decode","segment":16,"seq":189,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2182,"virtual_ns":109000000},"job":2,"kind":"machine.decode","segment":16,"seq":190,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2183,"virtual_ns":110000000},"job":2,"kind":"machine.decode","segment":16,"seq":191,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2184,"virtual_ns":111000000},"job":2,"kind":"machine.decode","segment":16,"seq":192,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2185,"virtual_ns":112000000},"job":2,"kind":"machine.decode","segment":16,"seq":193,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2186,"virtual_ns":113000000},"job":2,"kind":"machine.decode","segment":16,"seq":194,"text":["0"],"tokens":1}
+{"block":70,"clock":{"token_clock":2186,"virtual_ns":113000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":195}
+{"clock":{"token_clock":2186,"virtual_ns":113000000},"job":2,"kind":"vm.working_set","segments":7,"seq":196,"size_tokens":1107}
+{"allowed_blocks":70,"clock":{"token_clock":2186,"virtual_ns":113000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":197}
+{"clock":{"token_clock":2187,"virtual_ns":114000000},"job":2,"kind":"machine.decode","segment":17,"seq":198,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2188,"virtual_ns":115000000},"job":2,"kind":"machine.decode","segment":17,"seq":199,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2189,"virtual_ns":116000000},"job":2,"kind":"machine.decode","segment":17,"seq":200,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2190,"virtual_ns":117000000},"job":2,"kind":"machine.decode","segment":17,"seq":201,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2191,"virtual_ns":118000000},"job":2,"kind":"machine.decode","segment":17,"seq":202,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2192,"virtual_ns":119000000},"job":2,"kind":"machine.decode","segment":17,"seq":203,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2192,"virtual_ns":119000000},"job":null,"kind":"pipe.written","latched":false,"pipe":"keys.interrupt","seq":204,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2192,"virtual_ns":119000000},"handler":"reset-count","kind":"vector.fired","pipe":"keys.interrupt","policy":"queue","priority":5,"seq":205,"vector":"keyboard-interrupt"}
+{"clock":{"token_clock":2192,"virtual_ns":119000000},"descriptor":"reset-count","integrity":2,"job":3,"kind":"job.spawned","owner":"kernel","parent":null,"priority":5,"seq":206}
+{"clock":{"token_clock":2192,"virtual_ns":119000000},"job":3,"kind":"pipe.read","pipe":"keys.interrupt","seq":207,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2192,"virtual_ns":120000000},"from_state":"running","job":2,"kind":"job.state","seq":208,"to_state":"suspended"}
+{"by_job":3,"by_priority":5,"clock":{"token_clock":2192,"virtual_ns":120000000},"job":2,"kind":"job.preempted","seq":209,"stack_depth":1}
+{"clock":{"token_clock":2192,"virtual_ns":120000000},"from_state":"ready","job":3,"kind":"job.state","seq":210,"to_state":"running"}
+{"clock":{"token_clock":2192,"virtual_ns":120000000},"job":3,"kind":"job.dispatched","priority":5,"seq":211}
+{"clock":{"token_clock":2378,"virtual_ns":120000000},"integrity":1,"job":3,"kind":"machine.inject","pipe":"kernel","principal":"kernel","ring":1,"segment":18,"seq":212,"text":["#","Task:","take","a","number","from","the","console","and","set","both","counters","to","it","You","are","reset-count,","an","interrupt","handler.","You","were","started","because","somebody","at","the","console","pressed","a","key,","and","whichever","job","was","running","has","been","suspended","to","make","room","for","you.","You","do","not","write","prose.","You","write","commands,","one","at","a","time,","each","ending","in","a","semicolon.","`read","stdin;`","waits","for","the","console","to","send","you","a","number.","`write","tools","N;`","sets","the","first","counter","to","N.","`write","peer","N;`","sets","the","second","counter","to","N.","`exit;`","ends","you,","and","the","job","you","interrupted","resumes.","Your","whole","life","is","four","commands","and","you","never","do","anything","else:","`read","stdin;`","then,","once","a","number","has","arrived,","`write","tools","N;`","then","`write","peer","N;`","with","that","same","number,","then","`exit;`","Both","writes","carry","the","number","that","arrived,","unchanged.","Do","not","add","to","it,","do","not","count,","do","not","say","anything.","Be","quick:","the","job","you","displaced","is","waiting,","and","everything","it","believed","about","how","far","the","count","had","got","is","about","to","be","wrong.","Nothing","has","arrived","yet.","Your","next","command","is","`read","stdin;`"],"tokens":186}
+{"clock":{"token_clock":2378,"virtual_ns":120000000},"integrity":1,"job":3,"kind":"segment.opened","perms":11,"ring":1,"segment":18,"seq":213}
+{"clock":{"token_clock":2378,"virtual_ns":120000000},"end":186,"job":3,"kind":"segment.closed","segment":18,"seq":214,"start":0}
+{"allowed_blocks":12,"clock":{"token_clock":2378,"virtual_ns":120000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":215}
+{"block":11,"clock":{"token_clock":2384,"virtual_ns":120000000},"job":3,"kind":"machine.block_boundary","padding_tokens":6,"seq":216}
+{"clock":{"token_clock":2385,"virtual_ns":120000000},"integrity":3,"job":3,"kind":"machine.inject","pipe":"keys.interrupt","principal":"user","ring":3,"segment":19,"seq":217,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2385,"virtual_ns":120000000},"integrity":3,"job":3,"kind":"segment.opened","perms":1,"ring":3,"segment":19,"seq":218}
+{"clock":{"token_clock":2385,"virtual_ns":120000000},"end":193,"job":3,"kind":"segment.closed","segment":19,"seq":219,"start":192}
+{"allowed_blocks":13,"clock":{"token_clock":2385,"virtual_ns":120000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":220}
+{"clock":{"token_clock":2386,"virtual_ns":121000000},"job":3,"kind":"machine.decode","segment":20,"seq":221,"text":["s"],"tokens":1}
+{"block":12,"clock":{"token_clock":2386,"virtual_ns":121000000},"job":3,"kind":"machine.block_boundary","padding_tokens":0,"seq":222}
+{"clock":{"token_clock":2386,"virtual_ns":121000000},"job":3,"kind":"vm.working_set","segments":1,"seq":223,"size_tokens":186}
+{"allowed_blocks":13,"clock":{"token_clock":2386,"virtual_ns":121000000},"denied_blocks":0,"job":3,"kind":"mask.updated","seq":224}
+{"clock":{"token_clock":2387,"virtual_ns":122000000},"job":3,"kind":"machine.decode","segment":21,"seq":225,"text":["ay"],"tokens":1}
+{"clock":{"token_clock":2388,"virtual_ns":123000000},"job":3,"kind":"machine.decode","segment":21,"seq":226,"text":[" \""],"tokens":1}
+{"clock":{"token_clock":2389,"virtual_ns":124000000},"job":3,"kind":"machine.decode","segment":21,"seq":227,"text":["attention"],"tokens":1}
+{"clock":{"token_clock":2390,"virtual_ns":125000000},"job":3,"kind":"machine.decode","segment":21,"seq":228,"text":["\""],"tokens":1}
+{"clock":{"token_clock":2391,"virtual_ns":126000000},"job":3,"kind":"machine.decode","segment":21,"seq":229,"text":[" and"],"tokens":1}
+{"clock":{"token_clock":2392,"virtual_ns":127000000},"job":3,"kind":"machine.decode","segment":21,"seq":230,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2393,"virtual_ns":128000000},"job":3,"kind":"machine.decode","segment":21,"seq":231,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2394,"virtual_ns":129000000},"job":3,"kind":"machine.decode","segment":21,"seq":232,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2394,"virtual_ns":129000000},"job":null,"kind":"pipe.written","latched":false,"pipe":"keys.number","seq":233,"text":["500"],"tokens":1}
+{"clock":{"token_clock":2395,"virtual_ns":130000000},"job":3,"kind":"machine.decode","segment":21,"seq":234,"text":["exit"],"tokens":1}
+{"clock":{"token_clock":2396,"virtual_ns":131000000},"job":3,"kind":"machine.decode","segment":21,"seq":235,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2396,"virtual_ns":131000000},"from_state":"running","job":3,"kind":"job.state","seq":236,"to_state":"done"}
+{"clock":{"token_clock":2396,"virtual_ns":131000000},"job":3,"kind":"job.completed","seq":237,"tokens_used":11}
+{"clock":{"token_clock":2396,"virtual_ns":132000000},"from_state":"ready","job":2,"kind":"job.state","seq":238,"to_state":"running"}
+{"clock":{"token_clock":2396,"virtual_ns":132000000},"job":2,"kind":"job.dispatched","priority":50,"seq":239}
+{"clock":{"token_clock":2396,"virtual_ns":132000000},"dirty":[],"job":2,"kind":"job.resumed","resume_kind":"resume","seq":240,"suspended_ns":12000000,"waited":false}
+{"clock":{"token_clock":2397,"virtual_ns":132000000},"job":2,"kind":"machine.decode","segment":17,"seq":241,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2398,"virtual_ns":133000000},"job":2,"kind":"machine.decode","segment":17,"seq":242,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2399,"virtual_ns":134000000},"job":2,"kind":"machine.decode","segment":17,"seq":243,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2400,"virtual_ns":135000000},"job":2,"kind":"machine.decode","segment":17,"seq":244,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2401,"virtual_ns":136000000},"job":2,"kind":"machine.decode","segment":17,"seq":245,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2402,"virtual_ns":137000000},"job":2,"kind":"machine.decode","segment":17,"seq":246,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2403,"virtual_ns":138000000},"job":2,"kind":"machine.decode","segment":17,"seq":247,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2404,"virtual_ns":139000000},"job":2,"kind":"machine.decode","segment":17,"seq":248,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2405,"virtual_ns":140000000},"job":2,"kind":"machine.decode","segment":17,"seq":249,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2406,"virtual_ns":141000000},"job":2,"kind":"machine.decode","segment":17,"seq":250,"text":[" "],"tokens":1}
+{"block":71,"clock":{"token_clock":2406,"virtual_ns":141000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":251}
+{"clock":{"token_clock":2406,"virtual_ns":141000000},"job":2,"kind":"vm.working_set","segments":8,"seq":252,"size_tokens":1123}
+{"allowed_blocks":71,"clock":{"token_clock":2406,"virtual_ns":141000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":253}
+{"clock":{"token_clock":2407,"virtual_ns":142000000},"job":2,"kind":"machine.decode","segment":22,"seq":254,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2408,"virtual_ns":143000000},"job":2,"kind":"machine.decode","segment":22,"seq":255,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2409,"virtual_ns":144000000},"job":2,"kind":"machine.decode","segment":22,"seq":256,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2410,"virtual_ns":145000000},"job":2,"kind":"machine.decode","segment":22,"seq":257,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2411,"virtual_ns":146000000},"job":2,"kind":"machine.decode","segment":22,"seq":258,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2412,"virtual_ns":147000000},"job":2,"kind":"machine.decode","segment":22,"seq":259,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2413,"virtual_ns":148000000},"job":2,"kind":"machine.decode","segment":22,"seq":260,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2414,"virtual_ns":149000000},"job":2,"kind":"machine.decode","segment":22,"seq":261,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2415,"virtual_ns":150000000},"job":2,"kind":"machine.decode","segment":22,"seq":262,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2416,"virtual_ns":151000000},"job":2,"kind":"machine.decode","segment":22,"seq":263,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2417,"virtual_ns":152000000},"job":2,"kind":"machine.decode","segment":22,"seq":264,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2418,"virtual_ns":153000000},"job":2,"kind":"machine.decode","segment":22,"seq":265,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2419,"virtual_ns":154000000},"job":2,"kind":"machine.decode","segment":22,"seq":266,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2420,"virtual_ns":155000000},"job":2,"kind":"machine.decode","segment":22,"seq":267,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2421,"virtual_ns":156000000},"job":2,"kind":"machine.decode","segment":22,"seq":268,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2422,"virtual_ns":157000000},"job":2,"kind":"machine.decode","segment":22,"seq":269,"text":["0"],"tokens":1}
+{"block":72,"clock":{"token_clock":2422,"virtual_ns":157000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":270}
+{"clock":{"token_clock":2422,"virtual_ns":157000000},"job":2,"kind":"vm.working_set","segments":9,"seq":271,"size_tokens":1139}
+{"allowed_blocks":72,"clock":{"token_clock":2422,"virtual_ns":157000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":272}
+{"clock":{"token_clock":2423,"virtual_ns":158000000},"job":2,"kind":"machine.decode","segment":23,"seq":273,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2424,"virtual_ns":159000000},"job":2,"kind":"machine.decode","segment":23,"seq":274,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2425,"virtual_ns":160000000},"job":2,"kind":"machine.decode","segment":23,"seq":275,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2426,"virtual_ns":161000000},"job":2,"kind":"machine.decode","segment":23,"seq":276,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2427,"virtual_ns":162000000},"job":2,"kind":"machine.decode","segment":23,"seq":277,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2428,"virtual_ns":163000000},"job":2,"kind":"machine.decode","segment":23,"seq":278,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2429,"virtual_ns":164000000},"job":2,"kind":"machine.decode","segment":23,"seq":279,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2430,"virtual_ns":165000000},"job":2,"kind":"machine.decode","segment":23,"seq":280,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2431,"virtual_ns":166000000},"job":2,"kind":"machine.decode","segment":23,"seq":281,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2432,"virtual_ns":167000000},"job":2,"kind":"machine.decode","segment":23,"seq":282,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2433,"virtual_ns":168000000},"job":2,"kind":"machine.decode","segment":23,"seq":283,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2434,"virtual_ns":169000000},"job":2,"kind":"machine.decode","segment":23,"seq":284,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2435,"virtual_ns":170000000},"job":2,"kind":"machine.decode","segment":23,"seq":285,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2436,"virtual_ns":171000000},"job":2,"kind":"machine.decode","segment":23,"seq":286,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2437,"virtual_ns":172000000},"job":2,"kind":"machine.decode","segment":23,"seq":287,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2438,"virtual_ns":173000000},"job":2,"kind":"machine.decode","segment":23,"seq":288,"text":["0"],"tokens":1}
+{"block":73,"clock":{"token_clock":2438,"virtual_ns":173000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":289}
+{"clock":{"token_clock":2438,"virtual_ns":173000000},"job":2,"kind":"vm.working_set","segments":10,"seq":290,"size_tokens":1155}
+{"allowed_blocks":73,"clock":{"token_clock":2438,"virtual_ns":173000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":291}
+{"clock":{"token_clock":2439,"virtual_ns":174000000},"job":2,"kind":"machine.decode","segment":24,"seq":292,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2440,"virtual_ns":175000000},"job":2,"kind":"machine.decode","segment":24,"seq":293,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2441,"virtual_ns":176000000},"job":2,"kind":"machine.decode","segment":24,"seq":294,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2442,"virtual_ns":177000000},"job":2,"kind":"machine.decode","segment":24,"seq":295,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2443,"virtual_ns":178000000},"job":2,"kind":"machine.decode","segment":24,"seq":296,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2444,"virtual_ns":179000000},"job":2,"kind":"machine.decode","segment":24,"seq":297,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2445,"virtual_ns":180000000},"job":2,"kind":"machine.decode","segment":24,"seq":298,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2446,"virtual_ns":181000000},"job":2,"kind":"machine.decode","segment":24,"seq":299,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2447,"virtual_ns":182000000},"job":2,"kind":"machine.decode","segment":24,"seq":300,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2448,"virtual_ns":183000000},"job":2,"kind":"machine.decode","segment":24,"seq":301,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2449,"virtual_ns":184000000},"job":2,"kind":"machine.decode","segment":24,"seq":302,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2450,"virtual_ns":185000000},"job":2,"kind":"machine.decode","segment":24,"seq":303,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2451,"virtual_ns":186000000},"job":2,"kind":"machine.decode","segment":24,"seq":304,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2452,"virtual_ns":187000000},"job":2,"kind":"machine.decode","segment":24,"seq":305,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2453,"virtual_ns":188000000},"job":2,"kind":"machine.decode","segment":24,"seq":306,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2454,"virtual_ns":189000000},"job":2,"kind":"machine.decode","segment":24,"seq":307,"text":["0"],"tokens":1}
+{"block":74,"clock":{"token_clock":2454,"virtual_ns":189000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":308}
+{"clock":{"token_clock":2454,"virtual_ns":189000000},"job":2,"kind":"vm.working_set","segments":11,"seq":309,"size_tokens":1171}
+{"allowed_blocks":74,"clock":{"token_clock":2454,"virtual_ns":189000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":310}
+{"clock":{"token_clock":2455,"virtual_ns":190000000},"job":2,"kind":"machine.decode","segment":25,"seq":311,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2456,"virtual_ns":191000000},"job":2,"kind":"machine.decode","segment":25,"seq":312,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2457,"virtual_ns":192000000},"job":2,"kind":"machine.decode","segment":25,"seq":313,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2458,"virtual_ns":193000000},"job":2,"kind":"machine.decode","segment":25,"seq":314,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2459,"virtual_ns":194000000},"job":2,"kind":"machine.decode","segment":25,"seq":315,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2460,"virtual_ns":195000000},"job":2,"kind":"machine.decode","segment":25,"seq":316,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2461,"virtual_ns":196000000},"job":2,"kind":"machine.decode","segment":25,"seq":317,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2462,"virtual_ns":197000000},"job":2,"kind":"machine.decode","segment":25,"seq":318,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2463,"virtual_ns":198000000},"job":2,"kind":"machine.decode","segment":25,"seq":319,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2464,"virtual_ns":199000000},"job":2,"kind":"machine.decode","segment":25,"seq":320,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2465,"virtual_ns":200000000},"job":2,"kind":"machine.decode","segment":25,"seq":321,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2466,"virtual_ns":201000000},"job":2,"kind":"machine.decode","segment":25,"seq":322,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2467,"virtual_ns":202000000},"job":2,"kind":"machine.decode","segment":25,"seq":323,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2468,"virtual_ns":203000000},"job":2,"kind":"machine.decode","segment":25,"seq":324,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2469,"virtual_ns":204000000},"job":2,"kind":"machine.decode","segment":25,"seq":325,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2470,"virtual_ns":205000000},"job":2,"kind":"machine.decode","segment":25,"seq":326,"text":["0"],"tokens":1}
+{"block":75,"clock":{"token_clock":2470,"virtual_ns":205000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":327}
+{"clock":{"token_clock":2470,"virtual_ns":205000000},"job":2,"kind":"vm.working_set","segments":12,"seq":328,"size_tokens":1187}
+{"allowed_blocks":75,"clock":{"token_clock":2470,"virtual_ns":205000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":329}
+{"clock":{"token_clock":2471,"virtual_ns":206000000},"job":2,"kind":"machine.decode","segment":26,"seq":330,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2472,"virtual_ns":207000000},"job":2,"kind":"machine.decode","segment":26,"seq":331,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2473,"virtual_ns":208000000},"job":2,"kind":"machine.decode","segment":26,"seq":332,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2474,"virtual_ns":209000000},"job":2,"kind":"machine.decode","segment":26,"seq":333,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2475,"virtual_ns":210000000},"job":2,"kind":"machine.decode","segment":26,"seq":334,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2476,"virtual_ns":211000000},"job":2,"kind":"machine.decode","segment":26,"seq":335,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2477,"virtual_ns":212000000},"job":2,"kind":"machine.decode","segment":26,"seq":336,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2478,"virtual_ns":213000000},"job":2,"kind":"machine.decode","segment":26,"seq":337,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2479,"virtual_ns":214000000},"job":2,"kind":"machine.decode","segment":26,"seq":338,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2480,"virtual_ns":215000000},"job":2,"kind":"machine.decode","segment":26,"seq":339,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2481,"virtual_ns":216000000},"job":2,"kind":"machine.decode","segment":26,"seq":340,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2482,"virtual_ns":217000000},"job":2,"kind":"machine.decode","segment":26,"seq":341,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2483,"virtual_ns":218000000},"job":2,"kind":"machine.decode","segment":26,"seq":342,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2484,"virtual_ns":219000000},"job":2,"kind":"machine.decode","segment":26,"seq":343,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2485,"virtual_ns":220000000},"job":2,"kind":"machine.decode","segment":26,"seq":344,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2486,"virtual_ns":221000000},"job":2,"kind":"machine.decode","segment":26,"seq":345,"text":[" "],"tokens":1}
+{"block":76,"clock":{"token_clock":2486,"virtual_ns":221000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":346}
+{"clock":{"token_clock":2486,"virtual_ns":221000000},"job":2,"kind":"vm.working_set","segments":13,"seq":347,"size_tokens":1203}
+{"allowed_blocks":76,"clock":{"token_clock":2486,"virtual_ns":221000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":348}
+{"clock":{"token_clock":2487,"virtual_ns":222000000},"job":2,"kind":"machine.decode","segment":27,"seq":349,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2488,"virtual_ns":223000000},"job":2,"kind":"machine.decode","segment":27,"seq":350,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2489,"virtual_ns":224000000},"job":2,"kind":"machine.decode","segment":27,"seq":351,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2490,"virtual_ns":225000000},"job":2,"kind":"machine.decode","segment":27,"seq":352,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2491,"virtual_ns":226000000},"job":2,"kind":"machine.decode","segment":27,"seq":353,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2492,"virtual_ns":227000000},"job":2,"kind":"machine.decode","segment":27,"seq":354,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2493,"virtual_ns":228000000},"job":2,"kind":"machine.decode","segment":27,"seq":355,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2494,"virtual_ns":229000000},"job":2,"kind":"machine.decode","segment":27,"seq":356,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2495,"virtual_ns":230000000},"job":2,"kind":"machine.decode","segment":27,"seq":357,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2496,"virtual_ns":231000000},"job":2,"kind":"machine.decode","segment":27,"seq":358,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2497,"virtual_ns":232000000},"job":2,"kind":"machine.decode","segment":27,"seq":359,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2498,"virtual_ns":233000000},"job":2,"kind":"machine.decode","segment":27,"seq":360,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2499,"virtual_ns":234000000},"job":2,"kind":"machine.decode","segment":27,"seq":361,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2500,"virtual_ns":235000000},"job":2,"kind":"machine.decode","segment":27,"seq":362,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2501,"virtual_ns":236000000},"job":2,"kind":"machine.decode","segment":27,"seq":363,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2502,"virtual_ns":237000000},"job":2,"kind":"machine.decode","segment":27,"seq":364,"text":["0"],"tokens":1}
+{"block":77,"clock":{"token_clock":2502,"virtual_ns":237000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":365}
+{"clock":{"token_clock":2502,"virtual_ns":237000000},"job":2,"kind":"vm.working_set","segments":14,"seq":366,"size_tokens":1219}
+{"allowed_blocks":77,"clock":{"token_clock":2502,"virtual_ns":237000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":367}
+{"clock":{"token_clock":2503,"virtual_ns":238000000},"job":2,"kind":"machine.decode","segment":28,"seq":368,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2504,"virtual_ns":239000000},"job":2,"kind":"machine.decode","segment":28,"seq":369,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2505,"virtual_ns":240000000},"job":2,"kind":"machine.decode","segment":28,"seq":370,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2506,"virtual_ns":241000000},"job":2,"kind":"machine.decode","segment":28,"seq":371,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2507,"virtual_ns":242000000},"job":2,"kind":"machine.decode","segment":28,"seq":372,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2508,"virtual_ns":243000000},"job":2,"kind":"machine.decode","segment":28,"seq":373,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2509,"virtual_ns":244000000},"job":2,"kind":"machine.decode","segment":28,"seq":374,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2510,"virtual_ns":245000000},"job":2,"kind":"machine.decode","segment":28,"seq":375,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2511,"virtual_ns":246000000},"job":2,"kind":"machine.decode","segment":28,"seq":376,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2512,"virtual_ns":247000000},"job":2,"kind":"machine.decode","segment":28,"seq":377,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2513,"virtual_ns":248000000},"job":2,"kind":"machine.decode","segment":28,"seq":378,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2514,"virtual_ns":249000000},"job":2,"kind":"machine.decode","segment":28,"seq":379,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2515,"virtual_ns":250000000},"job":2,"kind":"machine.decode","segment":28,"seq":380,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2516,"virtual_ns":251000000},"job":2,"kind":"machine.decode","segment":28,"seq":381,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2517,"virtual_ns":252000000},"job":2,"kind":"machine.decode","segment":28,"seq":382,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2518,"virtual_ns":253000000},"job":2,"kind":"machine.decode","segment":28,"seq":383,"text":["0"],"tokens":1}
+{"block":78,"clock":{"token_clock":2518,"virtual_ns":253000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":384}
+{"clock":{"token_clock":2518,"virtual_ns":253000000},"job":2,"kind":"vm.working_set","segments":15,"seq":385,"size_tokens":1235}
+{"allowed_blocks":78,"clock":{"token_clock":2518,"virtual_ns":253000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":386}
+{"clock":{"token_clock":2519,"virtual_ns":254000000},"job":2,"kind":"machine.decode","segment":29,"seq":387,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2520,"virtual_ns":255000000},"job":2,"kind":"machine.decode","segment":29,"seq":388,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2521,"virtual_ns":256000000},"job":2,"kind":"machine.decode","segment":29,"seq":389,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2522,"virtual_ns":257000000},"job":2,"kind":"machine.decode","segment":29,"seq":390,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2523,"virtual_ns":258000000},"job":2,"kind":"machine.decode","segment":29,"seq":391,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2524,"virtual_ns":259000000},"job":2,"kind":"machine.decode","segment":29,"seq":392,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2525,"virtual_ns":260000000},"job":2,"kind":"machine.decode","segment":29,"seq":393,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2526,"virtual_ns":261000000},"job":2,"kind":"machine.decode","segment":29,"seq":394,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2527,"virtual_ns":262000000},"job":2,"kind":"machine.decode","segment":29,"seq":395,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2528,"virtual_ns":263000000},"job":2,"kind":"machine.decode","segment":29,"seq":396,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2529,"virtual_ns":264000000},"job":2,"kind":"machine.decode","segment":29,"seq":397,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2530,"virtual_ns":265000000},"job":2,"kind":"machine.decode","segment":29,"seq":398,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2531,"virtual_ns":266000000},"job":2,"kind":"machine.decode","segment":29,"seq":399,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2532,"virtual_ns":267000000},"job":2,"kind":"machine.decode","segment":29,"seq":400,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2533,"virtual_ns":268000000},"job":2,"kind":"machine.decode","segment":29,"seq":401,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2534,"virtual_ns":269000000},"job":2,"kind":"machine.decode","segment":29,"seq":402,"text":["0"],"tokens":1}
+{"block":79,"clock":{"token_clock":2534,"virtual_ns":269000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":403}
+{"clock":{"token_clock":2534,"virtual_ns":269000000},"job":2,"kind":"vm.working_set","segments":16,"seq":404,"size_tokens":1251}
+{"allowed_blocks":79,"clock":{"token_clock":2534,"virtual_ns":269000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":405}
+{"clock":{"token_clock":2535,"virtual_ns":270000000},"job":2,"kind":"machine.decode","segment":30,"seq":406,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2536,"virtual_ns":271000000},"job":2,"kind":"machine.decode","segment":30,"seq":407,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2537,"virtual_ns":272000000},"job":2,"kind":"machine.decode","segment":30,"seq":408,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2538,"virtual_ns":273000000},"job":2,"kind":"machine.decode","segment":30,"seq":409,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2539,"virtual_ns":274000000},"job":2,"kind":"machine.decode","segment":30,"seq":410,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2540,"virtual_ns":275000000},"job":2,"kind":"machine.decode","segment":30,"seq":411,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2541,"virtual_ns":276000000},"job":2,"kind":"machine.decode","segment":30,"seq":412,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2542,"virtual_ns":277000000},"job":2,"kind":"machine.decode","segment":30,"seq":413,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2543,"virtual_ns":278000000},"job":2,"kind":"machine.decode","segment":30,"seq":414,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2544,"virtual_ns":279000000},"job":2,"kind":"machine.decode","segment":30,"seq":415,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2545,"virtual_ns":280000000},"job":2,"kind":"machine.decode","segment":30,"seq":416,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2546,"virtual_ns":281000000},"job":2,"kind":"machine.decode","segment":30,"seq":417,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2547,"virtual_ns":282000000},"job":2,"kind":"machine.decode","segment":30,"seq":418,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2548,"virtual_ns":283000000},"job":2,"kind":"machine.decode","segment":30,"seq":419,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2549,"virtual_ns":284000000},"job":2,"kind":"machine.decode","segment":30,"seq":420,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2550,"virtual_ns":285000000},"job":2,"kind":"machine.decode","segment":30,"seq":421,"text":["0"],"tokens":1}
+{"block":80,"clock":{"token_clock":2550,"virtual_ns":285000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":422}
+{"clock":{"token_clock":2550,"virtual_ns":285000000},"job":2,"kind":"vm.working_set","segments":17,"seq":423,"size_tokens":1267}
+{"allowed_blocks":80,"clock":{"token_clock":2550,"virtual_ns":285000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":424}
+{"clock":{"token_clock":2551,"virtual_ns":286000000},"job":2,"kind":"machine.decode","segment":31,"seq":425,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2552,"virtual_ns":287000000},"job":2,"kind":"machine.decode","segment":31,"seq":426,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2553,"virtual_ns":288000000},"job":2,"kind":"machine.decode","segment":31,"seq":427,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2554,"virtual_ns":289000000},"job":2,"kind":"machine.decode","segment":31,"seq":428,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2555,"virtual_ns":290000000},"job":2,"kind":"machine.decode","segment":31,"seq":429,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2556,"virtual_ns":291000000},"job":2,"kind":"machine.decode","segment":31,"seq":430,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2557,"virtual_ns":292000000},"job":2,"kind":"machine.decode","segment":31,"seq":431,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2558,"virtual_ns":293000000},"job":2,"kind":"machine.decode","segment":31,"seq":432,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2559,"virtual_ns":294000000},"job":2,"kind":"machine.decode","segment":31,"seq":433,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2560,"virtual_ns":295000000},"job":2,"kind":"machine.decode","segment":31,"seq":434,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2561,"virtual_ns":296000000},"job":2,"kind":"machine.decode","segment":31,"seq":435,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2562,"virtual_ns":297000000},"job":2,"kind":"machine.decode","segment":31,"seq":436,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2563,"virtual_ns":298000000},"job":2,"kind":"machine.decode","segment":31,"seq":437,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2564,"virtual_ns":299000000},"job":2,"kind":"machine.decode","segment":31,"seq":438,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2565,"virtual_ns":300000000},"job":2,"kind":"machine.decode","segment":31,"seq":439,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2566,"virtual_ns":301000000},"job":2,"kind":"machine.decode","segment":31,"seq":440,"text":[" "],"tokens":1}
+{"block":81,"clock":{"token_clock":2566,"virtual_ns":301000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":441}
+{"clock":{"token_clock":2566,"virtual_ns":301000000},"job":2,"kind":"vm.working_set","segments":18,"seq":442,"size_tokens":1283}
+{"allowed_blocks":81,"clock":{"token_clock":2566,"virtual_ns":301000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":443}
+{"clock":{"token_clock":2567,"virtual_ns":302000000},"job":2,"kind":"machine.decode","segment":32,"seq":444,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2568,"virtual_ns":303000000},"job":2,"kind":"machine.decode","segment":32,"seq":445,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2569,"virtual_ns":304000000},"job":2,"kind":"machine.decode","segment":32,"seq":446,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2570,"virtual_ns":305000000},"job":2,"kind":"machine.decode","segment":32,"seq":447,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2571,"virtual_ns":306000000},"job":2,"kind":"machine.decode","segment":32,"seq":448,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2572,"virtual_ns":307000000},"job":2,"kind":"machine.decode","segment":32,"seq":449,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2573,"virtual_ns":308000000},"job":2,"kind":"machine.decode","segment":32,"seq":450,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2574,"virtual_ns":309000000},"job":2,"kind":"machine.decode","segment":32,"seq":451,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2575,"virtual_ns":310000000},"job":2,"kind":"machine.decode","segment":32,"seq":452,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2576,"virtual_ns":311000000},"job":2,"kind":"machine.decode","segment":32,"seq":453,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2577,"virtual_ns":312000000},"job":2,"kind":"machine.decode","segment":32,"seq":454,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2578,"virtual_ns":313000000},"job":2,"kind":"machine.decode","segment":32,"seq":455,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2579,"virtual_ns":314000000},"job":2,"kind":"machine.decode","segment":32,"seq":456,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2580,"virtual_ns":315000000},"job":2,"kind":"machine.decode","segment":32,"seq":457,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2581,"virtual_ns":316000000},"job":2,"kind":"machine.decode","segment":32,"seq":458,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2582,"virtual_ns":317000000},"job":2,"kind":"machine.decode","segment":32,"seq":459,"text":["0"],"tokens":1}
+{"block":82,"clock":{"token_clock":2582,"virtual_ns":317000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":460}
+{"clock":{"token_clock":2582,"virtual_ns":317000000},"job":2,"kind":"vm.working_set","segments":19,"seq":461,"size_tokens":1299}
+{"allowed_blocks":82,"clock":{"token_clock":2582,"virtual_ns":317000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":462}
+{"clock":{"token_clock":2583,"virtual_ns":318000000},"job":2,"kind":"machine.decode","segment":33,"seq":463,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2584,"virtual_ns":319000000},"job":2,"kind":"machine.decode","segment":33,"seq":464,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2585,"virtual_ns":320000000},"job":2,"kind":"machine.decode","segment":33,"seq":465,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2586,"virtual_ns":321000000},"job":2,"kind":"machine.decode","segment":33,"seq":466,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2587,"virtual_ns":322000000},"job":2,"kind":"machine.decode","segment":33,"seq":467,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2588,"virtual_ns":323000000},"job":2,"kind":"machine.decode","segment":33,"seq":468,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2589,"virtual_ns":324000000},"job":2,"kind":"machine.decode","segment":33,"seq":469,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2590,"virtual_ns":325000000},"job":2,"kind":"machine.decode","segment":33,"seq":470,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2591,"virtual_ns":326000000},"job":2,"kind":"machine.decode","segment":33,"seq":471,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2592,"virtual_ns":327000000},"job":2,"kind":"machine.decode","segment":33,"seq":472,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2593,"virtual_ns":328000000},"job":2,"kind":"machine.decode","segment":33,"seq":473,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2594,"virtual_ns":329000000},"job":2,"kind":"machine.decode","segment":33,"seq":474,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2595,"virtual_ns":330000000},"job":2,"kind":"machine.decode","segment":33,"seq":475,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2596,"virtual_ns":331000000},"job":2,"kind":"machine.decode","segment":33,"seq":476,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2597,"virtual_ns":332000000},"job":2,"kind":"machine.decode","segment":33,"seq":477,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2598,"virtual_ns":333000000},"job":2,"kind":"machine.decode","segment":33,"seq":478,"text":["0"],"tokens":1}
+{"block":83,"clock":{"token_clock":2598,"virtual_ns":333000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":479}
+{"clock":{"token_clock":2598,"virtual_ns":333000000},"job":2,"kind":"vm.working_set","segments":20,"seq":480,"size_tokens":1315}
+{"allowed_blocks":83,"clock":{"token_clock":2598,"virtual_ns":333000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":481}
+{"clock":{"token_clock":2599,"virtual_ns":334000000},"job":2,"kind":"machine.decode","segment":34,"seq":482,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2600,"virtual_ns":335000000},"job":2,"kind":"machine.decode","segment":34,"seq":483,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2601,"virtual_ns":336000000},"job":2,"kind":"machine.decode","segment":34,"seq":484,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2602,"virtual_ns":337000000},"job":2,"kind":"machine.decode","segment":34,"seq":485,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2603,"virtual_ns":338000000},"job":2,"kind":"machine.decode","segment":34,"seq":486,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2604,"virtual_ns":339000000},"job":2,"kind":"machine.decode","segment":34,"seq":487,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2605,"virtual_ns":340000000},"job":2,"kind":"machine.decode","segment":34,"seq":488,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2606,"virtual_ns":341000000},"job":2,"kind":"machine.decode","segment":34,"seq":489,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2607,"virtual_ns":342000000},"job":2,"kind":"machine.decode","segment":34,"seq":490,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2608,"virtual_ns":343000000},"job":2,"kind":"machine.decode","segment":34,"seq":491,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2609,"virtual_ns":344000000},"job":2,"kind":"machine.decode","segment":34,"seq":492,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2610,"virtual_ns":345000000},"job":2,"kind":"machine.decode","segment":34,"seq":493,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2611,"virtual_ns":346000000},"job":2,"kind":"machine.decode","segment":34,"seq":494,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2612,"virtual_ns":347000000},"job":2,"kind":"machine.decode","segment":34,"seq":495,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2613,"virtual_ns":348000000},"job":2,"kind":"machine.decode","segment":34,"seq":496,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2614,"virtual_ns":349000000},"job":2,"kind":"machine.decode","segment":34,"seq":497,"text":["0"],"tokens":1}
+{"block":84,"clock":{"token_clock":2614,"virtual_ns":349000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":498}
+{"clock":{"token_clock":2614,"virtual_ns":349000000},"job":2,"kind":"vm.working_set","segments":21,"seq":499,"size_tokens":1331}
+{"allowed_blocks":84,"clock":{"token_clock":2614,"virtual_ns":349000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":500}
+{"clock":{"token_clock":2615,"virtual_ns":350000000},"job":2,"kind":"machine.decode","segment":35,"seq":501,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2616,"virtual_ns":351000000},"job":2,"kind":"machine.decode","segment":35,"seq":502,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2617,"virtual_ns":352000000},"job":2,"kind":"machine.decode","segment":35,"seq":503,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2618,"virtual_ns":353000000},"job":2,"kind":"machine.decode","segment":35,"seq":504,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2619,"virtual_ns":354000000},"job":2,"kind":"machine.decode","segment":35,"seq":505,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2620,"virtual_ns":355000000},"job":2,"kind":"machine.decode","segment":35,"seq":506,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2621,"virtual_ns":356000000},"job":2,"kind":"machine.decode","segment":35,"seq":507,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2622,"virtual_ns":357000000},"job":2,"kind":"machine.decode","segment":35,"seq":508,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2623,"virtual_ns":358000000},"job":2,"kind":"machine.decode","segment":35,"seq":509,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2624,"virtual_ns":359000000},"job":2,"kind":"machine.decode","segment":35,"seq":510,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2625,"virtual_ns":360000000},"job":2,"kind":"machine.decode","segment":35,"seq":511,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2626,"virtual_ns":361000000},"job":2,"kind":"machine.decode","segment":35,"seq":512,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2627,"virtual_ns":362000000},"job":2,"kind":"machine.decode","segment":35,"seq":513,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2628,"virtual_ns":363000000},"job":2,"kind":"machine.decode","segment":35,"seq":514,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2629,"virtual_ns":364000000},"job":2,"kind":"machine.decode","segment":35,"seq":515,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2630,"virtual_ns":365000000},"job":2,"kind":"machine.decode","segment":35,"seq":516,"text":["0"],"tokens":1}
+{"block":85,"clock":{"token_clock":2630,"virtual_ns":365000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":517}
+{"clock":{"token_clock":2630,"virtual_ns":365000000},"job":2,"kind":"vm.working_set","segments":22,"seq":518,"size_tokens":1347}
+{"allowed_blocks":85,"clock":{"token_clock":2630,"virtual_ns":365000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":519}
+{"clock":{"token_clock":2631,"virtual_ns":366000000},"job":2,"kind":"machine.decode","segment":36,"seq":520,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2632,"virtual_ns":367000000},"job":2,"kind":"machine.decode","segment":36,"seq":521,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2633,"virtual_ns":368000000},"job":2,"kind":"machine.decode","segment":36,"seq":522,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2634,"virtual_ns":369000000},"job":2,"kind":"machine.decode","segment":36,"seq":523,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2635,"virtual_ns":370000000},"job":2,"kind":"machine.decode","segment":36,"seq":524,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2636,"virtual_ns":371000000},"job":2,"kind":"machine.decode","segment":36,"seq":525,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2637,"virtual_ns":372000000},"job":2,"kind":"machine.decode","segment":36,"seq":526,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2638,"virtual_ns":373000000},"job":2,"kind":"machine.decode","segment":36,"seq":527,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2639,"virtual_ns":374000000},"job":2,"kind":"machine.decode","segment":36,"seq":528,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2640,"virtual_ns":375000000},"job":2,"kind":"machine.decode","segment":36,"seq":529,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2641,"virtual_ns":376000000},"job":2,"kind":"machine.decode","segment":36,"seq":530,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2642,"virtual_ns":377000000},"job":2,"kind":"machine.decode","segment":36,"seq":531,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2643,"virtual_ns":378000000},"job":2,"kind":"machine.decode","segment":36,"seq":532,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2644,"virtual_ns":379000000},"job":2,"kind":"machine.decode","segment":36,"seq":533,"text":[" "],"tokens":1}
+{"clock":{"token_clock":2645,"virtual_ns":380000000},"job":2,"kind":"machine.decode","segment":36,"seq":534,"text":["say"],"tokens":1}
+{"clock":{"token_clock":2646,"virtual_ns":381000000},"job":2,"kind":"machine.decode","segment":36,"seq":535,"text":[" "],"tokens":1}
+{"block":86,"clock":{"token_clock":2646,"virtual_ns":381000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":536}
+{"clock":{"token_clock":2646,"virtual_ns":381000000},"job":2,"kind":"vm.working_set","segments":23,"seq":537,"size_tokens":1363}
+{"allowed_blocks":86,"clock":{"token_clock":2646,"virtual_ns":381000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":538}
+{"clock":{"token_clock":2647,"virtual_ns":382000000},"job":2,"kind":"machine.decode","segment":37,"seq":539,"text":["1"],"tokens":1}
+{"clock":{"token_clock":2648,"virtual_ns":383000000},"job":2,"kind":"machine.decode","segment":37,"seq":540,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2649,"virtual_ns":384000000},"job":2,"kind":"machine.decode","segment":37,"seq":541,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2650,"virtual_ns":385000000},"job":2,"kind":"machine.decode","segment":37,"seq":542,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2651,"virtual_ns":386000000},"job":2,"kind":"machine.decode","segment":37,"seq":543,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2652,"virtual_ns":387000000},"job":2,"kind":"machine.decode","segment":37,"seq":544,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2653,"virtual_ns":388000000},"job":2,"kind":"machine.decode","segment":37,"seq":545,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2654,"virtual_ns":389000000},"job":2,"kind":"machine.decode","segment":37,"seq":546,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2655,"virtual_ns":390000000},"job":2,"kind":"machine.decode","segment":37,"seq":547,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2656,"virtual_ns":391000000},"job":2,"kind":"machine.decode","segment":37,"seq":548,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2657,"virtual_ns":392000000},"job":2,"kind":"machine.decode","segment":37,"seq":549,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2658,"virtual_ns":393000000},"job":2,"kind":"machine.decode","segment":37,"seq":550,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2659,"virtual_ns":394000000},"job":2,"kind":"machine.decode","segment":37,"seq":551,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2660,"virtual_ns":395000000},"job":2,"kind":"machine.decode","segment":37,"seq":552,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2661,"virtual_ns":396000000},"job":2,"kind":"machine.decode","segment":37,"seq":553,"text":["0"],"tokens":1}
+{"clock":{"token_clock":2662,"virtual_ns":397000000},"job":2,"kind":"machine.decode","segment":37,"seq":554,"text":["0"],"tokens":1}
+{"block":87,"clock":{"token_clock":2662,"virtual_ns":397000000},"job":2,"kind":"machine.block_boundary","padding_tokens":0,"seq":555}
+{"clock":{"token_clock":2662,"virtual_ns":397000000},"job":2,"kind":"vm.working_set","segments":24,"seq":556,"size_tokens":1379}
+{"allowed_blocks":87,"clock":{"token_clock":2662,"virtual_ns":397000000},"denied_blocks":0,"job":2,"kind":"mask.updated","seq":557}
+{"clock":{"token_clock":2663,"virtual_ns":398000000},"job":2,"kind":"machine.decode","segment":38,"seq":558,"text":[";"],"tokens":1}
+{"clock":{"token_clock":2664,"virtual_ns":399000000},"job":2,"kind":"machine.decode","segment":38,"seq":559,"text":[" "],"tokens":1}

@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OPT+ZEOS checks on WebGPU</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>OPT+ZEOS checks on WebGPU</h1>
+    <p>
+      The graph's logits against <code>transformers</code>' reference, hidden tokens swapped
+      for others with nothing else moving, and a cancelled step resumed to the same bits.
+      Query parameters: <code>model</code> (default <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>),
+      <code>reference</code> (default <code>/models/.reference/</code>), <code>transformers</code>
+      (default <code>/models/Qwen3.5-2B-zeos-q4/</code>), <code>ort</code> (the
+      <code>ort.webgpu.min.mjs</code> to import). Run by
+      <code>node tests/opt_zeos_webgpu.mjs --page checks.html</code>.
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="checks.js"></script>
+  </body>
+</html>

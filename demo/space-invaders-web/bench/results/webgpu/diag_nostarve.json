@@ -1,0 +1,156 @@
+{
+ "note": "Diagnosis, 120 s: Wave 2 settings with ?tune={\"kernel\":{\"starvation_limit\":100000}}. GPU state unknown (before the contention check).",
+ "tune": "{\"kernel\":{\"starvation_limit\":100000}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "lives": 3,
+   "kills": 4,
+   "ticks": 240,
+   "decisions": 41,
+   "lag_ticks": {
+    "mean": 8.68,
+    "p95": 12,
+    "max": 87
+   },
+   "preemptions": 16,
+   "cancellations": 19,
+   "reflexes": 16,
+   "overrun_ms": {
+    "mean": 27.095,
+    "p95": 7.015,
+    "max": 2469.6
+   },
+   "catchup_ticks": 9,
+   "warm_s": {
+    "page": 14.41,
+    "python": 13.69,
+    "prewarm_ms": 5243.3
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 604.448,
+    "p95": 1590.425,
+    "max": 1590.425
+   },
+   "roundtrip_s": {
+    "mean": 3.193,
+    "p95": 8.405,
+    "max": 18.954
+   },
+   "syscall_adherence": {
+    "moves": 25,
+    "valid": 25,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 127,
+    "stall": 14016,
+    "cancelled": 8,
+    "native": 57
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 2961,
+    "chunks": 12,
+    "fill_ms": 18573.569999933243,
+    "wall_ms": 1.5699999999867487
+   },
+   "splices": 3,
+   "longest_pilot_gap": {
+    "ticks": 87,
+    "seconds": 43.5,
+    "from_tick": 130,
+    "to_tick": 217,
+    "splices": 2
+   },
+   "faults": [],
+   "quiet_gpu": null
+  },
+  {
+   "arm": "zeos",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "lives": 3,
+   "kills": 8,
+   "ticks": 81,
+   "decisions": 22,
+   "lag_ticks": {
+    "mean": 15,
+    "p95": 33,
+    "max": 33
+   },
+   "preemptions": 17,
+   "cancellations": 15,
+   "reflexes": 17,
+   "overrun_ms": {
+    "mean": 21.077,
+    "p95": 284.68,
+    "max": 378.69
+   },
+   "catchup_ticks": 4,
+   "warm_s": {
+    "page": 11.79,
+    "python": 11.556,
+    "prewarm_ms": 3510.8
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 335.655,
+    "p95": 1277.625,
+    "max": 1277.625
+   },
+   "roundtrip_s": {
+    "mean": 2.399,
+    "p95": 8.012,
+    "max": 8.012
+   },
+   "syscall_adherence": {
+    "moves": 5,
+    "valid": 5,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 31,
+    "stall": 3173,
+    "cancelled": 5,
+    "native": 39
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 2095,
+    "chunks": 9,
+    "fill_ms": 7788.004999995232,
+    "wall_ms": 2.0399999999938245
+   },
+   "splices": 0,
+   "longest_pilot_gap": {
+    "ticks": 33,
+    "seconds": 6.6,
+    "from_tick": 42,
+    "to_tick": 75,
+    "splices": 0
+   },
+   "faults": [],
+   "quiet_gpu": null
+  }
+ ]
+}

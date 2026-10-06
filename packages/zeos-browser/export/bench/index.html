@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- Copyright (C) 2026 Metacognition AI -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OPT+ZEOS WebGPU benchmark</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, monospace; margin: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>OPT+ZEOS decoder on WebGPU</h1>
+    <p>
+      Query parameters: <code>model</code> (the OPT+ZEOS export, default
+      <code>/models/Qwen3.5-4B-ZEOS-OPT/</code>), <code>opt</code> (the unmodified -OPT export, to
+      run the same measurements on for comparison; off by default), <code>ort</code> (the
+      <code>ort.webgpu.min.mjs</code> to import).
+    </p>
+    <pre id="log"></pre>
+    <script type="module" src="bench.js"></script>
+  </body>
+</html>

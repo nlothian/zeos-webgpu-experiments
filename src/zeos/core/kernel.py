@@ -278,8 +278,12 @@ class KernelError(RuntimeError):
 class KernelConfig:
     seed: int = 0
     case: str = "unnamed"
-    #: Preemptions before a job raises a starvation fault. Loud by design: real-time
-    #: systems should fail visibly rather than silently age priorities (core §5.5).
+    #: Preemptions a job may take *without making progress* before it raises a
+    #: starvation fault. Progress is a request actually carried out (a write landed,
+    #: a read consumed or blocked; ``Kernel._progressed`` lists them) and it resets
+    #: the count, so this bounds an interrupt storm, not the interruptions in a
+    #: job's lifetime. Loud by design: real-time systems should fail visibly
+    #: rather than silently age priorities (core §5.5).
     starvation_limit: int = 8
     #: Safety valve for ``run_until_quiescent``; a script that never exits is a bug,
     #: and an infinite loop is a worse way to discover it than an exception.
@@ -292,6 +296,11 @@ class KernelConfig:
     #: Print every ``Decoded`` event to stderr as it is journalled. A debugging
     #: aid only; the journal is the record.
     trace_decode: bool = False
+    #: Keep the whitespace of text the kernel tokenises on a job's behalf -- a
+    #: delivery, and the descriptor body -- with each token, so line breaks and
+    #: indentation reach the machine (``tokens_from_text(..., preserve_whitespace=True)``).
+    #: Off by default, and off it changes nothing: every journal is the one it was.
+    preserve_whitespace: bool = False
 
 
 @dataclass
@@ -582,7 +591,7 @@ class Kernel:
         # agents fit on this GPU" from folklore into a number.
         refusal = admission_check(
             descriptor.context,
-            pinned_tokens=len(tokens_from_text(descriptor.body)),
+            pinned_tokens=len(self._words(descriptor.body)),
         )
         if refusal is not None:
             self._raise_fault(
@@ -643,6 +652,10 @@ class Kernel:
         return child
 
     # -- external input ------------------------------------------------------
+
+    def _words(self, text: str) -> tuple[Token, ...]:
+        """Text the kernel tokenises on a job's behalf, as ``KernelConfig`` says to."""
+        return tokens_from_text(text, preserve_whitespace=self.config.preserve_whitespace)
 
     def advance_to(self, virtual_ns: int) -> None:
         """The driver supplies wall-clock time; the kernel never reads one.
@@ -723,7 +736,7 @@ class Kernel:
 
     def _deliver_now(self, pipe_name: PipeName, text: str, *, refuse: bool = True) -> None:
         pipe = self.pipes.ensure(pipe_name)
-        tokens = tokens_from_text(text)
+        tokens = self._words(text)
         latched = bool(pipe.spec.world_object)
         fits = len(tokens) <= pipe.spec.capacity_tokens if latched else pipe.writable(len(tokens))
         if not fits:
@@ -747,7 +760,7 @@ class Kernel:
 
     def _guard_delivery(self, gate: GateSpec, text: str) -> None:
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(text)
+        asked = self._words(text)
         if len(asked) > requests.spec.capacity_tokens:
             self._answer_delivery(
                 gate,
@@ -795,7 +808,7 @@ class Kernel:
     def _pump_queued_deliveries(self, gate: GateSpec) -> None:
         queue = self._queued_deliveries.get(gate.pipe)
         requests = self.pipes.ensure(gate.requests)
-        while queue and requests.writable(len(tokens_from_text(queue[0]))):
+        while queue and requests.writable(len(self._words(queue[0]))):
             self._guard_delivery(gate, queue.pop(0))
 
     # -- the quantum ---------------------------------------------------------
@@ -933,8 +946,8 @@ class Kernel:
                     kind=FaultKind.STARVATION,
                     job=running.job_id,
                     detail=(
-                        f"preempted {running.preempt_count} times, over the "
-                        f"limit of {self.config.starvation_limit}"
+                        f"preempted {running.preempt_count} times without progress "
+                        f"(limit {self.config.starvation_limit})"
                     ),
                 ),
             )
@@ -1142,7 +1155,7 @@ class Kernel:
         job.started = True
         self._inject(
             job,
-            tokens_from_text(job.descriptor.body or f"task {job.name}"),
+            self._words(job.descriptor.body or f"task {job.name}"),
             pipe=KERNEL_PIPE,
             principal=Principal.KERNEL,
             ring=job.descriptor.ring,
@@ -1390,6 +1403,19 @@ class Kernel:
         alias = job.descriptor.pipes.resolve(str(name))
         return alias if alias is not None else name
 
+    def _progressed(self, job: Job) -> None:
+        """The job got a request carried out: reset its starvation count (core §5.5).
+
+        Called only where a request actually took effect -- a write landed or its gate
+        allowed it, a read consumed data or blocked, a select or acquire was granted
+        or queued, a held resource was released, a spawn happened, a page-in loaded
+        content. What a storm denies a job is exactly this, so nothing weaker resets
+        the count: not a decoded token (a storm can let one through), not a resume
+        (every preemption ends in one), not time (the silent aging §5.5 rules out),
+        and not a request that was refused, vetoed or did nothing.
+        """
+        job.preempt_count = 0
+
     def _handle_request(self, job: Job, result: DecodeResult) -> None:
         request = result.request
         match request.op:
@@ -1457,8 +1483,10 @@ class Kernel:
                 )
                 if compartment is not None:
                     self.spawn_compartment(job, compartment)
+                    self._progressed(job)
                 elif DescriptorName(target) in job.descriptor.children:
                     self.spawn(DescriptorName(target), parent=job.job_id)
+                    self._progressed(job)
                 else:
                     self._refuse(
                         job,
@@ -1509,6 +1537,7 @@ class Kernel:
             pipe.block_reader(job.job_id)
             job.pending_read = pipe_name
             self._park(job, pipe_name, "read-empty", inherit=(pipe_name,), waiting_to_read=True)
+            self._progressed(job)
             return
         self._consume_read(job, pipe_name)
 
@@ -2306,7 +2335,11 @@ class Kernel:
             return
 
         resource = self.resources.get(name)
+        # Re-acquiring a resource already held succeeds and changes nothing.
+        already_held = resource.held_by(job.job_id)
         if resource.acquire(job.job_id):
+            if not already_held:
+                self._progressed(job)
             job.held_resources.add(name)
             job.pending_acquire = None
             self._emit(
@@ -2359,6 +2392,7 @@ class Kernel:
         self._block(job)
         job.blocked_reason = "resource"
         self._transition(job, JobState.BLOCKED)
+        self._progressed(job)
         self._emit(
             ResourceBlocked(
                 clock=self.clock,
@@ -2375,6 +2409,7 @@ class Kernel:
         resource = self.resources.get(name)
         if not resource.release(job.job_id):
             return
+        self._progressed(job)
         job.held_resources.discard(name)
         self._release_priority_inheritance(job, only_for_resource=name)
 
@@ -2556,6 +2591,8 @@ class Kernel:
     def _consume_read(self, job: Job, pipe_name: PipeName) -> None:
         pipe = self.pipes.get(pipe_name)
         tokens, carried = pipe.take()
+        # Before the spoof check: the data was consumed whether or not it is alarmed on.
+        self._progressed(job)
         self._emit(
             PipeReadEvent(
                 clock=self.clock,
@@ -2569,8 +2606,10 @@ class Kernel:
         # that pipe's integrity as a floor, so a high-trust service answering a
         # low-trust requester writes at the *requester's* integrity. Scoped to the
         # most recent request, since M0 pipes carry no message framing to bound it
-        # more precisely.
-        job.session_floor = pipe.spec.floor
+        # more precisely. A pipe declared ``session_floor: false`` opts out, leaving
+        # its content to the watermark alone.
+        if pipe.spec.session_floor:
+            job.session_floor = pipe.spec.floor
         self._inject(
             job,
             tokens,
@@ -2607,11 +2646,20 @@ class Kernel:
             return
 
         # A write is a boundary too: what the job could see must count before it acts,
-        # not only at the next block.
-        if job.attention_guessed and job.descriptor.integrity.is_dynamic:
-            self._apply_demotion(
-                job, demote_by_provenance(job.current_integrity, table=job.segments)
-            )
+        # not only at the next block. Measured mass is judged on what the open block has
+        # gathered so far, without folding it: the boundary still folds it, and demotion
+        # is monotone, so counting it twice cannot demote twice.
+        if job.descriptor.integrity.is_dynamic:
+            if job.attention_guessed:
+                demotion = demote_by_provenance(job.current_integrity, table=job.segments)
+            else:
+                demotion = demote_for_boundary(
+                    job.current_integrity,
+                    table=job.segments,
+                    mass_this_block=job.segments.pending_attention(),
+                    theta_read=self.config.theta_read,
+                )
+            self._apply_demotion(job, demotion)
 
         # Effects are syscalls. This check is the enforcement floor that
         # still holds when every layer above it has failed: a fully persuaded model
@@ -2657,6 +2705,7 @@ class Kernel:
         # capability for is stopped by the ordinary boundary first.
         guarded = self.gates.by_verdict_pipe(pipe_name)
         if guarded is not None:
+            self._progressed(job)
             self._resolve_verdict(job, guarded, render(payload))
             return
 
@@ -2713,6 +2762,7 @@ class Kernel:
         if self._carried_by_link(pipe_name):
             self._send_over_link(job, pipe_name, payload)
             job.gate_cleared = None
+            self._progressed(job)
             self._read_after_write(job, then_read)
             return
 
@@ -2725,6 +2775,7 @@ class Kernel:
             floor if held is not None and held.schema is not None else max(floor, check.effective)
         )
         self._put(pipe, payload, carried, by=job.job_id)
+        self._progressed(job)
         # One verdict, one action. Clearing here rather than on wake means a second
         # actuation on the same pipe faces its gate again.
         job.gate_cleared = None
@@ -2788,7 +2839,7 @@ class Kernel:
         """
         rendered = render(payload)
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(rendered)
+        asked = self._words(rendered)
         if len(asked) > requests.spec.capacity_tokens:
             self._refuse_gate(
                 job,
@@ -2852,7 +2903,7 @@ class Kernel:
         """
         gate_job = self.spawn(gate.descriptor, owner=KERNEL_PRINCIPAL)
         requests = self.pipes.ensure(gate.requests)
-        asked = tokens_from_text(rendered)
+        asked = self._words(rendered)
         accepted = requests.write(asked)
         self._emit(
             PipeWritten(
@@ -2979,8 +3030,11 @@ class Kernel:
                 ),
             )
             return
-        # Allowed: the held write is retried through the ordinary path on wake.
+        # Allowed: the held write is retried through the ordinary path on wake. The
+        # verdict, not the parking, is what makes a gated write progress: a write
+        # that is vetoed or times out was never carried out.
         job.gate_cleared = gate.pipe
+        self._progressed(job)
         if self.sched.wake(job):
             self._transition(job, JobState.READY)
         self._emit(JobWoken(clock=self.clock, job=job.job_id, pipe=gate.pipe))
@@ -3002,6 +3056,7 @@ class Kernel:
             inherit=sorted(pipe_names),
             waiting_to_read=True,
         )
+        self._progressed(job)
 
     def _service_pending(self, job: Job) -> bool:
         """Complete an operation the job was parked on. Consumes the quantum."""
@@ -3263,6 +3318,7 @@ class Kernel:
             return
 
         span = result.span
+        self._progressed(job)
         resident = self.machine.stats(job.job_id).resident_tokens
         downstream = 0  # append plan lands at the tail, so nothing follows it
         plan = choose_plan(span_tokens=span.length, downstream_tokens=downstream)
@@ -3560,6 +3616,27 @@ class Kernel:
     def unreaped(self) -> tuple[JobId, ...]:
         """Terminal jobs whose context is still materialised, oldest first."""
         return tuple(self._unreaped)
+
+    def carry_watermark(self, job_id: JobId, integrity: Integrity) -> None:
+        """Lower a live job's watermark to one a host carries over from a record of an
+        earlier run: a conversation rebuilt from its history starts where it ended, not
+        clean. Journalled as a demotion with no segment behind it, since what caused it
+        lies in that earlier run. A watermark never rises, so an ``integrity`` more
+        trusted than the job's is refused, and the job's own is no change.
+        """
+        job = self.sched.get(job_id)
+        if job.state.is_terminal:
+            raise KernelError(f"job {job_id} is terminal; its watermark is final")
+        if not job.descriptor.integrity.is_dynamic:
+            raise KernelError(f"job {job_id} declares no integrity dynamics to carry over")
+        if int(integrity) < int(job.current_integrity):
+            raise KernelError(
+                f"job {job_id} is at integrity {int(job.current_integrity)}; a watermark "
+                f"never rises to {int(integrity)}"
+            )
+        self._apply_demotion(
+            job, Demotion(before=job.current_integrity, after=integrity, because=())
+        )
 
     def _apply_completion_policy(self, job: Job) -> None:
         policy = job.descriptor.on_complete

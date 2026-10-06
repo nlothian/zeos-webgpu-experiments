@@ -16,7 +16,8 @@ twice, so the package metadata is the single source of truth and a licence chang
 is one edit, not a hunt.
 
 Third-party material is deliberately excluded: anything under a ``vendor``
-directory keeps the licence it arrived with.
+directory keeps the licence it arrived with, as does a gitignored
+``node_modules``.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import pytest
 import zeos
 
 REPO = Path(zeos.__file__).resolve().parents[2]
-ROOTS = ("src", "tests", "demo")
+ROOTS = ("src", "tests", "packages", "demo")
 SUFFIXES = (".py", ".js", ".css")
 
 
@@ -46,7 +47,8 @@ def _sources() -> list[Path]:
                 continue
             # Vendored assets keep their own licence, and a minified bundle is
             # not a file anyone edits.
-            if "vendor" in path.relative_to(REPO).parts or ".min." in path.name:
+            parts = path.relative_to(REPO).parts
+            if "vendor" in parts or "node_modules" in parts or ".min." in path.name:
                 continue
             found.append(path)
     return found

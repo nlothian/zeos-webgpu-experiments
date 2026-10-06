@@ -21,7 +21,8 @@ maintained in the type system rather than in comments.
 | Block structure, alignment, padding | **Simulated but faithful** |
 | Control-token unforgeability | **Structural** -- a `CONTROL` token cannot be decoded unless the kernel enables it |
 | Eviction, stubs, page faults, store round trip | **Real mechanism** |
-| **Attention mass** | **Synthetic** -- the scripted backend cannot measure; the kernel resolves hints for paging, and demotes integrity on provenance alone unless a hint is a script's declared stipulation |
+| **Attention mass** | **Synthetic** for the scripted backend and the llama.cpp backend -- neither can measure; the kernel resolves hints for paging, and demotes integrity on provenance alone unless a hint is a script's declared stipulation. **Measured** for `JsMachine` over the Transformers.js worker in `demo/coop-count-web`: an ONNX export of Qwen2.5-0.5B-Instruct sums each decode step's attention over layers and heads per KV position, under the allowed-block mask, and integrity demotes on that |
+| Allowed-block mask | **Enforced** in every attention layer by the Transformers.js worker; **refused** with `MaskViolation` by the llama.cpp backend; **recorded** by the scripted backend |
 | The seat's tokenisation | **Stand-in** -- whitespace, one word per decode; counts and boundaries only. The llama backend tokenises for real |
 | The seat's attention hint | **Synthetic** -- a guess about the job's own output; paging uses it, integrity does not (AM §11.4) |
 | Syscall ABI, parser, transcript rebuild, `MALFORMED` | **Real** -- one declaration renders the prose, the pattern and the grammar (AM §11) |
@@ -30,7 +31,9 @@ maintained in the type system rather than in comments.
 
 Nothing about eviction regret, θ-parameter sensitivity, or taint-creep rates can be
 concluded from any run of this code. The mechanisms are validated; the policies are
-not, and cannot be until a real serving stack supplies measured attention.
+not, and cannot be until a real serving stack supplies measured attention. The one
+backend that measures it is a small quantised model in a browser, not a production
+serving stack.
 
 ---
 
@@ -170,7 +173,8 @@ class DecodeResult:
     at_block_boundary: bool
 ```
 
-A backend that can measure populates `attention` and leaves `attention_hint` None.
+A backend that can measure populates `attention` and leaves `attention_hint` None, as
+`JsMachine` does over a model worker in `packages/zeos-browser`.
 `ScriptedMachine` and the llama.cpp machine do the reverse. Splitting them in the type system is slightly
 ugly, and the ugliness is the point: it marks exactly where the fiction lives so no
 policy claim can rest on it by accident.

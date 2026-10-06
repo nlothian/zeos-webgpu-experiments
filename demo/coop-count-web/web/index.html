@@ -1,0 +1,147 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Metacognition AI
+
+This source code is licensed under the AGPL-3.0-only licence found in the
+LICENSE file in the root directory of this source tree.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>coop-count in the browser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>coop-count <span class="sub">— the ZEOS kernel, running in your browser</span></h1>
+    <p id="status" class="status" role="status">starting the Pyodide worker…</p>
+  </div>
+  <!-- AGPL section 13: whoever this page is served to is owed the Corresponding Source. -->
+  <a href="https://github.com/metacognitionai/zeos" target="_blank" rel="noopener noreferrer">source</a>
+</header>
+
+<main>
+  <section class="panel" id="controls" aria-labelledby="controls-h">
+    <h2 id="controls-h">run</h2>
+    <div class="row">
+      <label>scenario
+        <select id="case" disabled></select>
+      </label>
+      <label>answered by
+        <select id="machine" disabled>
+          <option value="transformers" id="model-option" disabled selected>language model, in your browser</option>
+          <option value="scripted">recorded answers (no model)</option>
+          <option value="stub">recorded answers, via the JavaScript model interface</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="schedule" checked disabled>
+        press the keys automatically</label>
+      <label>delay per turn
+        <input type="range" id="speed" min="0" max="400" step="20" value="120"
+               aria-describedby="speed-out">
+        <output id="speed-out">120 ms/turn</output>
+      </label>
+    </div>
+    <div class="row">
+      <button id="run" type="button" disabled>run</button>
+      <button id="stop" type="button" disabled>stop</button>
+      <span id="clock" class="meta"></span>
+      <span id="model-backend" class="meta"></span>
+    </div>
+    <div class="row model-status" id="model-status-row" hidden>
+      <span class="meta">model</span>
+      <progress id="model-progress" max="1" value="0" hidden></progress>
+      <span id="model-status" class="meta" role="status" aria-live="polite"></span>
+    </div>
+    <div class="row model-cache" id="model-cache-row" hidden>
+      <span class="meta">from</span>
+      <span id="model-cache" class="meta"></span>
+      <button id="clear-model-cache" type="button">clear cached model</button>
+    </div>
+    <div id="lint" class="lint"></div>
+  </section>
+
+  <section class="panel" id="console" aria-labelledby="console-h">
+    <h2 id="console-h">console</h2>
+    <p class="hint">A simulated keyboard, live while a run is going. <em>interrupt</em> wakes
+      the <code>reset-count</code> handler, which pauses whichever counter is running; then
+      type the new count and press <kbd>Enter</kbd>. Untick <em>press the keys
+      automatically</em> to do this yourself.</p>
+    <div class="row">
+      <button id="interrupt" type="button" disabled>interrupt</button>
+      <label>new count
+        <input id="number" inputmode="numeric" pattern="[0-9]*" size="8" disabled>
+      </label>
+      <button id="send" type="button" disabled>send (Enter)</button>
+      <span id="prompt" class="meta"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="journal-panel" aria-labelledby="journal-h">
+    <div class="head">
+      <h2 id="journal-h">output</h2>
+      <span id="count" class="meta">0 events</span>
+      <label class="check"><input type="checkbox" id="follow" checked> follow</label>
+      <button id="download" type="button" disabled>download event log</button>
+    </div>
+    <!-- Two views of one run: the lines `zeos-count run` prints, and the journal itself. -->
+    <div class="tabs" role="tablist" aria-label="output view">
+      <button type="button" role="tab" id="tab-transcript" aria-controls="view-transcript"
+              aria-selected="true">transcript</button>
+      <button type="button" role="tab" id="tab-journal" aria-controls="view-journal"
+              aria-selected="false" tabindex="-1">event log (JSON)</button>
+    </div>
+    <div role="tabpanel" id="view-transcript" aria-labelledby="tab-transcript">
+      <ol id="transcript" class="journal transcript" aria-live="off"></ol>
+    </div>
+    <div role="tabpanel" id="view-journal" aria-labelledby="tab-journal" hidden>
+      <ol id="journal" class="journal" aria-live="off"></ol>
+    </div>
+  </section>
+
+  <section class="panel" id="runs-panel" aria-labelledby="runs-h">
+    <h2 id="runs-h">finished runs</h2>
+    <p class="hint">A run's event log depends only on the scenario, who answered and the
+      key presses, so repeating a run with the same inputs gives the same fingerprint.
+      Matching fingerprints are highlighted.</p>
+    <table id="runs">
+      <thead><tr><th>scenario</th><th>answered by</th><th>auto keys</th><th>your presses</th>
+        <th>turns</th><th>events</th><th>fingerprint (SHA-256)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel wide" id="debugger-panel" aria-labelledby="debugger-h">
+    <h2 id="debugger-h">debugger</h2>
+    <iframe id="debugger" title="ZEOS debugger"></iframe>
+  </section>
+
+  <section class="panel wide" id="log-panel" aria-labelledby="log-h">
+    <h2 id="log-h">diagnostic log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+  // Without isolation there is no SharedArrayBuffer, so no model thread; on a host that
+  // cannot send the headers, coi_serviceworker.js adds them and one reload applies it.
+  if (!self.crossOriginIsolated && "serviceWorker" in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register("coi_serviceworker.js").then((registration) => {
+      if (!navigator.serviceWorker.controller && !sessionStorage.getItem("coi-reloaded")) {
+        sessionStorage.setItem("coi-reloaded", "1");
+        (registration.installing || registration.waiting || registration.active)
+          ?.addEventListener("statechange", (event) => {
+            if (event.target.state === "activated") location.reload();
+          });
+        if (registration.active) location.reload();
+      }
+    });
+  }
+</script>
+<script src="app.js"></script>
+</body>
+</html>

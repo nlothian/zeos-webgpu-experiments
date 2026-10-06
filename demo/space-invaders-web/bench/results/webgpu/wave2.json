@@ -1,0 +1,275 @@
+{
+ "note": "Wave 2, before tuning: chunk 256, window 4096, native starvation limit. Measured before tests/si_webgpu.mjs checked for other GPU users, so whether the GPU was quiet is unknown.",
+ "tune": null,
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "lives": 3,
+   "kills": 1,
+   "ticks": 121,
+   "decisions": 30,
+   "lag_ticks": {
+    "mean": 5.04,
+    "p95": 8,
+    "max": 8
+   },
+   "preemptions": 7,
+   "cancellations": 7,
+   "reflexes": 7,
+   "overrun_ms": {
+    "mean": 5.005,
+    "p95": 6.415,
+    "max": 190.87
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 16.19,
+    "python": 15.41,
+    "prewarm_ms": 5536.6
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 322.79,
+    "p95": 665.295,
+    "max": 665.295
+   },
+   "roundtrip_s": {
+    "mean": 2.485,
+    "p95": 2.927,
+    "max": 9.823
+   },
+   "syscall_adherence": {
+    "moves": 23,
+    "valid": 23,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 117,
+    "stall": 8543,
+    "cancelled": 3,
+    "native": 37
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "cancelled",
+    "positions": 350,
+    "chunks": 2,
+    "fill_ms": 1681.8600000143051,
+    "wall_ms": 0.12000000000966793
+   },
+   "splices": 0,
+   "longest_pilot_gap": {
+    "ticks": 8,
+    "seconds": 4,
+    "from_tick": 16,
+    "to_tick": 24,
+    "splices": 0
+   },
+   "faults": [],
+   "quiet_gpu": null
+  },
+  {
+   "arm": "prompt",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "lives": 3,
+   "kills": 0,
+   "ticks": 120,
+   "decisions": 22,
+   "lag_ticks": {
+    "mean": 5.36,
+    "p95": 7,
+    "max": 7
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 40.22,
+    "p95": 412.79,
+    "max": 518.525
+   },
+   "catchup_ticks": 1,
+   "warm_s": {
+    "page": 7.21,
+    "python": 7.212,
+    "prewarm_ms": null
+   },
+   "parse_rate": 0,
+   "verdicts": [],
+   "replies": 22,
+   "reply_latency_s": {
+    "mean": 2.518,
+    "p95": 2.884,
+    "max": 3.081
+   },
+   "unparsed": [
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>"
+   ],
+   "quiet_gpu": null
+  },
+  {
+   "arm": "zeos",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "lives": 0,
+   "kills": 3,
+   "ticks": 64,
+   "decisions": 17,
+   "lag_ticks": {
+    "mean": 9.8,
+    "p95": 17,
+    "max": 17
+   },
+   "preemptions": 9,
+   "cancellations": 8,
+   "reflexes": 12,
+   "overrun_ms": {
+    "mean": 38.706,
+    "p95": 412.55,
+    "max": 809.86
+   },
+   "catchup_ticks": 8,
+   "warm_s": {
+    "page": 11.77,
+    "python": 11.384,
+    "prewarm_ms": 3498.6
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 495.997,
+    "p95": 996.62,
+    "max": 996.62
+   },
+   "roundtrip_s": {
+    "mean": 2.5,
+    "p95": 7.859,
+    "max": 7.859
+   },
+   "syscall_adherence": {
+    "moves": 5,
+    "valid": 5,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 25,
+    "stall": 2604,
+    "cancelled": 1,
+    "native": 29
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 2095,
+    "chunks": 9,
+    "fill_ms": 7648.060000061989,
+    "wall_ms": 4.905000000007931
+   },
+   "splices": 0,
+   "longest_pilot_gap": {
+    "ticks": 17,
+    "seconds": 3.4,
+    "from_tick": 32,
+    "to_tick": 49,
+    "splices": 0
+   },
+   "faults": [
+    {
+     "job": "1",
+     "fault": "scheduler_fault_starvation",
+     "detail": "preempted 9 times, over the limit of 8"
+    }
+   ],
+   "quiet_gpu": null
+  },
+  {
+   "arm": "prompt",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "lives": 3,
+   "kills": 0,
+   "ticks": 112,
+   "decisions": 13,
+   "lag_ticks": {
+    "mean": 8.31,
+    "p95": 10,
+    "max": 10
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 3.83,
+    "p95": 5.11,
+    "max": 7.49
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 6.59,
+    "python": 6.579,
+    "prewarm_ms": null
+   },
+   "parse_rate": 0,
+   "verdicts": [],
+   "replies": 13,
+   "reply_latency_s": {
+    "mean": 1.664,
+    "p95": 1.87,
+    "max": 1.87
+   },
+   "unparsed": [
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>",
+    "<think>"
+   ],
+   "quiet_gpu": null
+  }
+ ]
+}

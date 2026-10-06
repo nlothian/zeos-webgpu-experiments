@@ -1,0 +1,336 @@
+{
+ "note": "Final defaults (chunk 128, window 32768, starvation limit 10,000), 60 s each, quiet GPU.",
+ "tune": null,
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 3,
+   "kills": 3,
+   "ticks": 121,
+   "decisions": 31,
+   "lag_ticks": {
+    "mean": 6.16,
+    "p95": 9,
+    "max": 9
+   },
+   "preemptions": 12,
+   "cancellations": 12,
+   "reflexes": 12,
+   "overrun_ms": {
+    "mean": 6.341,
+    "p95": 6.715,
+    "max": 201.19
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 17.45,
+    "python": 16.052,
+    "prewarm_ms": 5334.2
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 357.836,
+    "p95": 683.455,
+    "max": 683.455
+   },
+   "roundtrip_s": {
+    "mean": 2.775,
+    "p95": 10.659,
+    "max": 10.659
+   },
+   "syscall_adherence": {
+    "moves": 19,
+    "valid": 19,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 95,
+    "stall": 8606,
+    "cancelled": 6,
+    "native": 43
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 327,
+    "chunks": 3,
+    "fill_ms": 3079.8050001859665,
+    "wall_ms": 1.1650000000003047
+   },
+   "splices": 0,
+   "journal_splices": 0,
+   "context_ids": {
+    "1": 8785
+   },
+   "pilot_context": {
+    "window": 32768
+   },
+   "kernel_options": {
+    "starvation_limit": 10000
+   },
+   "longest_pilot_gap": {
+    "ticks": 9,
+    "seconds": 4.5,
+    "from_tick": 101,
+    "to_tick": 110,
+    "splices": 0
+   },
+   "faults": []
+  },
+  {
+   "arm": "prompt",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 2,
+   "kills": 0,
+   "ticks": 120,
+   "decisions": 23,
+   "lag_ticks": {
+    "mean": 5.13,
+    "p95": 6,
+    "max": 6
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 11.119,
+    "p95": 34.465,
+    "max": 204.545
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 7.72,
+    "python": 7.149,
+    "prewarm_ms": null
+   },
+   "parse_rate": 1,
+   "verdicts": [],
+   "replies": 23,
+   "reply_latency_s": {
+    "mean": 2.44,
+    "p95": 2.853,
+    "max": 2.896
+   },
+   "unparsed": [],
+   "begin_max_ms": 268.8,
+   "poll_over_max_ms": 5.6
+  },
+  {
+   "arm": "zeos",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 3,
+   "kills": 7,
+   "ticks": 98,
+   "decisions": 23,
+   "lag_ticks": {
+    "mean": 11.63,
+    "p95": 20,
+    "max": 20
+   },
+   "preemptions": 15,
+   "cancellations": 12,
+   "reflexes": 15,
+   "overrun_ms": {
+    "mean": 22.276,
+    "p95": 211.965,
+    "max": 460.105
+   },
+   "catchup_ticks": 6,
+   "warm_s": {
+    "page": 14.22,
+    "python": 13.22,
+    "prewarm_ms": 3459.9
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "cancel_ms": {
+    "mean": 346.726,
+    "p95": 549.465,
+    "max": 549.465
+   },
+   "roundtrip_s": {
+    "mean": 2.289,
+    "p95": 9.708,
+    "max": 9.708
+   },
+   "syscall_adherence": {
+    "moves": 8,
+    "valid": 8,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 42,
+    "stall": 3745,
+    "cancelled": 4,
+    "native": 38
+   },
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 2095,
+    "chunks": 17,
+    "fill_ms": 9487.769999861717,
+    "wall_ms": 1.3349999999832107
+   },
+   "splices": 0,
+   "journal_splices": 0,
+   "context_ids": {
+    "1": 4421
+   },
+   "pilot_context": {
+    "window": 32768
+   },
+   "kernel_options": {
+    "starvation_limit": 10000
+   },
+   "longest_pilot_gap": {
+    "ticks": 20,
+    "seconds": 4,
+    "from_tick": 51,
+    "to_tick": 71,
+    "splices": 0
+   },
+   "faults": []
+  },
+  {
+   "arm": "prompt",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 0,
+   "kills": 1,
+   "ticks": 73,
+   "decisions": 7,
+   "lag_ticks": {
+    "mean": 8.86,
+    "p95": 12,
+    "max": 12
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 4.185,
+    "p95": 5.225,
+    "max": 5.83
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 7.55,
+    "python": 7.429,
+    "prewarm_ms": null
+   },
+   "parse_rate": 0.857,
+   "verdicts": [],
+   "replies": 7,
+   "reply_latency_s": {
+    "mean": 1.772,
+    "p95": 2.261,
+    "max": 2.261
+   },
+   "unparsed": [
+    "The user wants me to play"
+   ],
+   "begin_max_ms": 12.9,
+   "poll_over_max_ms": 5.8
+  }
+ ]
+}

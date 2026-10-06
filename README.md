@@ -76,7 +76,10 @@ application-specific information, code, data or dependencies. Cases are
 application-specific by definition: it describes a particular operation, with particular
 pipes, particular world objects and particular thresholds. Cases live with the demo that
 needs them, under [`demo/`](https://github.com/metacognitionai/zeos/blob/main/demo/README.md), and nothing in `src/zeos/` imports from
-there.
+there. Libraries that demos build on but that are not the kernel -- the browser layer
+(`zeos-browser`) and a chat agent (`zeos-chat`) -- live under
+[`packages/`](https://github.com/metacognitionai/zeos/tree/main/packages/). Like the demos
+they are uv workspace members, and nothing in them ships in the `zeos` wheel.
 
 
 ## Citing ZEOS

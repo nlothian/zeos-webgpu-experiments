@@ -35,6 +35,7 @@ not evidence about policy.
 from __future__ import annotations
 
 import enum
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Protocol, runtime_checkable
@@ -91,14 +92,35 @@ class Token:
         return self.text
 
 
-def tokens_from_text(text: str, kind: TokenKind = TokenKind.NORMAL) -> tuple[Token, ...]:
+#: A word with the whitespace before it, or whitespace that ends the text.
+_WORD_WITH_SPACE = re.compile(r"\s*\S+|\s+")
+
+
+def tokens_from_text(
+    text: str, kind: TokenKind = TokenKind.NORMAL, *, preserve_whitespace: bool = False
+) -> tuple[Token, ...]:
     """Whitespace tokenisation. Crude on purpose: M0 measures *counts and
-    boundaries*, and a real tokenizer arrives with the real machine."""
-    return tuple(Token(word, kind) for word in text.split())
+    boundaries*, and a real tokenizer arrives with the real machine.
+
+    By default the whitespace is thrown away, so a line break and a space are the same
+    boundary. With ``preserve_whitespace`` each token carries the whitespace before it,
+    and whitespace ending the text is a token of its own, so the tokens concatenate back
+    to ``text`` exactly: a token is never empty, and only the first can lack leading
+    whitespace. The count is the same as the default's but for that trailing token.
+    """
+    if not preserve_whitespace:
+        return tuple(Token(word, kind) for word in text.split())
+    return tuple(Token(run, kind) for run in _WORD_WITH_SPACE.findall(text))
 
 
 def render(tokens: Sequence[Token]) -> str:
-    return " ".join(t.text for t in tokens)
+    """Tokens back as text, as a machine writes them: a token that carries the whitespace
+    before it (``tokens_from_text(..., preserve_whitespace=True)``) as it is, and any
+    other after a single space. Tokens split the default way therefore join with single
+    spaces, and preserved ones concatenate back to their text, line breaks and all."""
+    return "".join(
+        t.text if k == 0 or t.text[:1].isspace() else " " + t.text for k, t in enumerate(tokens)
+    )
 
 
 class OpKind(enum.StrEnum):

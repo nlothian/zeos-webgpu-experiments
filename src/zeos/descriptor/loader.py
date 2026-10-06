@@ -235,6 +235,13 @@ def _load_pipes(path: Path) -> tuple[PipeSpec, ...]:
         name = spec.get("name") or spec.get("pipe")
         if not name:
             raise DescriptorError(f"{path}: pipe entry missing 'name'")
+        session_floor = spec.get("session_floor", True)
+        if not isinstance(session_floor, bool):
+            # A quoted "false" is a string, and every non-empty string is true: the opt-out
+            # would load as the floor it meant to drop, or the reverse, without a word.
+            raise DescriptorError(
+                f"{path}: pipe {name!r}: session_floor is true or false, not {session_floor!r}"
+            )
         specs.append(
             PipeSpec(
                 name=PipeName(str(name)),
@@ -255,6 +262,7 @@ def _load_pipes(path: Path) -> tuple[PipeSpec, ...]:
                 reply_to=(
                     None if spec.get("reply_to") is None else PipeName(str(spec["reply_to"]))
                 ),
+                session_floor=session_floor,
             )
         )
     return tuple(specs)

@@ -1,0 +1,126 @@
+{
+ "note": "Prompt arm, history 5 (default), quiet GPU. The contention check of the time listed only the driver's own parent shell, which it now excludes.",
+ "tune": "{}",
+ "rows": [
+  {
+   "arm": "prompt",
+   "board": "default",
+   "seed": 7,
+   "stopped": true,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 1,
+   "kills": 1,
+   "ticks": 120,
+   "decisions": 23,
+   "lag_ticks": {
+    "mean": 5.09,
+    "p95": 6,
+    "max": 6
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 13.695,
+    "p95": 44.22,
+    "max": 272.05
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 7.62,
+    "python": 7.122,
+    "prewarm_ms": null
+   },
+   "parse_rate": 1,
+   "verdicts": [],
+   "replies": 23,
+   "reply_latency_s": {
+    "mean": 2.386,
+    "p95": 2.948,
+    "max": 2.999
+   },
+   "unparsed": [],
+   "begin_max_ms": 307.5,
+   "poll_over_max_ms": 5.4
+  },
+  {
+   "arm": "prompt",
+   "board": "ablation",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [],
+    "before": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ],
+    "after": [
+     {
+      "pid": 63248,
+      "cpu": 0,
+      "active": false,
+      "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+     }
+    ]
+   },
+   "quiet_gpu": true,
+   "lives": 0,
+   "kills": 1,
+   "ticks": 43,
+   "decisions": 5,
+   "lag_ticks": {
+    "mean": 7.8,
+    "p95": 9,
+    "max": 9
+   },
+   "preemptions": 0,
+   "cancellations": 0,
+   "reflexes": 0,
+   "overrun_ms": {
+    "mean": 3.377,
+    "p95": 5.175,
+    "max": 5.265
+   },
+   "catchup_ticks": 0,
+   "warm_s": {
+    "page": 7.39,
+    "python": 6.548,
+    "prewarm_ms": null
+   },
+   "parse_rate": 1,
+   "verdicts": [],
+   "replies": 5,
+   "reply_latency_s": {
+    "mean": 1.586,
+    "p95": 1.857,
+    "max": 1.857
+   },
+   "unparsed": [],
+   "begin_max_ms": 7.5,
+   "poll_over_max_ms": 5.2
+  }
+ ]
+}

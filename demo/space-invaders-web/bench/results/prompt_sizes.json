@@ -1,0 +1,80 @@
+{
+  "default": {
+    "board": "default",
+    "rules": {
+      "w": 12,
+      "h": 16,
+      "tick_s": 0.5
+    },
+    "pilot_prefix_tokens": 2251,
+    "pilot_body_words": 1768,
+    "pilot_board_tokens": {
+      "min": 265,
+      "mean": 305.1,
+      "max": 336
+    },
+    "pilot_board_words": {
+      "min": 170,
+      "mean": 193.8,
+      "max": 212
+    },
+    "pilot_arrival_framing_tokens": 10,
+    "pilot_board_plain_bpe_tokens": {
+      "min": 262,
+      "mean": 305.5,
+      "max": 339
+    },
+    "prompt_system_tokens": 1957,
+    "prompt_user_tokens_history_full": {
+      "min": 454,
+      "mean": 581.5,
+      "max": 648
+    },
+    "prompt_framing_tokens": 21,
+    "prompt_total_per_decision": {
+      "min": 2432,
+      "mean": 2559.5,
+      "max": 2626
+    },
+    "sample_board": "step 0 | score 0 | lives 3 | missile in flight: no\nyou are at col 6 (row 15)\nmonsters: m1 at row 0 col 1  m2 at row 0 col 2  m3 at row 0 col 3  m4 at row 0 col 4  m5 at row 0 col 5  m6 at row 1 col 1  m7 at row 1 col 2  m8 at row 1 col 3  m9 at row 1 col 4  m10 at row 1 col 5  m11 at row 2 col 1  m12 at row 2 col 2  m13 at row 2 col 3  m14 at row 2 col 4  m15 at row 2 col 5\nyour missile: none in flight\nincoming fire: none\nmonster in your column: none\nincoming fire in your column: none\nnearest monster column: 5 (1 step left)\nthe block moves every 16 steps, next on step 16; direction not seen yet\naim point: not known yet, the block has not moved"
+  },
+  "ablation": {
+    "board": "ablation",
+    "rules": {
+      "w": 9,
+      "h": 8,
+      "tick_s": 0.2
+    },
+    "pilot_prefix_tokens": 2095,
+    "pilot_body_words": 1686,
+    "pilot_board_tokens": {
+      "min": 213,
+      "mean": 249.5,
+      "max": 291
+    },
+    "pilot_board_words": {
+      "min": 137,
+      "mean": 162.5,
+      "max": 190
+    },
+    "pilot_arrival_framing_tokens": 10,
+    "pilot_board_plain_bpe_tokens": {
+      "min": 202,
+      "mean": 242.2,
+      "max": 288
+    },
+    "prompt_system_tokens": 1796,
+    "prompt_user_tokens_history_full": {
+      "min": 407,
+      "mean": 475.4,
+      "max": 536
+    },
+    "prompt_framing_tokens": 21,
+    "prompt_total_per_decision": {
+      "min": 2224,
+      "mean": 2292.4,
+      "max": 2353
+    },
+    "sample_board": "step 0 | score 0 | lives 3 | missile in flight: no\nyou are at col 4 (row 7)\nmonsters: m1 at row 0 col 2  m2 at row 0 col 3  m3 at row 0 col 4  m4 at row 0 col 5  m5 at row 0 col 6  m6 at row 1 col 2  m7 at row 1 col 3  m8 at row 1 col 4  m9 at row 1 col 5  m10 at row 1 col 6\nyour missile: none in flight\nincoming fire: none\nmonster in your column: m8 at row 1; a shot fired now reaches it in 5 turns\nincoming fire in your column: none\nnearest monster column: 4 (your column)\nthe block moves every 4 steps, next on step 4; direction not seen yet\naim point: not known yet, the block has not moved"
+  }
+}

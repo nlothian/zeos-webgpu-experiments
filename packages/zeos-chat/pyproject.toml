@@ -1,0 +1,54 @@
+[project]
+name = "zeos-chat"
+version = "0.1.0"
+description = "A chat agent under the ZEOS kernel: ChatToolMachine, a JsMachine whose model writes prose and Qwen3.5 tool calls that the host runs, trust rings for the tools, and the chat-agent case"
+readme = "README.md"
+requires-python = ">=3.12"
+# Nothing native, so the wheel installs under Pyodide beside zeos and zeos-browser. The
+# chat-agent case ships inside it (src/zeos_chat/cases/).
+dependencies = [
+    "zeos",
+    "zeos-browser",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv.sources]
+zeos = { workspace = true }
+zeos-browser = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# cases/ rides along as package data: hatchling ships every file under the package.
+packages = ["src/zeos_chat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "determinism: the same inputs write the same journal bytes, run after run",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Written down rather than inherited: ruff 0.16 changed its defaults.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.pyright]
+# The package's source, strict, as the kernel's is: `uv run pyright` from this directory.
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+# The host's tool-class table and trusted-results rules cross from JavaScript, so
+# ChatToolMachine checks their shape at run time whatever their annotations say.
+reportUnnecessaryIsInstance = false

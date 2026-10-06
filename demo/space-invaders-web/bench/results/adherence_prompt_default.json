@@ -1,0 +1,167 @@
+{
+  "arm": "prompt",
+  "board": "default",
+  "seed": 7,
+  "boards": 15,
+  "load_s": 19.8,
+  "prefix_tokens": 1962,
+  "prefix_s": 278.5,
+  "parse_rate": 0.9333333333333333,
+  "actions": {
+    "left": 14,
+    "null": 1
+  },
+  "exact_one_word": 1,
+  "per_board": [
+    {
+      "board": 0,
+      "tick": 0,
+      "prompt_tokens": 2243,
+      "user_tokens": 281,
+      "reply": "left",
+      "reply_tokens": 1,
+      "action": "left",
+      "seconds": 74.19
+    },
+    {
+      "board": 1,
+      "tick": 1,
+      "prompt_tokens": 2296,
+      "user_tokens": 334,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 110.09
+    },
+    {
+      "board": 2,
+      "tick": 2,
+      "prompt_tokens": 2328,
+      "user_tokens": 366,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 88.88
+    },
+    {
+      "board": 3,
+      "tick": 3,
+      "prompt_tokens": 2369,
+      "user_tokens": 407,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 71.44
+    },
+    {
+      "board": 4,
+      "tick": 4,
+      "prompt_tokens": 2407,
+      "user_tokens": 445,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 54.57
+    },
+    {
+      "board": 5,
+      "tick": 5,
+      "prompt_tokens": 2449,
+      "user_tokens": 487,
+      "reply": "```\nincoming fire in your",
+      "reply_tokens": 6,
+      "action": null,
+      "seconds": 57.83
+    },
+    {
+      "board": 6,
+      "tick": 6,
+      "prompt_tokens": 2446,
+      "user_tokens": 484,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 52.01
+    },
+    {
+      "board": 7,
+      "tick": 7,
+      "prompt_tokens": 2468,
+      "user_tokens": 506,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 66.69
+    },
+    {
+      "board": 8,
+      "tick": 8,
+      "prompt_tokens": 2480,
+      "user_tokens": 518,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 77.42
+    },
+    {
+      "board": 9,
+      "tick": 9,
+      "prompt_tokens": 2496,
+      "user_tokens": 534,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 52.82
+    },
+    {
+      "board": 10,
+      "tick": 10,
+      "prompt_tokens": 2511,
+      "user_tokens": 549,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 86.08
+    },
+    {
+      "board": 11,
+      "tick": 11,
+      "prompt_tokens": 2533,
+      "user_tokens": 571,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 66.43
+    },
+    {
+      "board": 12,
+      "tick": 12,
+      "prompt_tokens": 2555,
+      "user_tokens": 593,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 130.7
+    },
+    {
+      "board": 13,
+      "tick": 13,
+      "prompt_tokens": 2570,
+      "user_tokens": 608,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 113.94
+    },
+    {
+      "board": 14,
+      "tick": 14,
+      "prompt_tokens": 2578,
+      "user_tokens": 616,
+      "reply": "```\nleft\n```",
+      "reply_tokens": 5,
+      "action": "left",
+      "seconds": 134.81
+    }
+  ]
+}

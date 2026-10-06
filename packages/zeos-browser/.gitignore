@@ -1,0 +1,8 @@
+# The exported model and the download it was made from, written by export/export_model.py
+# and export/opt_zeos_surgery.py. No trailing slash, so a symlink to a shared copy matches.
+/models
+# npm dependencies: Pyodide for the Node tests, ONNX Runtime Web and the tokenizer for the
+# model worker. No trailing slash, so a symlink matches.
+/node_modules
+# The wheels tests/opt_zeos_webgpu.mjs builds for export/bench/grammar.html.
+/export/bench/wheels

@@ -84,6 +84,10 @@ class Job:
     suspended_at: Clock | None = None
     #: Clock at which the job blocked, the baseline for what moved while it waited.
     blocked_at: Clock | None = None
+    #: Preemptions since the job last made progress -- since a request it issued
+    #: was last carried out (``Kernel._progressed``). Not a lifetime total: a job
+    #: interrupted now and then but completing calls in between is not starving,
+    #: and the starvation rule (core §5.5) is about storms.
     preempt_count: int = 0
 
     observed_reads: ObjectSet = field(default_factory=ObjectSet)
