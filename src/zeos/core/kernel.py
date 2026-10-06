@@ -203,6 +203,7 @@ from zeos.machine.base import (
     AttentionHint,
     DecodeResult,
     MachineBackend,
+    MachineRequest,
     OpKind,
     Token,
     render,
@@ -278,8 +279,12 @@ class KernelError(RuntimeError):
 class KernelConfig:
     seed: int = 0
     case: str = "unnamed"
-    #: Preemptions before a job raises a starvation fault. Loud by design: real-time
-    #: systems should fail visibly rather than silently age priorities (core §5.5).
+    #: Preemptions a job may take *without making progress* before it raises a
+    #: starvation fault. Progress is a request the kernel serviced without refusing
+    #: it -- a write that landed or parked, a read satisfied or blocking, an exit --
+    #: and it resets the count, so this bounds an interrupt storm, not the
+    #: interruptions in a job's lifetime. Loud by design: real-time systems should
+    #: fail visibly rather than silently age priorities (core §5.5).
     starvation_limit: int = 8
     #: Safety valve for ``run_until_quiescent``; a script that never exits is a bug,
     #: and an infinite loop is a worse way to discover it than an exception.
@@ -1401,6 +1406,22 @@ class Kernel:
 
     def _handle_request(self, job: Job, result: DecodeResult) -> None:
         request = result.request
+        if request.op is OpKind.NONE:
+            return
+        faults_before = job.faults_raised
+        self._service_request(job, request)
+        if job.faults_raised == faults_before:
+            # Progress, for the starvation rule (core §5.5): the job got a request
+            # through -- carried out, or accepted and parked until it can be. What a
+            # storm denies a job is exactly this, so this and nothing weaker resets
+            # the count. A decoded token is not progress (a storm can let one
+            # through), being resumed is not (every preemption ends in one), and the
+            # count never decays with time, which would be the silent aging §5.5
+            # rules out. A refused or malformed request raised a fault and is not
+            # progress either: a job retrying a refused call is going nowhere.
+            job.preempt_count = 0
+
+    def _service_request(self, job: Job, request: MachineRequest) -> None:
         match request.op:
             case OpKind.NONE:
                 return
@@ -3692,6 +3713,7 @@ class Kernel:
         self._fire_vectors(pipe.name)
 
     def _raise_fault(self, job: Job, fault: Fault) -> None:
+        job.faults_raised += 1
         self._emit(
             FaultRaised(
                 clock=self.clock,

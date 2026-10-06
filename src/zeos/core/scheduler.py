@@ -142,6 +142,7 @@ class Scheduler:
         if self._running != job.job_id:
             raise RuntimeError(f"preempt({job.job_id}) but it is not running")
         job.state = JobState.SUSPENDED
+        # Reset by the kernel when the job next gets a request serviced (core §5.5).
         job.preempt_count += 1
         self._stack.append(job.job_id)
         self._running = None

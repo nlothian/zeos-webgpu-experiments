@@ -275,9 +275,27 @@ so a job can only mask interrupts for a short, bounded run.
   handler dispatch that reads the latest value (level-triggered, not
   edge-triggered).
 - **Throttling**: `min_interval` per vector.
-- **Starvation control**: if a low-priority job is preempted more than K times,
-  raise a scheduler fault (visible event, not silent aging -- real-time systems
-  should fail loudly).
+- **Starvation control**: if a low-priority job is preempted more than K times
+  *without making progress*, raise a scheduler fault (visible event, not silent
+  aging -- real-time systems should fail loudly). K is
+  `KernelConfig.starvation_limit` (8). The count is of preemptions since the job
+  last made progress, and **progress is a request the kernel serviced without
+  refusing it**: a write that landed or was parked behind backpressure or a
+  gate, a read that was satisfied or blocked, a select, an acquire granted or
+  queued, a release, a spawn, a page-in, an exit. Servicing one resets the
+  count to zero; a request that raised a fault (refused, malformed, unbound)
+  does not. What a storm denies a job is exactly this -- getting a call through
+  -- so a job preempted K+1 times with no serviced request in between faults
+  `scheduler_fault_starvation`, while a long-lived job interrupted now and then
+  but completing calls in between never does, however many interruptions it
+  takes in its lifetime. Rejected alternatives: a *lifetime* count (the
+  original rule) faults any long-lived job that is legitimately interrupted, the
+  opposite of a storm; resetting on *every decoded token* is too weak, because
+  a storm can let a token through between interrupts; resetting on *resume*
+  makes the limit meaningless, since every preemption ends in one; and
+  *decaying* the count with time is the silent aging this rule exists to
+  refuse. The body-eviction count (Fleet) is a separate counter and is not
+  reset by progress.
 - **Re-entrancy**: default `coalesce` or `queue`; `reentrant` only for
   handlers whose read/write sets are disjoint across instances. Under `queue`
   each firing's handler is handed the one write that fired it: a pipe remembers
