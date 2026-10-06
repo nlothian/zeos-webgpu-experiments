@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Metacognition AI
+
+This source code is licensed under the AGPL-3.0-only licence found in the
+LICENSE file in the root directory of this source tree.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZEOS in the browser</title>
+<style>
+  /* The demos' own palette, from their style.css. */
+  :root {
+    --bg: #f6f6f3;
+    --panel: #ffffff;
+    --ink: #1d1f21;
+    --muted: #61656b;
+    --line: #d9dad5;
+    --accent: #2f5fb3;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a;
+      --panel: #1d2024;
+      --ink: #e4e5e7;
+      --muted: #9a9ea5;
+      --line: #34383e;
+      --accent: #7fa6f0;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  a { color: var(--accent); }
+  h1 { margin: 0; font-size: 20px; }
+  h1 .sub { font-weight: 400; color: var(--muted); }
+  main { max-width: 760px; padding: 16px; display: grid; gap: 16px; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  h2 { margin: 0 0 4px; font-size: 17px; }
+  p { margin: 0; }
+  .note { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ZEOS <span class="sub">— a transformer operating system, running in your browser</span></h1>
+  <!-- AGPL section 13: whoever this page is served to is owed the Corresponding Source. -->
+  <a href="https://github.com/metacognitionai/zeos" target="_blank" rel="noopener noreferrer">source</a>
+</header>
+
+<main>
+  <section>
+    <h2><a href="coop-count/">coop-count</a></h2>
+    <p>Two counting agents hand a baton back and forth under the kernel, in Pyodide, with
+    the journal streaming, the debugger, and a keypress for the interrupt.</p>
+  </section>
+  <section>
+    <h2><a href="space-invaders/">Space Invaders</a></h2>
+    <p>A real-time game a language model is too slow to play: the deliberating job is
+    preempted mid-sentence by a reflex that needs no forward pass, with Qwen3.5-4B on
+    WebGPU.</p>
+  </section>
+  <p class="note">The model runs on WebGPU only; it is downloaded from the Hugging Face Hub
+  once and kept in the browser's storage. Both pages also run without it, on a stub
+  machine.</p>
+</main>
+
+</body>
+</html>

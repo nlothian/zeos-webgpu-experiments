@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pytest
@@ -83,3 +84,12 @@ def test_model_alone_means_the_default_export(tmp_path: Path) -> None:
     assert parser.parse_args(["--model", str(tmp_path)]).model == tmp_path
     assert model_source.LOCAL_EXPORT.parent.name == "models"
     assert model_source.LOCAL_EXPORT.parent.parent.name == "zeos-browser"
+
+
+def test_onnx_runtime_comes_from_jsdelivr_at_the_installed_version(tmp_path: Path) -> None:
+    package = tmp_path / "onnxruntime-web" / "package.json"
+    package.parent.mkdir()
+    package.write_text(json.dumps({"name": "onnxruntime-web", "version": "1.30.0"}))
+    assert model_source.ort_url(tmp_path) == (
+        "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.webgpu.min.mjs"
+    )

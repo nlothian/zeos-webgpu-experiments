@@ -1,7 +1,7 @@
 {
   "name": "zeos-browser",
   "private": true,
-  "description": "Pyodide for Node, used by the tests that run the kernel under Pyodide and compare its journal with CPython's; ONNX Runtime Web and the Transformers.js tokenizer for the model worker, which each page's build.py copies into the page.",
+  "description": "Pyodide for Node, used by the tests that run the kernel under Pyodide and compare its journal with CPython's; the Transformers.js tokenizer, which each page's build.py copies into the page, and ONNX Runtime Web, whose installed version each page loads from jsDelivr.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

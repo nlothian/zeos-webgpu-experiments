@@ -184,5 +184,8 @@ def test_build_assembles_everything_the_page_fetches(tmp_path: Path) -> None:
             }
         }
         assert manifest["model"] == model_source.HF_REPO.split("/")[1]
+        assert manifest["ort_url"] == model_source.ort_url(build.NODE_MODULES)
+        assert (dist / "vendor" / "tokenizers" / "tokenizers.min.mjs").is_file()
+        assert not (dist / "vendor" / "onnxruntime-web").exists()
     else:
         assert "model" not in manifest

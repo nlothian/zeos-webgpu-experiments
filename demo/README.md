@@ -20,3 +20,8 @@ workspace members too: [`zeos-browser`](../packages/zeos-browser/) (`JsMachine`,
 grammar mask, the Pyodide bridge, a page's run loop, the WebGPU model workers and their
 export) and [`zeos-chat`](../packages/zeos-chat/) (a chat agent on `JsMachine`, with trust
 rings for tool calls). Each page's `build.py` copies zeos-browser's JavaScript beside it.
+
+[`site/`](site/) is not a demo: its `build.py` runs both browser demos' builds into one
+static site (`coop-count/`, `space-invaders/`, a landing page and a `_headers` file that
+serves every path cross-origin isolated), and checks it against Cloudflare Pages' limits.
+`.github/workflows/pages.yml` deploys it on a push to main.
