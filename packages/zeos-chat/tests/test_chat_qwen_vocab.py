@@ -22,8 +22,8 @@ import pytest
 from qwen_vocab import QwenChatWorker, QwenTokenizer, added_ids, available
 from zeos.core.framing import spells_frame
 
-from zeos_coop_count_web.chat import ChatRun, open_chat
-from zeos_coop_count_web.chat_machine import format_tool_call
+from zeos_chat.chat import ChatRun, open_chat
+from zeos_chat.chat_machine import format_tool_call
 
 pytestmark = pytest.mark.skipif(
     not available(), reason="needs the export's tokenizer files, Node and npm install"

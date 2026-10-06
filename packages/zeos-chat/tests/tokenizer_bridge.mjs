@@ -11,16 +11,20 @@
  * `partialPieces`, and `spell`: text with the added tokens parsed, which is how a reply
  * the model writes is spelled. No weights are loaded.
  *
- *   node tests/tokenizer_bridge.mjs MODEL_DIR
+ *   node packages/zeos-chat/tests/tokenizer_bridge.mjs MODEL_DIR
  */
 
 import fs from "node:fs";
 import path from "node:path";
 
-import { Tokenizer } from "@huggingface/tokenizers";
+import { decodeFrame, encodeFrame, frameLength, serveRequest } from "../../zeos-browser/web/frames.js";
+import { encodePlain, pieceBytes } from "../../zeos-browser/web/transformers_worker.js";
 
-import { decodeFrame, encodeFrame, frameLength, serveRequest } from "../web/frames.js";
-import { encodePlain, pieceBytes } from "../web/transformers_worker.js";
+// zeos-browser owns the npm packages; this file is not under it, so a bare specifier
+// would not resolve.
+const { Tokenizer } = await import(
+  new URL("../../zeos-browser/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs", import.meta.url).href
+);
 
 const dir = process.argv[2];
 const json = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));

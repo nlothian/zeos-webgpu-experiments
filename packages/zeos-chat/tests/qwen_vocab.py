@@ -14,7 +14,8 @@ tokenizer spells text with its added tokens parsed, so ``<tool_call>`` is the mo
 id, and everything delivered is tokenized as plain text, as the page's worker does.
 
 Tests using it skip without the export's tokenizer files (``ZEOS_OPT_MODEL_DIR``, by
-default ``models/Qwen3.5-4B-ZEOS-OPT``) or without Node and ``npm install``.
+default zeos-browser's ``models/Qwen3.5-4B-ZEOS-OPT``) or without Node and zeos-browser's
+``npm install``. They read the tokenizer only: no weights, and nothing is downloaded.
 """
 
 from __future__ import annotations
@@ -29,17 +30,16 @@ from pathlib import Path
 from typing import Any, cast
 
 from chat_workers import ScriptedChatWorker, attend_first
+from zeos_browser.node_worker import PACKAGE, ModelInfo, NodeWorker
 
-from zeos_coop_count_web.node_worker import DEMO, ModelInfo, NodeWorker
-
-MODEL = Path(os.environ.get("ZEOS_OPT_MODEL_DIR", DEMO / "models" / "Qwen3.5-4B-ZEOS-OPT"))
+MODEL = Path(os.environ.get("ZEOS_OPT_MODEL_DIR", PACKAGE / "models" / "Qwen3.5-4B-ZEOS-OPT"))
 BRIDGE = Path(__file__).resolve().parent / "tokenizer_bridge.mjs"
 
 
 def available() -> bool:
     return (
         shutil.which("node") is not None
-        and (DEMO / "node_modules" / "@huggingface" / "tokenizers").is_dir()
+        and (PACKAGE / "node_modules" / "@huggingface" / "tokenizers").is_dir()
         and all(
             (MODEL / f).is_file() for f in ("meta.json", "tokenizer.json", "tokenizer_config.json")
         )
@@ -60,10 +60,18 @@ class QwenTokenizer(NodeWorker):
         if node is None:
             raise RuntimeError("node is not on PATH")
         self._process = subprocess.Popen(
-            [node, str(BRIDGE), str(model)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=DEMO
+            [node, str(BRIDGE), str(model)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            cwd=PACKAGE,
         )
         self._next = 0
-        ready, _ = self._read()
+        self._buffer = bytearray()
+        self._in_flight = None
+        self._cancelled = False
+        frame = self._read(None)
+        assert frame is not None  # no timeout
+        ready, _ = frame
         self.backend = str(ready["backend"])
         self._info: ModelInfo | None = None
         self._pieces = tuple(cast(list[str], self._call("pieces")))
