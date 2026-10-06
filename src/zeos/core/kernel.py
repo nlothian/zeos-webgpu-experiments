@@ -203,7 +203,6 @@ from zeos.machine.base import (
     AttentionHint,
     DecodeResult,
     MachineBackend,
-    MachineRequest,
     OpKind,
     Token,
     render,
@@ -280,11 +279,11 @@ class KernelConfig:
     seed: int = 0
     case: str = "unnamed"
     #: Preemptions a job may take *without making progress* before it raises a
-    #: starvation fault. Progress is a request the kernel serviced without refusing
-    #: it -- a write that landed or parked, a read satisfied or blocking, an exit --
-    #: and it resets the count, so this bounds an interrupt storm, not the
-    #: interruptions in a job's lifetime. Loud by design: real-time systems should
-    #: fail visibly rather than silently age priorities (core §5.5).
+    #: starvation fault. Progress is a request actually carried out (a write landed,
+    #: a read consumed or blocked; ``Kernel._progressed`` lists them) and it resets
+    #: the count, so this bounds an interrupt storm, not the interruptions in a
+    #: job's lifetime. Loud by design: real-time systems should fail visibly
+    #: rather than silently age priorities (core §5.5).
     starvation_limit: int = 8
     #: Safety valve for ``run_until_quiescent``; a script that never exits is a bug,
     #: and an infinite loop is a worse way to discover it than an exception.
@@ -947,8 +946,8 @@ class Kernel:
                     kind=FaultKind.STARVATION,
                     job=running.job_id,
                     detail=(
-                        f"preempted {running.preempt_count} times, over the "
-                        f"limit of {self.config.starvation_limit}"
+                        f"preempted {running.preempt_count} times without progress "
+                        f"(limit {self.config.starvation_limit})"
                     ),
                 ),
             )
@@ -1404,24 +1403,21 @@ class Kernel:
         alias = job.descriptor.pipes.resolve(str(name))
         return alias if alias is not None else name
 
+    def _progressed(self, job: Job) -> None:
+        """The job got a request carried out: reset its starvation count (core §5.5).
+
+        Called only where a request actually took effect -- a write landed or its gate
+        allowed it, a read consumed data or blocked, a select or acquire was granted
+        or queued, a held resource was released, a spawn happened, a page-in loaded
+        content. What a storm denies a job is exactly this, so nothing weaker resets
+        the count: not a decoded token (a storm can let one through), not a resume
+        (every preemption ends in one), not time (the silent aging §5.5 rules out),
+        and not a request that was refused, vetoed or did nothing.
+        """
+        job.preempt_count = 0
+
     def _handle_request(self, job: Job, result: DecodeResult) -> None:
         request = result.request
-        if request.op is OpKind.NONE:
-            return
-        faults_before = job.faults_raised
-        self._service_request(job, request)
-        if job.faults_raised == faults_before:
-            # Progress, for the starvation rule (core §5.5): the job got a request
-            # through -- carried out, or accepted and parked until it can be. What a
-            # storm denies a job is exactly this, so this and nothing weaker resets
-            # the count. A decoded token is not progress (a storm can let one
-            # through), being resumed is not (every preemption ends in one), and the
-            # count never decays with time, which would be the silent aging §5.5
-            # rules out. A refused or malformed request raised a fault and is not
-            # progress either: a job retrying a refused call is going nowhere.
-            job.preempt_count = 0
-
-    def _service_request(self, job: Job, request: MachineRequest) -> None:
         match request.op:
             case OpKind.NONE:
                 return
@@ -1487,8 +1483,10 @@ class Kernel:
                 )
                 if compartment is not None:
                     self.spawn_compartment(job, compartment)
+                    self._progressed(job)
                 elif DescriptorName(target) in job.descriptor.children:
                     self.spawn(DescriptorName(target), parent=job.job_id)
+                    self._progressed(job)
                 else:
                     self._refuse(
                         job,
@@ -1539,6 +1537,7 @@ class Kernel:
             pipe.block_reader(job.job_id)
             job.pending_read = pipe_name
             self._park(job, pipe_name, "read-empty", inherit=(pipe_name,), waiting_to_read=True)
+            self._progressed(job)
             return
         self._consume_read(job, pipe_name)
 
@@ -2336,7 +2335,11 @@ class Kernel:
             return
 
         resource = self.resources.get(name)
+        # Re-acquiring a resource already held succeeds and changes nothing.
+        already_held = resource.held_by(job.job_id)
         if resource.acquire(job.job_id):
+            if not already_held:
+                self._progressed(job)
             job.held_resources.add(name)
             job.pending_acquire = None
             self._emit(
@@ -2389,6 +2392,7 @@ class Kernel:
         self._block(job)
         job.blocked_reason = "resource"
         self._transition(job, JobState.BLOCKED)
+        self._progressed(job)
         self._emit(
             ResourceBlocked(
                 clock=self.clock,
@@ -2405,6 +2409,7 @@ class Kernel:
         resource = self.resources.get(name)
         if not resource.release(job.job_id):
             return
+        self._progressed(job)
         job.held_resources.discard(name)
         self._release_priority_inheritance(job, only_for_resource=name)
 
@@ -2586,6 +2591,8 @@ class Kernel:
     def _consume_read(self, job: Job, pipe_name: PipeName) -> None:
         pipe = self.pipes.get(pipe_name)
         tokens, carried = pipe.take()
+        # Before the spoof check: the data was consumed whether or not it is alarmed on.
+        self._progressed(job)
         self._emit(
             PipeReadEvent(
                 clock=self.clock,
@@ -2689,6 +2696,7 @@ class Kernel:
         # capability for is stopped by the ordinary boundary first.
         guarded = self.gates.by_verdict_pipe(pipe_name)
         if guarded is not None:
+            self._progressed(job)
             self._resolve_verdict(job, guarded, render(payload))
             return
 
@@ -2745,6 +2753,7 @@ class Kernel:
         if self._carried_by_link(pipe_name):
             self._send_over_link(job, pipe_name, payload)
             job.gate_cleared = None
+            self._progressed(job)
             self._read_after_write(job, then_read)
             return
 
@@ -2757,6 +2766,7 @@ class Kernel:
             floor if held is not None and held.schema is not None else max(floor, check.effective)
         )
         self._put(pipe, payload, carried, by=job.job_id)
+        self._progressed(job)
         # One verdict, one action. Clearing here rather than on wake means a second
         # actuation on the same pipe faces its gate again.
         job.gate_cleared = None
@@ -3011,8 +3021,11 @@ class Kernel:
                 ),
             )
             return
-        # Allowed: the held write is retried through the ordinary path on wake.
+        # Allowed: the held write is retried through the ordinary path on wake. The
+        # verdict, not the parking, is what makes a gated write progress: a write
+        # that is vetoed or times out was never carried out.
         job.gate_cleared = gate.pipe
+        self._progressed(job)
         if self.sched.wake(job):
             self._transition(job, JobState.READY)
         self._emit(JobWoken(clock=self.clock, job=job.job_id, pipe=gate.pipe))
@@ -3034,6 +3047,7 @@ class Kernel:
             inherit=sorted(pipe_names),
             waiting_to_read=True,
         )
+        self._progressed(job)
 
     def _service_pending(self, job: Job) -> bool:
         """Complete an operation the job was parked on. Consumes the quantum."""
@@ -3295,6 +3309,7 @@ class Kernel:
             return
 
         span = result.span
+        self._progressed(job)
         resident = self.machine.stats(job.job_id).resident_tokens
         downstream = 0  # append plan lands at the tail, so nothing follows it
         plan = choose_plan(span_tokens=span.length, downstream_tokens=downstream)
@@ -3713,7 +3728,6 @@ class Kernel:
         self._fire_vectors(pipe.name)
 
     def _raise_fault(self, job: Job, fault: Fault) -> None:
-        job.faults_raised += 1
         self._emit(
             FaultRaised(
                 clock=self.clock,
