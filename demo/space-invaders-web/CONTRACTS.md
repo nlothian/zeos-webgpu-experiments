@@ -401,16 +401,12 @@ disagree, this section says which holds.
   `{"zeos": {...}, "prompt": {...}, "kernel": {...}}`; `start` carries an optional
   `tune` string (the page's `?tune=` query parameter) and `si_worker.js` applies it
   before `open_run`. `kernel` overrides `KernelConfig` fields on the zeos arm's kernel,
-  laid over `page.DEFAULT_ZEOS_KERNEL_OPTIONS`.
-- **Starvation limit: a workaround.** The zeos arm's kernel is built with
-  `starvation_limit` = `page.STARVATION_LIMIT` (10,000) instead of the kernel's 8. The
-  kernel compares the limit with a job's preemption count, which never resets, and a
-  pilot slower than the tick is preempted by nearly every threat, so on WebGPU the
-  default limit retired the pilot about 6-12 s into an ablation game. The native case
-  and `build_kernel` are unchanged (the override is set on the built kernel's config).
-  `?tune={"kernel":{"starvation_limit":8}}` puts the native limit back. Branch
-  `fix/starvation-progress` (not merged) resets the count on progress; with it, this
-  override is unnecessary.
+  laid over `page.DEFAULT_ZEOS_KERNEL_OPTIONS`, which is empty: the kernel is the
+  native one.
+- **Starvation.** The zeos arm's kernel runs at its own `starvation_limit` (8). The
+  kernel counts a job's preemptions since it last made progress, a request carried out
+  (`docs/notes/starvation-progress.md`); the pilot makes progress with each move and
+  each read of a board, so the reflex's preemptions do not retire it.
 - **The prompt arm's reply** opens with an empty think block
   (`prompt_player.ASSISTANT_OPEN`), and a newline ends a reply only once it holds more
   than a code fence (see the machine notes' prompt-arm item, which predates this).

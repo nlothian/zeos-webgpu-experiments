@@ -1,10 +1,9 @@
 # Space Invaders in the browser
 
 **Status: playable on WebGPU.** Both players run on the real model in the browser. The
-ZEOS arm plays a full 600-tick default game, with the four criteria passing. Two
-settings differ from the native demo (see *Settings that differ from the native demo*):
-- the kernel's starvation limit is raised, as a workaround;
-- the pilot's context window is enlarged so the pager does not act.
+ZEOS arm plays a full 600-tick default game, with the four criteria passing. One
+setting differs from the native demo: the pilot's context window is enlarged so the
+pager does not act (see *Settings that differ from the native demo*).
 
 The port puts [`../space-invaders`](../space-invaders/) in a static web page: the ZEOS
 kernel and the game run under Pyodide, and the pilot is served by
@@ -103,19 +102,13 @@ earlier chunk and the native window.
 ## Settings that differ from the native demo
 
 These are set on the kernel the web demo builds. The native case files and
-`build_kernel` are unchanged, and there is no copy of the case.
+`build_kernel` are unchanged, and there is no copy of the case. The kernel itself is the
+native one, at its own starvation limit (8): it counts a job's preemptions since the job
+last made progress ([`docs/notes/starvation-progress.md`](../../docs/notes/starvation-progress.md)),
+and the pilot makes progress with every move and every read of a board, so the reflex's
+preemptions do not retire it. Under the earlier rule, which never reset the count, the
+pilot was faulted 6–12 s into an ablation game (the *before* ablation row below).
 
-- **Starvation limit 10,000 (a workaround), `page.STARVATION_LIMIT`.**
-  - The kernel faults a job when its preemption count passes `KernelConfig.starvation_limit`
-    (8), and the scheduler never resets that count. The case does not set the limit.
-  - A pilot that takes several ticks a move is running when most threats arrive, so
-    nearly every threat preempts it. The ablation board reaches nine threats in about 40
-    ticks and the default board in about 120 (simulated over 40 seeds).
-  - With the native limit the pilot was faulted 6–12 s into an ablation game and never
-    moved again.
-  - Branch `fix/starvation-progress` (not merged) resets the count on progress; with it,
-    this override is unnecessary. `?tune={"kernel":{"starvation_limit":8}}` brings back
-    the native limit.
 - **Pilot context window 32,768, not 4096, `page.DEFAULT_PILOT_CONTEXT`.**
   - When the pager splices a span out, the model must compute every position after the
     splice point again: the DeltaNet layers' state cannot be cut. The earliest span the
@@ -170,8 +163,8 @@ Sources, in [`bench/results/webgpu/`](bench/results/webgpu/):
 - *before*: `wave2.json`, `wave2_prompt.json` (prompt rows), `diag_nostarve.json` (¹);
 - *after*: `final_60.json`, `final_120.json`, `final_300.json` (the full game).
 
-¹ With the starvation limit lifted, as a diagnosis; the native limit would have faulted
-the pilot. The replay rate it implies (6.3 ms a position) is close to the benchmark's
+¹ With the starvation limit lifted, as a diagnosis; the kernel's starvation rule of the
+time (a count that never reset) would have faulted the pilot. The replay rate it implies (6.3 ms a position) is close to the benchmark's
 quiet 5.4 ms at chunk 256 (about 16 s for 2,961 positions), so contention, if any, was
 mild.
 

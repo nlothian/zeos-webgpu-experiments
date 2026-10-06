@@ -150,8 +150,9 @@ def test_the_zeos_clock_tells_monotonic_time() -> None:
 def test_a_long_run_with_many_preemptions_has_no_starvation_fault(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The web demo's kernel is built with ``page.STARVATION_LIMIT``: the kernel's own
-    limit (8) would retire the pilot on its ninth preemption by the reflex."""
+    """At the kernel's own limit (8) the pilot outlives many more preemptions than that:
+    the kernel counts preemptions since the job last made progress, and the pilot makes
+    progress with every move and every read of a board."""
     real = page.load_board
 
     def load(name: BoardName, seed: int | None = None) -> BoardSpec:
@@ -165,26 +166,27 @@ def test_a_long_run_with_many_preemptions_has_no_starvation_fault(
     worker = _worker()
     run = page.open_run("zeos", "default", SEED, worker)
     assert isinstance(run, page.ZeosRun)
-    assert run.driver.kernel.config.starvation_limit == page.STARVATION_LIMIT
+    limit = run.driver.kernel.config.starvation_limit
+    assert limit == 8, "the web demo runs the native kernel"
     try:
         run.warm()
         result = run.run()
     finally:
         run.close()
-    assert result.preemptions > 8, "the run did not preempt the pilot often enough to tell"
-    assert result.extras["faults"] == []
-    pilot = cast(int, result.extras["pilot_moves"])
-    assert pilot >= 1
+    assert result.preemptions > limit, "the run did not preempt the pilot often enough to tell"
+    faults = cast(list[dict[str, object]], result.extras["faults"])
+    assert not [f for f in faults if f["fault"] == "scheduler_fault_starvation"], faults
+    assert cast(int, result.extras["pilot_moves"]) > 1
 
 
-def test_tune_can_put_the_native_starvation_limit_back() -> None:
+def test_tune_overrides_kernel_config_fields() -> None:
     try:
-        page.configure_json('{"kernel": {"starvation_limit": 8}}')
-        assert page.ZEOS_KERNEL_OPTIONS == {"starvation_limit": 8}
+        page.configure_json('{"kernel": {"starvation_limit": 3}}')
+        assert page.ZEOS_KERNEL_OPTIONS == {"starvation_limit": 3}
         run = page.open_run("zeos", "default", SEED, _worker())
         assert isinstance(run, page.ZeosRun)
-        assert run.driver.kernel.config.starvation_limit == 8
+        assert run.driver.kernel.config.starvation_limit == 3
         run.close()
     finally:
         page.configure_json("")
-    assert page.ZEOS_KERNEL_OPTIONS == dict(page.DEFAULT_ZEOS_KERNEL_OPTIONS)
+    assert page.ZEOS_KERNEL_OPTIONS == {} == dict(page.DEFAULT_ZEOS_KERNEL_OPTIONS)

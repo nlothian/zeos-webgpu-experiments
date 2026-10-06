@@ -88,7 +88,6 @@ __all__ = [
     "DEFAULT_PILOT_CONTEXT",
     "DEFAULT_ZEOS_KERNEL_OPTIONS",
     "PILOT_CONTEXT",
-    "STARVATION_LIMIT",
     "ZEOS_KERNEL_OPTIONS",
     "ZEOS_MACHINE_OPTIONS",
     "FakeRun",
@@ -494,17 +493,14 @@ ZEOS_MACHINE_OPTIONS: dict[str, Any] = {}
 PROMPT_OPTIONS: dict[str, Any] = {}
 #: Runner keywords for either arm (``max_ticks``, ``max_seconds``).
 RUNNER_OPTIONS: dict[str, Any] = {}
-#: The pilot's starvation limit in the web demo, a workaround: the kernel
-#: compares ``KernelConfig.starvation_limit`` (8) with a preemption count that never
-#: resets, and a model slower than the tick is running when nearly every threat
-#: arrives, so the reflex's preemptions retire the pilot within a minute of play.
-#: Branch ``fix/starvation-progress`` (not merged) resets the count on progress; with it,
-#: this override is unnecessary.
-STARVATION_LIMIT = 10_000
-#: ``KernelConfig`` fields the zeos arm's kernel is built with, over the native case's.
-DEFAULT_ZEOS_KERNEL_OPTIONS: Final[Mapping[str, Any]] = {"starvation_limit": STARVATION_LIMIT}
+#: ``KernelConfig`` fields the zeos arm's kernel is built with, over the native case's:
+#: none, so the kernel is the native one. Its starvation rule counts preemptions since
+#: the job last made progress (``docs/notes/starvation-progress.md``), and the pilot
+#: makes progress with every move and every read of a board, so the reflex's
+#: preemptions do not retire it.
+DEFAULT_ZEOS_KERNEL_OPTIONS: Final[Mapping[str, Any]] = {}
 #: The ``KernelConfig`` overrides in force; ``configure_json``'s ``kernel`` key changes
-#: them (``{"kernel": {"starvation_limit": 8}}`` is the native kernel again).
+#: them.
 ZEOS_KERNEL_OPTIONS: dict[str, Any] = dict(DEFAULT_ZEOS_KERNEL_OPTIONS)
 #: The pilot's descriptor, whose context policy ``PILOT_CONTEXT`` changes.
 PILOT = DescriptorName("pilot")
