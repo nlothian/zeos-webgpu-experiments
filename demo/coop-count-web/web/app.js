@@ -352,8 +352,8 @@ const handlers = {
     const option = $("model-option");
     option.disabled = !(model && isolated);
     if (model) {
-      // The export's directory name, less the `-zeos-<quant>` the exporter appends.
-      MACHINE_NAMES.transformers = model.replace(/-zeos-[^-]+$/, "");
+      // The export's directory name, less the `-zeos-<quant>` (or `-ZEOS-OPT`) suffix.
+      MACHINE_NAMES.transformers = model.replace(/-zeos-[^-]+$/i, "");
       option.textContent = `${MACHINE_NAMES.transformers} language model, in your browser`;
     }
     if (!model) option.textContent += " (not in this build)";

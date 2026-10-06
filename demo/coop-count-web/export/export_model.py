@@ -62,7 +62,7 @@ import torch.nn.functional as F
 from torch import nn
 
 DEMO = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
+DEFAULT_MODEL = "Qwen/Qwen3.5-2B"
 #: The DeltaNet layers solve a unit lower-triangular system over each chunk: by repeated
 #: squaring within blocks of ``SOLVE_BLOCK`` positions (exact for ``2 ** SOLVE_STEPS``
 #: of them, and, in float32, accurate to 4e-5 at 16 where 32 already drifts by 1.5 in

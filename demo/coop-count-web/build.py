@@ -18,7 +18,7 @@ emptied first, so what is served is exactly what this run built.
 When ``npm install`` has been run it also copies ONNX Runtime Web and the tokenizer into
 ``vendor/``, and when the model has been exported it links the export into ``models/``
 and names it in the manifest, which is what offers the model machine on the page. The
-export is linked rather than copied because it is hundreds of megabytes; a host that
+export is linked rather than copied because it is gigabytes; a host that
 does not follow links needs ``--copy-model``.
 """
 
@@ -69,7 +69,7 @@ VENDOR = {
     ),
     "tokenizers": (NODE_MODULES / "@huggingface" / "tokenizers" / "dist", ("tokenizers.min.mjs",)),
 }
-MODEL = HERE / "models" / "Qwen3.5-4B-zeos-q4"
+MODEL = HERE / "models" / "Qwen3.5-4B-ZEOS-OPT"
 
 
 def build(dist: Path = DIST, *, model: Path = MODEL, copy_model: bool = False) -> dict[str, object]:
@@ -121,7 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     manifest = build(model=args.model, copy_model=args.copy_model)
     print(f"built {DIST}: {len(manifest['wheels'])} wheels, {len(manifest['cases'])} cases")  # pyright: ignore[reportArgumentType]
-    print(f"model: {manifest.get('model', 'none (run export/export_model.py and npm install)')}")
+    print(
+        f"model: {manifest.get('model', 'none (run export/opt_zeos_surgery.py and npm install)')}"
+    )
     print(f"serve it with: uv run python {os.path.relpath(HERE / 'serve.py')}")
     return 0
 

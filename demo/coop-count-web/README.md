@@ -18,9 +18,9 @@ console's interrupt.
 ## Getting it running
 
 **You need** [uv](https://docs.astral.sh/uv/), Node.js with npm (tested with Node 22),
-and a browser with WebGPU (tested in Chrome on an Apple M1 Max). Exporting the model
-once needs about 20 GB of free memory, about 30 GB of free disk while it runs, and a
-network connection to download 8.7 GB of weights from the Hugging Face Hub.
+and a browser with WebGPU (tested in Chrome on an Apple M1 Max). Preparing the model
+once needs a network connection to download 2.8 GB from the Hugging Face Hub and about
+6 GB of free disk (the download and the graph made from it).
 
 Every command runs from the repository root.
 
@@ -31,31 +31,37 @@ uv sync --all-packages --group export
 # 2. ONNX Runtime Web and the tokenizer, which build.py copies into the page.
 npm install --prefix demo/coop-count-web
 
-# 3. Export Qwen3.5-4B to the graph the page runs, quantised to q4.
-#    Downloads to demo/coop-count-web/models/Qwen3.5-4B/ and writes
-#    demo/coop-count-web/models/Qwen3.5-4B-zeos-q4/ (3.3 GB). About five minutes
-#    after the download.
-uv run python demo/coop-count-web/export/export_model.py
+# 3. Download Qwen3.5-4B as onnx-community's -OPT export (q4f16, 2.8 GB).
+uv run hf download onnx-community/Qwen3.5-4B-ONNX-OPT \
+    --include "*.json" "chat_template.jinja" \
+      "onnx/embed_tokens_q4f16.onnx*" "onnx/decoder_model_merged_q4f16.onnx*" \
+    --local-dir demo/coop-count-web/models/Qwen3.5-4B-ONNX-OPT
 
-# 4. Optional: drop PyTorch and the rest of the export group again.
+# 4. Give it the key mask and measured attention the page runs (see "The OPT+ZEOS
+#    graph"). Writes demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT/ in seconds.
+uv run python demo/coop-count-web/export/opt_zeos_surgery.py \
+    --src demo/coop-count-web/models/Qwen3.5-4B-ONNX-OPT \
+    --out demo/coop-count-web/models/Qwen3.5-4B-ZEOS-OPT
+
+# 5. Optional: drop PyTorch and the rest of the export group again.
 uv sync --all-packages
 
-# 5. Assemble the page into demo/coop-count-web/web/dist/.
+# 6. Assemble the page into demo/coop-count-web/web/dist/.
 uv run python demo/coop-count-web/build.py
 
-# 6. Serve it, cross-origin isolated, on port 8765.
+# 7. Serve it, cross-origin isolated, on port 8765.
 uv run python demo/coop-count-web/serve.py
 ```
 
 Open <http://localhost:8765/> and press **run**. The defaults are the language model on
 the GPU, the scenario `coop-count-scripted`, and *press the keys automatically*, which
-sends the interrupt at 39 ms of virtual time. The first run downloads the 3.3 GB of
-weights into the browser and prefills the first prompt; on the machine above the first
-command came about 35 s after pressing run, and each decode step took about 220 ms.
+sends the interrupt at 39 ms of virtual time. The first run downloads the 2.8 GB of
+weights into the browser and prefills the first prompt; *The OPT+ZEOS worker* below
+gives the model worker's load, prefill and decode timings.
 The *transcript* tab shows the counters counting and the interrupt handler resetting
 the count.
 
-`build.py` prints the model it put on the page. If it says `model: none`, step 2 or 3
+`build.py` prints the model it put on the page. If it says `model: none`, step 2, 3 or 4
 is missing. The page then still runs every scenario that has recorded answers, and
 offers the language model as *(not in this build)*. To offer another export, pass
 `--model`, for example `--model demo/coop-count-web/models/Qwen3.5-2B-zeos-q4`.
@@ -79,7 +85,7 @@ Three machines are offered for a case, under *answered by*:
 
 | on the page | machine | what answers each decode |
 |---|---|---|
-| Qwen3.5-4B language model, in your browser | `transformers` | `JsMachine` over the model worker in `web/transformers_worker.js`: a language model decoding under the kernel, with measured attention. The default; offered when the build found an export. |
+| Qwen3.5-4B language model, in your browser | `transformers` | `JsMachine` over a model worker: `web/opt_zeos_worker.js` for the default OPT+ZEOS export, `web/transformers_worker.js` for an `export_model.py` one. A language model decoding under the kernel, with measured attention. The default; offered when the build found an export. |
 | recorded answers (no model) | `scripted` | `CommandSeat` over `TapeSource`: each descriptor's `script:` tape, one word per decode. This is `zeos-count run --machine scripted`. |
 | recorded answers, via the JavaScript model interface | `stub` | `JsMachine` over the stub worker in `web/stub_worker.js`, which plays the same tapes through every method of the JavaScript seam. |
 
@@ -314,8 +320,10 @@ In the browser the page builds the stub with `createStubWorker(tapes)` and passe
 
 ## The model machine
 
-The page's default machine is `JsMachine` over a real language model: Qwen3.5-4B at q4
-(Qwen3.5-2B with `build.py --model`), exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
+The page's default machine is `JsMachine` over a real language model: Qwen3.5-4B as the
+OPT+ZEOS graph (`export/opt_zeos_surgery.py`, run by `web/opt_zeos_worker.js`; see *The
+OPT+ZEOS graph* and *The OPT+ZEOS worker*), or, with `build.py --model`, Qwen3.5-2B or a
+Qwen2.5 model exported to ONNX by `export/export_model.py` and run by ONNX Runtime Web in
 `web/transformers_worker.js`, with the tokenizer Transformers.js uses. It supplies all
 four things ZEOS asks of a serving stack: the allowed-block mask is applied inside the
 forward pass, in every layer (before the softmax in the softmax layers; see *The
@@ -327,12 +335,9 @@ backend in the repository gives it a hint, and integrity demotes on it.
 
 ### The model
 
-The page offers Qwen3.5-4B at q4 by default; *Getting it running* gives its timings.
-In its first run on `coop-count-scripted` the handler did what the procedure says: it
-read 51 from the console, wrote it to both counters' progress, and exited, and the
-preempted counter resumed. The counters still stray from the procedure: counter-a
-started again from 1 after the reset and counted past 10 without waking its peer. The
-measurements and runs below are of the 2B, mostly at int8 on WebAssembly.
+The page offers Qwen3.5-4B as the OPT+ZEOS graph by default; *The OPT+ZEOS worker*
+gives its timings. The measurements and runs below are of the 2B, mostly at int8 on
+WebAssembly, exported by `export/export_model.py`.
 
 **Qwen3.5-2B** (`Qwen/Qwen3.5-2B`, the post-trained model; its base is
 `Qwen3.5-2B-Base`). It speaks ChatML, which is what `JsMachine` frames prompts in
@@ -447,7 +452,7 @@ repeats that check. The script still exports Qwen2 instruct models (`model_type`
 `qwen2`: every layer softmax, an empty state); the worker then cuts its cache directly.
 
 **Quantisation.** The default, `q4`, is 4-bit weight-only `MatMulNBits`, the form
-ONNX Runtime's WebGPU backend runs: 3.27 GB of weights for the 4B, 1.69 GB for the 2B.
+ONNX Runtime's WebGPU backend runs: 1.69 GB of weights for the 2B.
 `int8` is ONNX Runtime's dynamic quantisation of every
 weight matmul (per-channel int8 weights, int8 activations computed per run), plus a
 per-row int8 embedding table and a separately quantised output projection: 2.40 GB of
@@ -472,16 +477,16 @@ so the root `uv sync --all-packages` never installs them:
 
 ```bash
 uv sync --all-packages --group export                     # from the repository root
-uv run python demo/coop-count-web/export/export_model.py  # Qwen3.5-4B at q4; 3.3 GB
+uv run python demo/coop-count-web/export/export_model.py  # Qwen3.5-2B at q4; 1.7 GB
 uv sync --all-packages                                    # drop the export group again
 ```
 
-The script downloads the model from the Hugging Face Hub (8.7 GB of bf16 safetensors for
-Qwen3.5-4B) into `models/<name>/` first. It holds the model in float32 while it traces
-the graph, and releases it before quantising, so the 4B export peaks at roughly 20 GB
-of memory; on a 34 GB machine it took about five minutes. `--model Qwen/Qwen3.5-2B`
-(4.3 GB download) and `--quant int8` give the 2B and int8 exports described below. Two
-exports from the same source are byte-identical.
+The script downloads the model from the Hugging Face Hub (4.3 GB of bf16 safetensors for
+Qwen3.5-2B) into `models/<name>/` first. It holds the model in float32 while it traces
+the graph, and releases it before quantising, since the quantiser holds the whole
+float32 graph as well. `--quant int8` gives the int8 export described below. Two
+exports from the same source are byte-identical. The page's Qwen3.5-4B is not made by
+this script but by `export/opt_zeos_surgery.py`, below.
 
 ### The OPT+ZEOS graph
 
@@ -840,10 +845,9 @@ clock. WebAssembly runs one thread: a run's arithmetic is then a function of its
 alone (see *Determinism* below); with more threads the model thread did not finish
 loading in the browser this was tested in. The page's default is the Qwen model on WebGPU, falling back to the recorded answers when
 the page is not cross-origin isolated and to WebAssembly when the browser has no WebGPU.
-The build's default export is Qwen3.5-4B at q4 (`models/Qwen3.5-4B-zeos-q4`, 3.27 GB of
-weights, which `export/export_model.py` writes by default), which
-WebGPU runs: in Chrome on an Apple M1 Max its first prompt prefilled within about 35 s of
-pressing run and a decode step took about 220 ms. Pass `--model` to offer another export,
+The build's default export is Qwen3.5-4B as the OPT+ZEOS graph
+(`models/Qwen3.5-4B-ZEOS-OPT`, 2.8 GB, which `export/opt_zeos_surgery.py` writes), which
+WebGPU runs; *The OPT+ZEOS worker* gives its timings. Pass `--model` to offer another export,
 such as `models/Qwen3.5-2B-zeos-q4` or the int8 export measured below. With int8 on WebAssembly, in Chrome (the desktop app's browser pane, Apple M1 Max) the model thread
 was ready within 10 s of pressing run, the first command came after about two minutes of
 prefill, and the 99-tick `coop-count-pipe` run below took 329 s in all, against 304 s for
