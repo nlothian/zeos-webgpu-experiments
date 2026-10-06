@@ -133,7 +133,7 @@ class TokenizerWorker:
 
 def pilot_seat_maps() -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
     """The case's descriptor -> aliases and descriptor -> valued-aliases maps, as
-    ``node_run`` builds them for any case."""
+    ``zeos.machine.seat.seat_maps`` builds them for any case."""
     bundle = load_case(CASE_ROOT)
     return seat_maps(bundle.descriptors, bundle.pipes)
 

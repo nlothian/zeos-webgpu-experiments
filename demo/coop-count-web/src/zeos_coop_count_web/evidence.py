@@ -4,7 +4,7 @@
 # This source code is licensed under the AGPL-3.0-only licence found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Read a journal and the attention file ``node_run`` wrote beside it, and say what the
+"""Read a journal and the attention file beside it (the ``docs/evidence`` runs), and say what the
 measured attention did to integrity.
 
     uv run python -m zeos_coop_count_web.evidence docs/evidence/pipe-untrusted.jsonl
@@ -38,7 +38,7 @@ def _read(path: Path) -> list[dict[str, Any]]:
 
 
 def attention_file(journal: Path) -> Path:
-    """The attention file ``node_run`` wrote beside a journal, compressed or not."""
+    """The attention file beside a journal, compressed or not."""
     plain = journal.with_suffix(".attention.jsonl")
     packed = plain.with_name(plain.name + ".gz")
     return packed if packed.is_file() and not plain.is_file() else plain

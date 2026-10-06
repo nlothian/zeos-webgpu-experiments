@@ -76,8 +76,10 @@ def backend(request: pytest.FixtureRequest) -> Iterator[Backend]:
         yield Backend(name, _scripted)
     elif name == "js-fake":
         yield Backend(name, _js(FakeWorker))
-    else:
+    elif name == "js-measuring":
         yield Backend(name, _js(MeasuringWorker))
+    else:
+        raise ValueError(f"unknown backend {name!r}; expected one of {BACKENDS}")
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
