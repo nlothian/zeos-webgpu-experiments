@@ -144,6 +144,8 @@ import random
 import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import reduce
+from operator import add
 from typing import Any
 
 from zeos.core.framing import FOLDED_FRAMES, FRAMES, OPENINGS, fold, shown_words, strip
@@ -166,6 +168,7 @@ from zeos_browser.js_machine import (
     WorkerViolation,
     ZeosModelWorker,
     _Context,  # pyright: ignore[reportPrivateUsage]
+    _token_id,  # pyright: ignore[reportPrivateUsage]
 )
 
 __all__ = [
@@ -307,7 +310,9 @@ def sample_index(
         raise ValueError("allowedTokens permits no token")
     best = logits[ranked[0]]
     weights = [math.exp((logits[i] - best) / temperature) for i in ranked]
-    threshold = u * sum(weights)
+    # A plain left fold, as JavaScript's ``reduce`` adds: ``sum`` compensates since
+    # Python 3.12, and would round differently.
+    threshold = u * reduce(add, weights, 0.0)
     running = 0.0
     for token_id, weight in zip(ranked, weights, strict=True):
         running += weight
@@ -867,7 +872,10 @@ class ChatToolMachine(JsMachine):
             return []
         cached = self._tokenized.get(text)
         if cached is None:
-            cached = tuple(int(i) for i in self._worker.tokenize(text))
+            cached = tuple(_token_id(i) for i in self._worker.tokenize(text))
+            outside = [i for i in cached if not 0 <= i < len(self._pieces)]
+            if outside:
+                raise WorkerViolation(f"tokenize gave ids {outside} outside the vocabulary")
             self._tokenized[text] = cached
         return list(cached)
 
@@ -1108,7 +1116,7 @@ class ChatToolMachine(JsMachine):
                 "u": chat.rng.random(),
             }
         step = self._worker.decodeStep(ctx.key, self._bridge.options(blocks, allowed, sample))
-        tid = int(step.tokenId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
+        tid = _token_id(step.tokenId)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
         if not (0 <= tid < len(allowed)) or not allowed[tid]:
             raise WorkerViolation(f"job {job}: the worker chose id {tid}, which the mask refused")
         measured = self._bridge.floats(step.attention)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]

@@ -364,7 +364,7 @@ class JsMachine(SyscallSeat):
     def _tokenize(self, text: str) -> list[int]:
         if not text:
             return []
-        return [int(i) for i in self._worker.tokenize(text)]
+        return [_token_id(i) for i in self._worker.tokenize(text)]
 
     def _frame_into(self, ctx: _Context, text: str, index: int, *, before: bool) -> None:
         """Fold chat framing into the span of the token at ``index``, so no kernel offset moves."""
@@ -477,9 +477,13 @@ class JsMachine(SyscallSeat):
                 f"attention has {len(mass)} entries for a context of {count} blocks"
             )
         total = sum(mass)
-        if (bool(mass) and min(mass) < 0.0) or abs(total - 1.0) > _ATTENTION_TOLERANCE:
+        # Written so that a NaN fails: every comparison with one is false.
+        if not all(0.0 <= v <= 1.0 + _ATTENTION_TOLERANCE for v in mass) or not (
+            abs(total - 1.0) <= _ATTENTION_TOLERANCE
+        ):
             raise WorkerViolation(
-                f"attention must be non-negative and sum to 1.0 over blocks; it sums to {total}"
+                f"attention must be finite, non-negative and sum to 1.0 over blocks; "
+                f"it sums to {total}"
             )
         if sent is not None and 0 in sent:
             attended = [b for b, value in enumerate(mass) if value > 0.0 and not sent[b]]
@@ -602,7 +606,7 @@ class JsMachine(SyscallSeat):
         """
         job, ctx, language, allowed = plan.job, plan.ctx, plan.language, plan.allowed
         allow_control, blocks = plan.allow_control, plan.blocks
-        tid = int(token_id)  # pyright: ignore[reportArgumentType]
+        tid = _token_id(token_id)
         if not (0 <= tid < len(allowed)) or not allowed[tid]:
             if tid in self._control and not allow_control:
                 raise ControlTokenViolation(
@@ -806,3 +810,13 @@ class JsMachine(SyscallSeat):
     def close(self) -> None:
         for job in list(self._contexts):
             self.destroy_context(job)
+
+
+def _token_id(value: object) -> int:
+    """A worker's id as an int, refusing what is not one: ``int`` would truncate 3.7 to 3
+    and read ``True`` as 1, and a context would hold an id nobody chose."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise WorkerViolation(f"a token id is an integer, not {value!r}")
+    if isinstance(value, float) and not value.is_integer():
+        raise WorkerViolation(f"a token id is an integer, not {value!r}")
+    return int(value)

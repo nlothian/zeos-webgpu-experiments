@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import random
 import shutil
 import subprocess
@@ -1691,6 +1692,15 @@ def lying_chat(answer: Any) -> ChatRun:
         (lambda ids, opts: ChatStep(IM_END_ID, [1.0]), WorkerViolation, "entries"),
         # Attention that does not sum to one.
         (lambda ids, opts: ChatStep(IM_END_ID, [0.5] * len(ids)), WorkerViolation, "sum"),
+        # A NaN, which every comparison passes unless written to fail.
+        (
+            lambda ids, opts: ChatStep(IM_END_ID, [math.nan] + [1.0] + [0.0] * (len(ids) - 2)),
+            WorkerViolation,
+            "finite",
+        ),
+        # Ids that are not integers: neither truncated nor read as 1.
+        (lambda ids, opts: ChatStep(IM_END_ID + 0.5, None), WorkerViolation, "integer"),  # type: ignore[arg-type]
+        (lambda ids, opts: ChatStep(True, None), WorkerViolation, "integer"),
     ],
 )
 def test_the_machine_refuses_a_worker_that_answers_outside_its_contract(

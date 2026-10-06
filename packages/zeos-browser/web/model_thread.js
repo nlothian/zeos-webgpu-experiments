@@ -32,7 +32,7 @@ import { OptZeosWorker, isOptZeosMeta } from "./opt_zeos_worker.js";
 import { dropOtherRevisions, markUsed, opfsStore } from "./opfs_store.js";
 import { TransformersWorker } from "./transformers_worker.js";
 
-/** Fail with a message the page can show when the browser has no WebGPU adapter. */
+/** The WebGPU adapter; fails with a message the page can show when the browser has none. */
 async function requireWebGpu() {
   const adapter = self.navigator.gpu ? await self.navigator.gpu.requestAdapter() : null;
   if (adapter === null) {
@@ -41,13 +41,22 @@ async function requireWebGpu() {
         "use a browser with WebGPU (Chrome or Edge 113+, Safari 26+), or the recorded answers",
     );
   }
+  return adapter;
+}
+
+/** Why an OPT+ZEOS export cannot run on this adapter, or null: it needs float16 shaders.
+ * Asked as soon as `meta.json` says what the export is, before any weights are
+ * downloaded, so a page that cannot run it does not fetch 2.4 GB first. */
+function cannotRunOptZeos(adapter) {
+  if (!adapter.features.has("shader-f16")) return "the OPT+ZEOS export needs WebGPU's shader-f16, which this adapter lacks";
+  return null;
 }
 
 self.onmessage = async (event) => {
   const { buffer, port, model, ortWebgpuUrl, tokenizersUrl } = event.data;
   self.onmessage = null;
   try {
-    await requireWebGpu();
+    const adapter = await requireWebGpu();
     const ort = await import(ortWebgpuUrl);
     ort.env.wasm.wasmPaths = new URL(".", ortWebgpuUrl).href;
     // ONNX Runtime still runs some kernels as WebAssembly beside WebGPU: one thread, so no
@@ -61,8 +70,22 @@ self.onmessage = async (event) => {
       store: model.cache === null ? null : opfsStore,
       onProgress: (progress) => self.postMessage({ progress }),
     });
-    // The last file a load reads; ONNX Runtime builds the session after it.
-    const lastFile = () => (isOptZeosMeta(reader.meta()) ? reader.meta().decoder.file : "model.onnx");
+    // The last file a load reads, the decoder's weights; ONNX Runtime builds the session
+    // after it. A file with the hash of one read before is not read again.
+    const lastFile = () => {
+      const meta = reader.meta();
+      if (meta === null || !isOptZeosMeta(meta)) return "model.onnx";
+      const sizes = meta.files ?? {};
+      const order = [meta.embedTokens, meta.decoder].flatMap((g) => [g.file, ...g.externalData]);
+      const seen = new Set();
+      const read = order.filter((name) => {
+        const key = sizes[name]?.sha256 ?? name;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      return read[read.length - 1];
+    };
     const read = async (name) => {
       const bytes = await reader.read(name);
       if (name === lastFile()) {
@@ -73,6 +96,8 @@ self.onmessage = async (event) => {
     };
     const onActivity = (activity) => self.postMessage({ activity });
     await read("meta.json");
+    const refusal = isOptZeosMeta(reader.meta()) ? cannotRunOptZeos(adapter) : null;
+    if (refusal !== null) throw new Error(refusal);
     if (model.cache !== null) await markUsed(model.cache).catch((error) => console.warn(`model cache: ${error}`));
     const worker = isOptZeosMeta(reader.meta())
       ? await OptZeosWorker.load({ ort, Tokenizer, read, onActivity })

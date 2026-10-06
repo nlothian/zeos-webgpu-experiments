@@ -17,9 +17,10 @@
  * `SyncModelWorker` in `model_channel.js` makes it synchronous for the Python side.
  *
  * **Pending tokens.** `append` only records ids. The next `decodeStep` runs every id with
- * no cache behind it through the graph, in chunks of at most `maxChunk` (2048) cut at the
- * snapshot positions, under that step's mask, and reads the logits and the attention of
- * the last chunk's last position. A step does not append the id it chooses: `JsMachine`
+ * no cache behind it through the graph, in chunks cut at the snapshot positions -- so no
+ * chunk is longer than `snapshotEvery` (256), though the graph takes `maxChunk` (2048) --
+ * under that step's mask, and reads the logits and the attention of the last chunk's last
+ * position. A step does not append the id it chooses: `JsMachine`
  * appends it before the next step, which finds it pending, so a step in a run of steps
  * is exactly one forward pass of one token.
  *

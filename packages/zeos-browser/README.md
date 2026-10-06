@@ -663,9 +663,9 @@ the step's `allowedBlocks`, `position_ids` the absolute positions in all three r
 the decoder's second shard; files with the same SHA-256 in `meta.json` are read once.
 
 **Pending tokens.** `append` records ids and runs nothing. The next `decodeStep` runs
-every id without a cache behind it under that step's mask, in chunks of at most
-`maxChunk` (2048) cut at the snapshot positions, and reads the logits and the attention of
-the last position only. In a run of steps each step is one forward pass of one token,
+every id without a cache behind it under that step's mask, in chunks cut at the snapshot
+positions, so no chunk is longer than `SNAPSHOT_EVERY` (256) though the graph takes
+`maxChunk` (2048), and reads the logits and the attention of the last position only. In a run of steps each step is one forward pass of one token,
 since `JsMachine` appends the chosen id before the next step.
 
 **The cache stays on the GPU.** On WebGPU every `present*` output, the logits and the
