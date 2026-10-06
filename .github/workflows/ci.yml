@@ -104,6 +104,36 @@ jobs:
       - name: Run pyright (strict)
         run: uv run pyright
 
+  coop-count-web:
+    # The browser demo's own suite: the chat machine's security tests, the Pyodide
+    # determinism gate, and the JavaScript worker and channel tests. Tests that need the
+    # exported model skip without it; the rest need Node and the demo's npm packages.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: demo/coop-count-web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: demo/coop-count-web/package-lock.json
+      - name: Install dependencies
+        # --all-packages, or the demo workspace members are not installed.
+        run: uv sync --frozen --all-packages
+      - name: Install the demo's npm packages
+        run: npm ci
+      - name: Run the demo's tests
+        run: uv run --frozen pytest --durations=15
+      - name: Run the JavaScript tests
+        run: node --test tests/js/*.test.mjs
+
   ci-gate:
     # The single check branch protection will require: green only when every
     # lane above succeeded. Lanes can be added or resharded without touching
@@ -111,7 +141,7 @@ jobs:
     # matters -- without it, a failed or skipped lane would leave this job
     # skipped, and a skipped check does not block a merge.
     if: always()
-    needs: [test, determinism-gate, pre-commit, pyright]
+    needs: [test, determinism-gate, pre-commit, pyright, coop-count-web]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

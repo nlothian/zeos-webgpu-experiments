@@ -23,6 +23,7 @@ from chat_workers import (
     IM_START_ID,
     PAD_ID,
     ByteWorker,
+    ChatStep,
     SamplingWorker,
     ScriptedChatWorker,
     attend_first,
@@ -34,7 +35,8 @@ from zeos.core.ids import JobId, TokenKind
 from zeos.descriptor.lint import Severity
 from zeos.descriptor.loader import load_case
 from zeos.descriptor.schema import DescriptorError
-from zeos.machine.base import Token, tokens_from_text
+from zeos.machine.base import MaskViolation, Token, tokens_from_text
+from zeos_browser.js_machine import WorkerViolation
 from zeos_browser.page import findings
 
 from zeos_chat.chat import CHAT_CASE, DEFAULT_REFUSAL, NO_OUTPUT, ChatRun, open_chat
@@ -1656,3 +1658,63 @@ def test_masking_needs_a_worker_whose_blocks_are_positions() -> None:
 
     with pytest.raises(ValueError, match="one position"):
         ChatToolMachine(Wide([]), tool_classes={}, mask_tool_choice=True)
+
+
+# -- a worker that breaks the contract ---------------------------------------------------
+
+
+class LyingWorker(ScriptedChatWorker):
+    """Answers a step as told, whatever the step's masks said."""
+
+    def __init__(self, *args: Any, answer: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.answer = answer
+
+    def decodeStep(self, jobId: str, opts: Any) -> Any:
+        ids = self.contexts[jobId].ids
+        return self.answer(ids, opts)
+
+
+def lying_chat(answer: Any) -> ChatRun:
+    worker = LyingWorker([], attend=attend_first, answer=answer)
+    return open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT)
+
+
+@pytest.mark.parametrize(
+    ("answer", "error", "match"),
+    [
+        # An id the token mask refused: the pad, which no step may emit.
+        (lambda ids, opts: ChatStep(PAD_ID, None), WorkerViolation, "mask refused"),
+        # An id past the vocabulary.
+        (lambda ids, opts: ChatStep(10**6, None), WorkerViolation, "mask refused"),
+        # Attention for the wrong number of blocks.
+        (lambda ids, opts: ChatStep(IM_END_ID, [1.0]), WorkerViolation, "entries"),
+        # Attention that does not sum to one.
+        (lambda ids, opts: ChatStep(IM_END_ID, [0.5] * len(ids)), WorkerViolation, "sum"),
+    ],
+)
+def test_the_machine_refuses_a_worker_that_answers_outside_its_contract(
+    answer: Any, error: type[Exception], match: str
+) -> None:
+    run = lying_chat(answer)
+    run.send_user("hi")
+    with pytest.raises(error, match=match):
+        until_waiting(run)
+
+
+def test_the_machine_refuses_mass_on_a_position_the_step_hid() -> None:
+    def answer(ids: Sequence[int], opts: Any) -> ChatStep:
+        blocks = opts["allowedBlocks"]
+        if blocks is not None and 0 in blocks:
+            share = 1.0 / list(blocks).count(0)
+            return ChatStep(worker.ids["x"], [0.0 if b else share for b in blocks])
+        return ChatStep(script.pop(0), attend_first(ids, [True] * len(ids)))
+
+    worker = LyingWorker([], attend=attend_first, answer=answer)
+    script = worker.spell(call("ReadLines", path="a")) + worker.spell(call("ListFiles"))
+    run = open_chat(worker, tool_classes=CLASSES, system_prompt=PROMPT, mask_tool_choice=True)
+    run.send_user("read")
+    until_waiting(run)
+    run.deliver_tool_result(TABLE)
+    with pytest.raises(MaskViolation, match="hid"):
+        until_waiting(run)
