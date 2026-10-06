@@ -47,7 +47,10 @@ from zeos_space_invaders_web import page
 ARM = "__ARM__"
 real = page.load_board
 def load(name, seed=None):
-    return dataclasses.replace(real(name, seed), tick_seconds={TICK_S})
+    spec = real(name, seed)
+    # Lives enough that the game outlasts the Stop, which is what is timed.
+    rules = dataclasses.replace(spec.rules, lives=99)
+    return dataclasses.replace(spec, tick_seconds={TICK_S}, rules=rules)
 page.load_board = load
 
 class Stop:
@@ -68,11 +71,16 @@ run.warm()
 began = time.monotonic()
 zeosStopAfter({STOP_AFTER_MS})
 result = run.run()
-ended = Date.now()
-elapsed = time.monotonic() - began
+# When the loop exited, on Date.now()'s clock: judging the criteria and encoding the
+# journal come after it and are not part of stopping.
+ended = Date.now() - (time.monotonic() - run.runner.ended_at) * 1000
+elapsed = run.runner.ended_at - began
 run.close()
 print(json.dumps({{
     "kind": type(run).__name__,
+    "lives": result.lives,
+    "overrun": result.extras.get("overrun_ms"),
+    "cancel": result.extras.get("cancel_ms"),
     "frames": len(frames),
     "ticks": result.ticks,
     "elapsed": elapsed,
