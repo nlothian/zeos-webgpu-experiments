@@ -46,7 +46,7 @@ here to coop-count-web's.
 - **Controls:** the player (the ZEOS kernel, with its `pilot` and `evade` reflex, or the
   prompt loop), the board (default 12×16 at 0.5 s a tick, or the ablation board, 9×8 at
   0.2 s), the seed, and the machine. *Language model on WebGPU* needs a WebGPU adapter;
-  there is no WebAssembly fallback, because the 4B does not fit it. *Stub* needs no GPU:
+  the model runs on WebGPU only (the 4B does not fit WebAssembly). *Stub* needs no GPU:
   when the build has `web/stub/pilot_stub_worker.js` it runs on a thread of its own
   (`stub_thread.js`) and answers through the same channel as the model, with simulated
   latency; without it the stub machine runs on no worker, which only a `FakeRun` accepts.
@@ -256,8 +256,7 @@ The pytest suite builds `web/dist` into a temporary directory and, when
 coop-count-web's npm install is present, plays under Pyodide in Node
 (`tests/pyodide_run.mjs`): a `FakeRun`, and both arms against the JavaScript pilot stub
 over the real channel (`test_e2e_pyodide.py`). `test_e2e_stub.py` plays both arms under
-CPython against `FakePilotWorker`; `test_e2e_node_model.py` plays the ZEOS arm on the
-4B through onnxruntime-node when the export is present (several minutes).
-`tests/si_webgpu.mjs` drives the built page in headed Chrome over both boards and both
+CPython against `FakePilotWorker`. No test runs the model on the CPU: the model runs only
+on WebGPU, and `tests/si_webgpu.mjs` drives the built page in headed Chrome over both boards and both
 players and prints each run's metrics; it needs Playwright and Chrome, which are not
 dependencies of this demo.

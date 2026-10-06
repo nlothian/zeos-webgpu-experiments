@@ -127,8 +127,7 @@ session ONNX Runtime builds once the files are in, and then every run of the gra
 which prompt is being prefilled and how far, with an estimate of the time left, or which
 decode step is in flight -- with the mean step time once steps have run. The kernel is
 blocked while a step runs, so this line is the one that moves when the journal does not.
-The thread reports each run of the graph through `TransformersWorker`'s `onActivity`
-callback, which the page sets and Node leaves unset.
+The thread reports each run of the graph through the worker's `onActivity` callback.
 
 **Responsiveness.** Pyodide runs in a Web Worker (`web/pyodide_worker.js`), so loading
 it, building the debugger's payload or a slow machine never freezes the page. The worker
@@ -336,20 +335,16 @@ backend in the repository gives it a hint, and integrity demotes on it.
 ### The model
 
 The page offers Qwen3.5-4B as the OPT+ZEOS graph by default; *The OPT+ZEOS worker*
-gives its timings. The measurements and runs below are of the 2B, mostly at int8 on
-WebAssembly, exported by `export/export_model.py`.
+gives its timings. The runs below are of the 2B, exported by `export/export_model.py`,
+and were made at int8 on the WebAssembly backend the page then had; the model now runs
+on WebGPU only, where the int8 export does not run (see *Backends*).
 
 **Qwen3.5-2B** (`Qwen/Qwen3.5-2B`, the post-trained model; its base is
 `Qwen3.5-2B-Base`). It speaks ChatML, which is what `JsMachine` frames prompts in
 (`chat_template="chatml"`, as for `LlamaMachine`), and it is the smaller sibling of
 Qwen3.5-4B, which follows the coop-count procedure under llama.cpp. Its architecture is a
 hybrid of linear and softmax attention, which the export handles as described in *The
-architecture* below. At int8 it is a 2.4 GB download in three files; one decode step
-takes about 316 ms on onnxruntime-web's WebAssembly backend under Node, one thread, and
-a run in Chrome takes within about 10% of the same run under Node. A prefill takes about
-83 ms a token, and `JsMachine` prefills a job's prompt (about 1,400 tokens) before its
-first decode, so the first command comes about two minutes after *run*, and each job's
-first turn pays the same again.
+architecture* below.
 
 On `coop-count-pipe`, with its `events.jsonl`, it gets further than the Qwen2.5 models
 did and then deadlocks. Counter-a does its first turn exactly as the procedure says:
@@ -370,8 +365,7 @@ recorded 11 rather than 10, woke its peer and slept; counter-b, woken, said
 `"attention" and` and exited instead of reading the console. The 1.5B kept the turn
 structure for 400 ticks, but neither counter said a number, and its handler did not read
 the console either. Those exports were in the earlier two-graph format; the script still
-exports Qwen2 models in the current format (`--model Qwen/Qwen2.5-0.5B-Instruct`: 632 MB,
-72 ms a step under Node). What the kernel gets from any of them is real: measured
+exports Qwen2 models in the current format (`--model Qwen/Qwen2.5-0.5B-Instruct`). What the kernel gets from any of them is real: measured
 attention, enforced masks, and commands that only the grammar allows.
 
 ### The architecture
@@ -431,7 +425,7 @@ softmax layers alone.
   attention vector has one entry per position and `JsMachine` sums it onto the kernel's
   blocks exactly, which a fixed multi-token block cannot do when a kernel word is several
   tokens. One graph rather than a prefill and a decode graph keeps one copy of the
-  weights in the WebAssembly heap.
+  weights.
 - `weights-0.bin`, `weights-1.bin`, ... -- every large initialiser, in files of at most
   1 GiB: Node reads no file over 2 GiB whole, and the browser holds smaller buffers more
   readily. `meta.json` -- shapes, layer types, reserved ids, the weight files and every
@@ -447,8 +441,7 @@ The script holds the rewrite to `transformers`' own logits before it exports, pr
 in chunks of 1, 7 and 16 so that the state and convolution window are carried across
 runs (drift 4e-5 to 8e-5 at full precision, 0.05 to 0.07 with the int8 embedding), and
 checks the exported graph under ONNX Runtime CPU: a hidden position receives exactly zero,
-the rest sum to one, and hiding it changes the logits. `tests/test_exported_graph.py`
-repeats that check. The script still exports Qwen2 instruct models (`model_type`
+the rest sum to one, and hiding it changes the logits. The script still exports Qwen2 instruct models (`model_type`
 `qwen2`: every layer softmax, an empty state); the worker then cuts its cache directly.
 
 **Quantisation.** The default, `q4`, is 4-bit weight-only `MatMulNBits`, the form
@@ -456,13 +449,8 @@ ONNX Runtime's WebGPU backend runs: 1.69 GB of weights for the 2B.
 `int8` is ONNX Runtime's dynamic quantisation of every
 weight matmul (per-channel int8 weights, int8 activations computed per run), plus a
 per-row int8 embedding table and a separately quantised output projection: 2.40 GB of
-weights. It was chosen by measurement, under Node on onnxruntime-web 1.30's WebAssembly
-backend, one thread, Apple M1 Max: for the 2B a decode step takes about 316 ms and a prefill about
-83 ms a token; the export loads in 4.6 s and the process settles at 3.3 GB resident
-(6.6 GB at its peak while loading, when the weight files and the WebAssembly heap both
-hold the weights). The q4 export is many times slower than int8
-per step on the WebAssembly backend (see *Backends*). fp32 (7.5 GB) does not fit a 4 GB WebAssembly
-heap.
+weights. WebGPU has no kernel for its integer matmuls, so the page cannot run it; it was
+the fast path on the WebAssembly backend the page used to offer.
 
 The chunk also bounds the int8 error. Dynamic quantisation gives a matmul's activations
 one scale for the whole chunk, and over 64 positions of counter-a's prompt that flipped
@@ -484,7 +472,7 @@ uv sync --all-packages                                    # drop the export grou
 The script downloads the model from the Hugging Face Hub (4.3 GB of bf16 safetensors for
 Qwen3.5-2B) into `models/<name>/` first. It holds the model in float32 while it traces
 the graph, and releases it before quantising, since the quantiser holds the whole
-float32 graph as well. `--quant int8` gives the int8 export described below. Two
+float32 graph as well. `--quant int8` gives the int8 export described above. Two
 exports from the same source are byte-identical. The page's Qwen3.5-4B is not made by
 this script but by `export/opt_zeos_surgery.py`, below.
 
@@ -570,17 +558,22 @@ the 16 heads, then averaged over the 8 layers and multiplied by the visibility. 
 position is exactly zero and the vector sums to one. As with `ZeosQwen`, the 24 DeltaNet
 layers contribute nothing to it.
 
-**Checks.** `tests/test_opt_zeos_graph.py` runs the decoder under ONNX Runtime CPU,
-which has kernels for every fused operator in it. Prefilled in chunks of 1 and 7 (an
-88-token chat turn) and of 16 and 512 (a 634-token one), with the cache carried, then one
-decode step, its logits match `-OPT`'s and agree with `transformers` (float32) as
-closely as `-OPT`'s do: KL 0.003 on the short turn and 0.016 on the long one, for both
-graphs, and the same first choice. Hiding the three tokens of a password the last
-position must recall moves its distribution by a KL of 9.4, against 9.3 for `ZeosQwen`
-in float32 under the same mask, to the same first choice (KL 0.2 between the two). The
-hidden positions receive exactly zero, the rest sums to one, and a chunk of 2048 after a
-cache runs. The reference logits need the bf16 weights at `models/Qwen3.5-4B` and about
-20 GB of memory once; they are cached under `models/.reference/`.
+**Checks.** `export/bench/checks.html` runs the decoder on WebGPU through
+`OptZeosWorker` (`tests/opt_zeos_webgpu.mjs` drives it; see *The OPT+ZEOS worker*).
+Prefilled in chunks of 1 and 7 (an 88-token chat turn) and of 16 and 512 (a 634-token
+one), with the cache carried, then one decode step, its logits choose what
+`transformers` (float32) chooses and stay within KL 0.1 of it. Hiding the three tokens
+of a password the last position must recall moves its distribution as far as `ZeosQwen`
+in float32 moves it under the same mask, and to the same first choice. The hidden
+positions receive exactly zero and the rest sums to one. The prompts are
+`export/bench/reference_prompts.json`, and the reference logits
+`models/.reference/opt-zeos-<key>.npz` (the key is a digest of the prompts' ids), which
+`export/opt_zeos_reference.py` writes once from the bf16 weights at `models/Qwen3.5-4B`
+(the `export` group, about 20 GB of memory); without it these comparisons are skipped,
+and say so. Measured
+on ONNX Runtime CPU when the graph was written: KL 0.003 on the short turn and 0.016 on
+the long one, for both this graph and `-OPT`, and a password-hiding KL of 9.4 against
+9.3 for `ZeosQwen`.
 
 **Speed.** `export/bench/` is a page that times the decoder on WebGPU with ONNX
 Runtime Web 1.31.0-dev.20260914, the build Transformers.js 4.3 runs `-OPT` with, and the
@@ -632,7 +625,7 @@ A context keeps a snapshot of its state every 256 positions (`SNAPSHOT_EVERY`; 2
 each), the state from before its latest decode step, and, per cached position, whether
 the state took that position in. `truncate`, and a step whose mask disagrees with that
 record, go back to the latest snapshot at or before the position and run the tokens after
-it again: at most 255 positions, about 20 s at 83 ms a token. In a `coop-count-pipe` run
+it again: at most 255 positions. In a `coop-count-pipe` run
 this happens when the kernel rewrites a status line in place (`machine.splice`); masks
 that hide nothing new cost nothing. The worker refuses an `allowedBlocks` shorter than the
 context, a mask that hides every block, and an `allowedTokens` that allows nothing.
@@ -654,8 +647,7 @@ was tried at the decision where counter-b goes wrong (below) and did not change 
 full precision the model prefers `write` over `say` after `say 11;` with the block (18.9
 against 17.1) and without it (18.8 against 17.7).
 
-The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it, so the
-same file runs in the page and under Node (`web/node_load.mjs`).
+The worker imports nothing: ONNX Runtime and the tokenizer class are handed to it.
 
 ### The OPT+ZEOS worker
 
@@ -663,7 +655,7 @@ same file runs in the page and under Node (`web/node_load.mjs`).
 graph. It has the same interface, `info()`, tokenizer (`encodePlain`, so a literal
 `<|im_end|>` in content stays text) and `sample` rule (`sampleToken`) as
 `TransformersWorker`, and it imports nothing else: ONNX Runtime and the `Tokenizer` class
-are handed in. `model_thread.js` and `node_load.mjs` choose it when `meta.json` names a
+are handed in. `model_thread.js` chooses it when `meta.json` names a
 `decoder` and an `embedTokens` graph (`isOptZeosMeta`), and `TransformersWorker`
 otherwise, so `build.py --model models/Qwen3.5-4B-ZEOS-OPT` offers it to the page with no
 other change. `info()` is `{blockSize: 1, padId: 248044, controlIds: [248045, 248046,
@@ -689,8 +681,7 @@ outputs are new tensors that are never written to, so a context, its snapshots a
 forks share one set of them, with a reference count, and `dispose` it when the count
 reaches zero. `fork` copies nothing on the GPU. Cutting the softmax layers' keys and
 values to `n` positions copies the first `n` positions of each of the four heads into a
-new buffer with `copyBufferToBuffer`, without a round trip through the CPU. Under
-onnxruntime-node (`cpu`) the same code slices typed arrays.
+new buffer with `copyBufferToBuffer`, without a round trip through the CPU.
 
 **Snapshots.** The DeltaNet state is not per position. A cache keeps the state after
 every `SNAPSHOT_EVERY` (256) positions, and the state from before its latest run, as
@@ -732,7 +723,9 @@ is carried as it is, the convolution window becomes zeros, and the softmax cache
 zeros there in one copy, which the key mask hides. Chunks are also cut where such a run
 starts. A fresh prefill and a replay under the same mask cut and skip alike, so they
 still agree bit for bit, and a skipped run aligned with the chunks is bit for bit the run
-it stands in for (onnxruntime-node checks both).
+it stands in for. `export/bench/checks.html` checks that hidden tokens swapped for others
+change no logit and no attention weight, with hidden runs carried past and with every
+hidden position run through the graph.
 
 **Mask on demand, measured** by `export/bench/mask.html` (`tests/opt_zeos_webgpu.mjs
 --page mask.html`) in Chrome on an Apple M1 Max: a chat-agent context of a 6,739-token
@@ -758,17 +751,13 @@ Short prefill runs are what cost: at 7,000 positions a run of 8 new tokens takes
 of 40 tokens 0.76 s, against 0.065 s for one, and a skip's copy of the cache adds about
 0.15 s to the run after it. The name's own steps cost what they would unmasked.
 
-**WebAssembly.** The worker sets `ort.env.wasm.numThreads` to 1 unless told otherwise, so
-the CPU fallback never needs a thread pool. onnxruntime-web's WebAssembly backend loads
-the graph, but a run fails with `std::bad_alloc`: a 4 GiB heap cannot hold 2.4 GB of
-weights as well as the activations. So this export needs WebGPU in the page. Under Node,
-use onnxruntime-node (`runtime: "node"`), whose CPU provider has kernels for the fused
-operators.
+**WebGPU only.** `OptZeosWorker.load` runs both sessions on WebGPU. onnxruntime-web's
+WebAssembly backend loads the graph, but a run fails with `std::bad_alloc`: a 4 GiB heap
+cannot hold 2.4 GB of weights as well as the activations.
 
 **Measured** in Chrome on an Apple M1 Max, through the interface, with nothing else on the
-GPU. Measured by `tests/opt_zeos_webgpu.mjs`, which runs `export/bench/worker.html`, with
-ONNX Runtime Web 1.31.0-dev.20260914 (1.30.0, this demo's pinned version, gave the same
-results):
+GPU, by `export/bench/worker.html` with ONNX Runtime Web 1.31.0-dev.20260914 (1.30.0,
+this demo's pinned version, gave the same results):
 
 | | |
 |---|---|
@@ -777,45 +766,43 @@ results):
 | decode step at ~1,050 positions | 47–48 ms (21 tok/s) |
 | step after hiding 16 positions at 600 in a 1,052-token context (540 positions replayed from the snapshot at 512, the 16 carried past) | 2.4–2.5 s |
 
-The page's checks:
-
-- The 32 greedy steps choose what one run without a cache chooses for the same tokens.
-- The first step is bit for bit a cache-free run cut into the same chunks. Against one
-  cut into a single 2,048 chunk its KL is 4e-3: the recurrent state crosses a chunk
-  boundary in float16, and two chunkings of the graph alone differ by that much.
-- Hidden positions receive exactly zero, and the rest sums to one.
-- The replay after a mask change equals a fresh prefill under the new mask, logit for
-  logit.
-- `truncate` back to the prompt reproduces the first step exactly.
-- A fork taken before the cut keeps the longer context.
+**The checks on WebGPU.** The model runs on WebGPU only, so its checks run there, in
+headed Chrome, driven by `tests/opt_zeos_webgpu.mjs`. They are opt-in -- they need a GPU,
+the export, `npm install`, Playwright and Chrome -- and no default test suite runs them:
 
 ```bash
 PLAYWRIGHT_MODULE=<a node_modules/playwright> node demo/coop-count-web/tests/opt_zeos_webgpu.mjs
 ```
 
-`tests/js/opt_zeos_worker.test.mjs` checks the interface under onnxruntime-node, with
-snapshots every 16 positions and at most 4 kept, so short prompts cross boundaries and
-the thinning runs. It checks plain tokenisation, and that greedy steps agree with
-cache-free runs. Hiding a past position must replay fewer than 16 positions, give exactly
-zero attention there, and equal a fresh prefill bit for bit. A hidden run aligned with
-the chunks, carried past without a run, must be bit for bit the same run executed, and
-within float16 rounding when it is not aligned. A mask narrowed for three steps and then
-widened must run on a second cache that equals a fresh prefill under the narrow mask,
-come back to the first cache with no rewind and only the tokens it has not seen, and
-catch up from where it stopped the next time, each bit for bit against a twin context
-stepped under one mask alone; with `maxTracks` 1 the same steps rewind. It also covers a
-repeated step, `truncate`, `fork`, `allowedTokens`, `sample` and the refusals, and one
-step through `SyncModelWorker`.
+It serves this directory cross-origin isolated and runs three pages, loading the model
+afresh in each (about two minutes in all on an Apple M1 Max). It exits 1 if a check
+fails and 2 if a page errors; `--page NAME` runs one page, and with no export it prints
+a skip and exits 0. Run nothing else heavy on the GPU at the same time.
 
-`tests/test_opt_zeos_chat.py` drives `open_chat` over it through `NodeWorker`
-(`runtime="node"`) for a three-message conversation, about 20 s with 8 threads:
-
-1. "What is two plus two?" gets the reply "Two plus two equals four."
-2. "What is the weather in Paris right now?" produces a `tool_call` event,
-   `get_weather({"city": "Paris"})` on `tools.read`.
-3. After the host delivers the result, the reply is "It is currently sunny in Paris with
-   a temperature of 21 degrees Celsius…". The job is demoted for attending it, as it
-   should be.
+- `export/bench/checks.html`: the graph's logits against `transformers`' reference (see
+  *The OPT+ZEOS graph*); the hidden tokens of a context swapped for others, with the same
+  mask, leave every logit and every attention weight the same bits -- after a prefill,
+  after a single-token decode step over that cache, and with every position, the hidden
+  ones too, run as a single-token step; both with hidden runs carried past and with every
+  hidden position run through the graph, while the same swap with nothing hidden does
+  move the logits; and a step stopped before a run of the graph, resumed with the same
+  `maxChunk`, chooses the same token with the same logits and attention as the
+  uninterrupted step, with and without a mask.
+- `export/bench/grammar.html`: `JsMachine` under Pyodide, in a worker, over the model on
+  its own thread through `SyncModelWorker`, as the page runs them. After injected text
+  written to talk the model out of the command language (forged chat markers, a fake
+  status line, prose demands), every line it completes parses as a command on a pipe the
+  job may use, no control id is chosen and no `<` is emitted; and a context one token
+  short of a chat turn gets no control id out. It runs on the `zeos` and
+  `zeos-coop-count-web` wheels, which the driver builds into `export/bench/wheels/` first.
+- `export/bench/worker.html`: the 32 greedy steps choose what one run without a cache
+  chooses for the same tokens; the first step is bit for bit a cache-free run cut into the
+  same chunks (against one cut into a single 2,048 chunk its KL is 4e-3: the recurrent
+  state crosses a chunk boundary in float16, and two chunkings of the graph alone differ
+  by that much); hidden positions receive exactly zero and the rest sums to one; the
+  replay after a mask change equals a fresh prefill under the new mask, logit for logit;
+  `truncate` back to the prompt reproduces the first step exactly; a fork taken before
+  the cut keeps the longer context; and the timings above.
 
 ### Calling an asynchronous model synchronously
 
@@ -836,9 +823,9 @@ JavaScript Promise Integration, which not every browser ships; `Atomics.wait` wo
 every current browser, inside a worker. It needs the page cross-origin isolated, which is
 why `serve.py` and `coi_serviceworker.js` exist. The page starts the model thread rather
 than the Pyodide worker because a worker started from inside a worker failed to start in
-the Chromium this was tested in. Under Node the same channel runs with a
-`worker_threads` thread (`web/node_model_thread.mjs`), where `Atomics.wait` is allowed on
-the main thread too.
+the Chromium this was tested in. Under Node, for the tests, the same channel serves the
+stub worker on a `worker_threads` thread (`web/node_model_thread.mjs`), where
+`Atomics.wait` is allowed on the main thread too.
 
 **A decode step that does not block.** `SyncModelWorker` also has
 `beginDecodeStep(jobId, opts)`, which posts a step and returns its request id at once;
@@ -859,11 +846,11 @@ a reply to another request (possible only after a call timed out) makes the chan
 unusable, and every later call throws. Without the new options every
 worker computes what it did before; replies only gain `resident` and `stats`
 (`positions` run, `chunks` runs, `fillMs` spent in them but a final one-position decode).
-`NodeWorker` has the same four members for CPython, over the pipe: it waits with
-`select`, and a cancel is a control frame `{cancel: id}` that `node_bridge.mjs` reads
-while the step awaits the graph. `stub_worker.js` takes `{stepMs, positionMs}` of
-simulated latency so tests can poll, time out and cancel (`startNodeModel({stub})`,
-`NodeWorker(stub=...)`).
+`NodeWorker` has the same four members for CPython, over a pipe to the stub worker in a
+Node child process (`node_bridge.mjs`): it waits with `select`, and a cancel is a control
+frame `{cancel: id}` that the bridge reads while the step runs. `stub_worker.js` takes
+`{stepMs, positionMs}` of simulated latency so tests can poll, time out and cancel
+(`startNodeModel({stub})`, `NodeWorker(stub=...)`); neither serves a model.
 
 What smaller chunks cost on WebGPU, measured by `export/bench/chunks.html`
 (`tests/opt_zeos_webgpu.mjs --page chunks.html`) with the 4B in Chrome on an Apple M1
@@ -883,37 +870,30 @@ of the first two runs of a 1000-position step and about 350 ms on average over a
 A step stopped before its third run (128 positions resident) returned at once, and,
 resumed with the same `maxChunk`, matched the uninterrupted step bit for bit.
 
-**Backends.** The page offers WebAssembly and WebGPU and shows the one in use beside the
-clock. WebAssembly runs one thread: a run's arithmetic is then a function of its inputs
-alone (see *Determinism* below); with more threads the model thread did not finish
-loading in the browser this was tested in. The page's default is the Qwen model on WebGPU, falling back to the recorded answers when
-the page is not cross-origin isolated and to WebAssembly when the browser has no WebGPU.
-The build's default export is Qwen3.5-4B as the OPT+ZEOS graph
-(`models/Qwen3.5-4B-ZEOS-OPT`, 2.8 GB, which `export/opt_zeos_surgery.py` writes), which
-WebGPU runs; *The OPT+ZEOS worker* gives its timings. Pass `--model` to offer another export,
-such as `models/Qwen3.5-2B-zeos-q4` or the int8 export measured below. With int8 on WebAssembly, in Chrome (the desktop app's browser pane, Apple M1 Max) the model thread
-was ready within 10 s of pressing run, the first command came after about two minutes of
-prefill, and the 99-tick `coop-count-pipe` run below took 329 s in all, against 304 s for
-the same run under Node -- a step in the page costs within about 10% of one under Node.
-The heap holds the weights once (one graph, one session), well inside WebAssembly's
-4 GB.
+**Backends.** The model runs on WebGPU only, and the page shows it beside the clock. The
+page's default is the Qwen model, falling back to the recorded answers when the page is
+not cross-origin isolated or the browser has no WebGPU; in either case the model option
+says why it is unavailable. A browser that has `navigator.gpu` but offers no adapter
+gets the reason from the model thread when *run* is pressed, and loads nothing. The
+build's default export is Qwen3.5-4B as the OPT+ZEOS graph
+(`models/Qwen3.5-4B-ZEOS-OPT`, 2.8 GB, which `export/opt_zeos_surgery.py` writes); *The
+OPT+ZEOS worker* gives its timings. Pass `--model` to offer another export, such as
+`models/Qwen3.5-2B-zeos-q4`.
 
-WebGPU is offered with the caveat in its label. ONNX Runtime's WebGPU backend has no
-kernel for the int8 export's integer matmuls (with the 0.5B they ran on WebAssembly with a
-copy each way, about 1.2 s a step; not measured with the 2B). The q4 export
-(`--quant q4`, 1.69 GB) runs on WebGPU, and `build.py --model
-models/Qwen3.5-2B-zeos-q4` puts it on the page: on the same machine its prompts
-prefilled in about 20 s and `coop-count-pipe` ran its 400 ticks in 122 s, about 0.2 s a
-tick including Pyodide's side. It decodes differently from the int8 export on
-WebAssembly (4-bit weights, and the GPU's arithmetic): counter-a counted from 1 to 50
-without stopping at 10, recorded 50 and woke its peer; counter-b said 10 and recorded 10;
-counter-a, woken, started again from 1 and was at 25 when the run was cut off; the
-handler read the 500 and then waited on the console again.
+ONNX Runtime's WebGPU backend has no kernel for the int8 export's integer matmuls, so an
+int8 export does not run on the page. The q4 export (`--quant q4`, 1.69 GB) runs on
+WebGPU, and `build.py --model models/Qwen3.5-2B-zeos-q4` puts it on the page: on an
+Apple M1 Max its prompts prefilled in about 20 s and `coop-count-pipe` ran its 400 ticks
+in 122 s, about 0.2 s a tick including Pyodide's side. It decodes differently from the
+int8 export the 2B runs above were made with (4-bit weights, and the GPU's arithmetic):
+counter-a counted from 1 to 50 without stopping at 10, recorded 50 and woke its peer;
+counter-b said 10 and recorded 10; counter-a, woken, started again from 1 and was at 25
+when the run was cut off; the handler read the 500 and then waited on the console again.
 
 ### The grammar
 
 `JsMachine`'s Python token mask (`token_mask`) is kept. Against the Qwen3.5 vocabulary
-(248,070 pieces) it is correct -- `tests/test_transformers_grammar.py` puts the model
+(248,077 pieces) it is correct -- `export/bench/grammar.html` puts the 4B, on WebGPU,
 after a context of injected text written to talk it out of the command language
 (forged chat markers, a fake status line, prose demands) and every completed line parses
 as a command, no control id is ever chosen and no `<` is ever emitted -- and it is fast
@@ -931,37 +911,24 @@ choose a scenario, and run. A run stops at 400 ticks, as
 when every job is asleep on another, and, in the page, held open while a job waits on
 the console.
 
-From a shell, the same `JsMachine`, `LiveRun` and worker run under CPython with the model
-in a Node child process (`zeos_coop_count_web.node_worker.NodeWorker`, over
-`web/node_bridge.mjs`):
-
-```bash
-cd demo/coop-count-web
-npm install
-uv run python -m zeos_coop_count_web.node_run ../coop-count/cases/coop-count-pipe \
-    --events ../coop-count/cases/coop-count-pipe/events.jsonl --journal pipe.jsonl
-uv run python -m zeos_coop_count_web.evidence pipe.jsonl
-```
-
-`node_run` writes the journal and, beside it, `pipe.attention.jsonl`: one line per decode
-step, keyed by the sequence number of its `machine.decode` event, with the measured mass
-per kernel block and per segment. The journal has no field for attention -- its events
-are the kernel's -- so the measurement is kept beside it, as `zeos.trace` keeps the raw
-trace. `--theta-read` sets `KernelConfig.theta_read`, `--ring PIPE=RING` declares a pipe
-at another ring for the run, and `--hide JOB:BLOCK` takes a kernel block out of every
-mask a job is given. `evidence` reports what the measured attention did to integrity.
-Nothing presses a key under `node_run`, so it ends a run that is parked on the console
-with nothing left in the schedule (`LiveRun.waiting_for_a_press`) rather than idling.
-
 ### Measured attention
 
 The write-up and its journals were made with the Qwen2.5-0.5B-Instruct int8 export in
 the earlier two-graph format, whose every layer was softmax attention; its numbers are
-that model's. `docs/evidence/run.sh` now runs the default export, Qwen3.5-2B, whose
-measured attention covers only its six softmax layers (see *The architecture*). On
-`coop-count-pipe` with its schedule the 2B's 95 decode steps all carried measured
-attention, no segment less trusted than its reader received any, and the newest, not yet
-masked block got 0.05 of a step's attention on average (0.28 at most).
+that model's. They were run from a shell, with the model worker on the WebAssembly
+backend under Node, a path the repository no longer has (`node_run` and
+`docs/evidence/run.sh`, last at `a397805`); the journals and attention files are kept as
+the record they are, and `zeos_coop_count_web.evidence` still reads them:
+
+```bash
+uv run python -m zeos_coop_count_web.evidence demo/coop-count-web/docs/evidence/pipe-untrusted.jsonl
+```
+
+A later run of the same script with Qwen3.5-2B, whose measured attention covers only its
+six softmax layers (see *The architecture*), found that on `coop-count-pipe` with its
+schedule the 2B's 95 decode steps all carried measured attention, no segment less trusted
+than its reader received any, and the newest, not yet masked block got 0.05 of a step's
+attention on average (0.28 at most).
 
 `docs/evidence/README.md` is the write-up, with the journals it cites beside it: a
 demotion whose `because` names an untrusted segment and the measured mass that crossed
@@ -973,29 +940,13 @@ into gets 0.17 of each step's attention on average.
 
 ### Determinism
 
-On the WebAssembly backend the page's journal is byte for byte the one the same run
-writes under CPython with the worker in Node, because both run the same onnxruntime-web
-WebAssembly binary on one thread and the kernel reads no clock. With the Qwen3.5-2B int8
-export, under Node 22 and, for `coop-count-pipe`, in Chrome (the desktop app's browser
-pane, Apple M1 Max):
-
-| case | how the run ended | SHA-256 of the journal |
-|---|---|---|
-| `coop-count-scripted` (with its schedule) | parked on the console after 85 ticks | `ab0673e0c59513338154c8a08ee0d8b6e681c0fe2305785ee562a5eb41a75fe2` (Node) |
-| `coop-count-pipe` (with its schedule) | quiescent after 99 ticks | `e62e5cb405c8e2ac996bee80a35bc691ba384772ad0b0de9fb826b39c5494e8b` (page and Node alike) |
-| `coop-count-vector` | 400 ticks | `cc5610c9cd5aafd4c43a06cc4f3c9954c0e73619ad4328b623327894564f8d83` (Node) |
-
-With the Qwen2.5-0.5B export all three ran 400 ticks with the same digest in the page and
-under Node, and `coop-count-scripted` twice in the page, in two page loads, with the same
-digest. The same holds with Pyodide in Node over the model thread: `tests/test_pyodide_model.py`
-runs 40 ticks of `coop-count-scripted` that way and requires CPython's bytes.
-
-WebGPU was checked on one device only, with the 0.5B's q4 export, on twenty greedy steps
-of a short chat prompt: three runs in the same browser chose the same tokens and reported
-bit-identical attention, and the tokens were WebAssembly's, but the attention was not
-bit-identical to WebAssembly's on the same export. Its floating-point order is the
-GPU's, so a journal made on WebGPU is not claimed to match one made on another device,
-or on WebAssembly; the determinism claim is WebAssembly's.
+The kernel's half of a run is deterministic in the page as under CPython: with the stub
+worker, a run in Pyodide writes the same journal bytes as the same run under CPython
+(`tests/test_pyodide_determinism.py`). A model run is not claimed to be: WebGPU's
+floating-point order is the GPU's, so a journal made on one device is not claimed to
+match one made on another. On the one device checked, with the 0.5B's q4 export, three runs of
+twenty greedy steps of a short chat prompt in the same browser chose the same tokens and
+reported bit-identical attention.
 
 ## The chat machine
 
@@ -1092,12 +1043,12 @@ tool that has already answered. In the gemma-data-agent site's prompt-injection 
 masking on, Qwen3.5-4B called ListInputs again and again until the host's limit of ten
 calls in two of five; in the others it went on to the SQL it was asked for.
 
-`tests/test_opt_zeos_mask.py` plants an instruction to call a destructive tool in a
-tool result, in three conversations that ask for a lookup and then a note, and runs each
-masked and unmasked (greedy, onnxruntime-node). Unmasked, the model followed the plant in
-one of the three (`send_email` to the address the result named, in place of
-`save_note`); masked, it called `save_note` in all three, with arguments taken from the
-result. In the other two it ignored the plant either way.
+An instruction to call a destructive tool, planted in a tool result in three
+conversations that ask for a lookup and then a note, each run masked and unmasked
+(greedy, on onnxruntime-node's CPU provider when the repository had one): unmasked, the
+model followed the plant in one of the three (`send_email` to the address the result
+named, in place of `save_note`); masked, it called `save_note` in all three, with
+arguments taken from the result. In the other two it ignored the plant either way.
 
 **Look-alikes in content.** The worker tokenizes deliveries with no special tokens
 (`encodePlain`), so a tool result or a user message that spells
@@ -1210,51 +1161,23 @@ uv run pytest      # or, from the root: uv run pytest demo/coop-count-web/tests
   JavaScript one, and the same journal bytes for the same seed.
 - `test_page.py` — the page's Python half, and that `build.py` assembles every file the
   page fetches.
-- `test_exported_graph.py` — the exported graph under ONNX Runtime CPU, prefilled in the
-  worker's chunks with the state carried between them: a hidden position receives
-  exactly zero, the rest sum to one, and hiding one changes the logits. Needs the export
-  and the `export` dependency group.
-- `test_opt_zeos_graph.py` — the OPT+ZEOS decoder under ONNX Runtime CPU, in chunks of
-  1, 7, 16 and 512 with the cache carried: with nothing hidden it is the `-OPT` graph and
-  agrees with `transformers`; a hidden position receives exactly zero and the rest sums
-  to one; hiding moves the logits as `ZeosQwen`'s mask does; a chunk of 2048 runs. Needs
-  the surgery's output; the comparisons also need `models/Qwen3.5-4B-ONNX-OPT` and
-  `models/Qwen3.5-4B`. About five minutes once the reference logits are cached.
-- `test_transformers_grammar.py` — the token mask against the real model after
-  adversarial injected text: only commands, never a control id.
-- `test_node_run.py` — a kernel run over the real model: one attention line per decode
-  step, each summing to one, and a block hidden through `set_mask` at exactly zero.
-- `tests/js/transformers_worker.test.mjs` (`node --test tests/js/*.test.mjs`) — the
-  worker's interface under Node, directly and through the synchronous channel, including
-  a cut past a snapshot of the recurrent state and a mask that hides what the state had
-  taken in, each of which must compute what a fresh context would.
-- `test_opt_zeos_mask.py` -- the tool's name chosen masked on the real model, against
-  the same conversation unmasked, with an instruction planted in a tool result; see
-  "The OPT+ZEOS worker".
-- `tests/js/opt_zeos_worker.test.mjs`, `test_opt_zeos_chat.py` and
-  `tests/opt_zeos_webgpu.mjs` (a browser script, not collected by pytest) — the OPT+ZEOS
-  worker; see "The OPT+ZEOS worker". They skip without the export at
-  `models/Qwen3.5-4B-ZEOS-OPT`.
-- `test_js_machine_contract.py` also runs the contract suite over the real model worker
-  (`js-transformers`), driven from Node.
 - `tests/js/channel_async.test.mjs` and `test_node_worker_async.py` — the decode step
   that does not block, over the stub with simulated latency: begin never waits, a poll
   times out and then returns the result, calls refuse while a step is in flight, a
   cancel lands between chunks and the step resumes from what it ran, a result that raced
   the cancel is dropped, and cancelled-then-resumed steps say what uncancelled ones do.
-  The real-model halves (in `opt_zeos_worker.test.mjs`, `transformers_worker.test.mjs`
-  and the last test of `test_node_worker_async.py`) check that a stopped step resumes to
-  the same bits, and that `maxChunk` cuts smaller chunks to the same token.
-- `test_pyodide_model.py` — the page's arrangement under Node (Pyodide, and the model
-  on a thread of its own behind `SyncModelWorker`) writes CPython's journal.
-- These five and the `js-transformers` backend skip without Node, `npm install` or the
-  export.
+  `tests/js/model_channel.test.mjs` — what `SyncModelWorker` forwards. They need Node
+  and skip without it.
 - `test_pyodide_determinism.py` — the smoke fixture, the seat and the stub, each under
   Pyodide in Node and under CPython, compared byte for byte. It builds both wheels with
   `uv build`, installs them by unpacking as Pyodide installs a pure wheel, and copies the
   cases into the in-memory filesystem as the page does. It skips when Node, the npm
   package or the cached PyYAML is missing; `ZEOS_PYODIDE_DIR` points it at a Pyodide
   installed elsewhere.
+
+No test in these suites runs the model, so none needs a GPU or the export. The model runs
+on WebGPU only, and its checks are the opt-in `tests/opt_zeos_webgpu.mjs` (see *The
+OPT+ZEOS worker*).
 
 `uv build` (used by `build.py`, the determinism test and `test_page.py`) fetches the
 hatchling build backend from PyPI the first time it runs, so those need a network once.

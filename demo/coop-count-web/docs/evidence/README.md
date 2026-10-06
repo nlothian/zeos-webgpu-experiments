@@ -2,11 +2,13 @@
 
 Journals of the coop-count cases run by `JsMachine` over the model worker
 (Qwen2.5-0.5B-Instruct, int8, onnxruntime-web's WebAssembly backend, one thread), and the
-attention each decode step measured. `run.sh` rewrites all of them; `report.txt` is
-`python -m zeos_coop_count_web.evidence` over each journal.
+attention each decode step measured. They were written by `run.sh` with `node_run`, which
+ran the model worker under Node; the model now runs on WebGPU only, so neither is in the
+repository any more (both are at `a397805`), and these files are the record of those runs.
+`report.txt` is `python -m zeos_coop_count_web.evidence` over each journal.
 
 The journal has no field for attention: its events are the kernel's, and `machine.decode`
-records the words decoded, not what the step attended. So `node_run` writes the
+records the words decoded, not what the step attended. So `node_run` wrote the
 measurement beside the journal, one line per decode step keyed by the sequence number of
 that step's `machine.decode` event: the mass per kernel block that `JsMachine` returned in
 `DecodeResult.attention`, the mass per segment as the kernel summed it, and the mass on

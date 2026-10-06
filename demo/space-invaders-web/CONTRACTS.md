@@ -157,12 +157,13 @@ Where the code settles what the text above leaves open, or differs from it:
 - **CPython (`NodeWorker`).** `beginDecodeStep`, `pollDecode(timeoutMs)`,
   `cancelDecode()` and the `inFlight` property, over the existing pipe to
   `web/node_bridge.mjs`: `pollDecode` waits with `select` on the raw pipe; a cancel is a
-  control frame `{"cancel": id}` that the bridge reads while the step awaits the graph and
-  never answers. `pollDecode` returns a plain dict (`attention` a list of floats or
+  control frame `{"cancel": id}` that the bridge reads while the step runs and never
+  answers. `pollDecode` returns a plain dict (`attention` a list of floats or
   `None`). Calls while in flight raise `RuntimeError(CHANNEL_BUSY)`. `close()` with a
   step in flight cancels and drains it, and kills a child that has not exited 30 s after
   its stdin closed. `maxChunk` is passed through unchanged; the worker validates it. `NodeWorker(stub=path)`
-  serves the stub over a JSON file of `{tapes, options}`. This touched
+  serves the stub over a JSON file of `{tapes, options}`; it serves nothing else (the
+  model runs on WebGPU only). This touched
   `node_bridge.mjs`, which the ownership table does not list.
 
 ## 3. Page and worker messages (`si_worker.js`)

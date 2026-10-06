@@ -226,6 +226,10 @@ PLAYWRIGHT_MODULE=… node demo/space-invaders-web/bench/prefill_webgpu.mjs \
 
 ## 4. Syscall adherence on onnxruntime-node CPU: `adherence.py`
 
+`adherence.py` ran the model on onnxruntime-node's CPU provider, which the repository no
+longer has: the model runs on WebGPU only. The script is in the history at `a397805`; its
+results stay in `results/` and are reported here as measured.
+
 ```
 UV_NO_CONFIG=1 uv run python demo/space-invaders-web/bench/adherence.py --arm zeos --board default --mode auto-read
 UV_NO_CONFIG=1 uv run python demo/space-invaders-web/bench/adherence.py --arm zeos --board default --mode auto-read --grammar moves
@@ -385,7 +389,7 @@ The ablation zeos run was started and stopped by hand. Under the CPU contention 
 | `mask_cost.py` / `mask_pyodide.mjs` | §1 under CPython / Pyodide |
 | `prompt_sizes.py` | §2, and the WebGPU inputs (`.cache/webgpu_inputs.json`) |
 | `prefill.html`, `prefill.js`, `prefill_webgpu.mjs` | §3 |
-| `adherence.py` | §4, with `BenchMachine` and `MoveLanguage` |
+| `adherence.py` (removed; at `a397805`) | §4, with `BenchMachine` and `MoveLanguage` |
 | `results/*.json` | the raw outputs quoted here |
 
 `.cache/` holds the large regenerable inputs (the 248k pieces, the ids) and is ignored.
