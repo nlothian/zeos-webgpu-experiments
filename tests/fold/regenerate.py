@@ -6,14 +6,20 @@
 
 """Regenerate ``src/zeos/core/_fold_table.py``, the vendored table ``framing.fold`` reads.
 
-    uv run python -m tests.fold.regenerate
+    uv run --frozen python -m tests.fold.regenerate
 
 The kernel's spoof fold must give the same answer under every Python that runs it --
 CPython 3.12 (Unicode 15.0), 3.13 (15.1) and Pyodide's 3.14 (16.0) -- or the same run
 journals a spoof alarm under one and not the other. So ``framing`` calls nothing in
 ``unicodedata`` and no ``str`` method whose answer depends on the Unicode version: the
-fold is this table, generated once from this Python's Unicode data and committed with
-the version it was made from (``UNICODE_VERSION``).
+fold is this table, generated once from this Python's Unicode data and Unicode's
+confusables of the same version, and committed with that version (``UNICODE_VERSION``).
+The generator refuses to run under a Python of another Unicode version.
+
+The look-alikes come from UTS #39's confusables.txt, version 15.0.0, committed beside
+this file (``confusables-15.0.0.txt``, from ``CONFUSABLES_URL``; its hash is checked
+against ``CONFUSABLES_SHA256`` before it is read). It is Unicode data, redistributed under
+the Unicode terms of use its header names; keep the file whole, header and all.
 
 A character's fold, as generated here:
 
@@ -25,24 +31,53 @@ A character's fold, as generated here:
    feed and carriage return (so the information separators U+001C-U+001F and NEL U+0085,
    which split a word for ``str.split`` but not for a reader, are dropped), and a
    combining mark (Mn, Me), so an accent stacked on a letter does not hide it.
-2. Otherwise its compatibility decomposition (NFKD), with combining marks dropped, then
-   each character upper-cased and mapped through the look-alikes below
-   (``LOOK_ALIKES``), applied both before upper-casing (for lower-case shapes) and
-   after.
+2. Otherwise its compatibility decomposition (NFKD), with those dropped again.
+3. Each character of that, folded on its own:
+
+   - **ASCII is only upper-cased.** confusables.txt maps eight ASCII characters
+     (``0`` to ``O``; ``1``, ``I`` and ``|`` to ``l``; ``m`` to ``rn``; and the quotes
+     and ``%``), but the frame names and their JSON-escaped openings are written in
+     ASCII, and folding ASCII into ASCII would change what they are: ``\\u003c`` would
+     fold to ``\\UOO3C``, ``RESUME`` to ``RESURNE``, ``<FAULT|`` would run on. So
+     ordinary ASCII text folds exactly as it did with case alone, and an ASCII
+     confusion (``<kerne1>``) is outside the fold.
+   - **Any other character is read by its confusables prototype**, case-sensitively,
+     as UTS #39 maps it (``_read``): the prototype decomposed, ``rn`` read as the ``m``
+     it stands for (``READS_AS``), any character of it other than ASCII read through
+     ``SUPPLEMENT``, and then upper-cased. The prototype is used only when all of that
+     is ASCII. So the Cyrillic ``а`` reads as ``A``, the Greek ``ν`` as ``V``, ``ɱ`` as
+     ``M``, and the Cyrillic ``І``, the Hebrew paseq ``׀`` and the Arabic-Indic one ``١``,
+     whose prototype is ``l``, as ``L``. A letter whose prototype would read as a
+     tag's ``<``, ``>`` or ``/`` is not read so (``TAG_PUNCTUATION``).
+   - **Otherwise upper-cased**, and each character of that read the same way, so the
+     Cyrillic ``к``, whose own prototype is the kra ``ĸ``, reads as ``K`` through its
+     capital ``К``.
+   - **Otherwise left as it is.**
+
+   UTS #39's skeleton is NFD, map, NFD, all case-sensitive. Here case comes after the
+   map, because the map is case-sensitive (``η`` is drawn as an ``n`` and ``Η`` as an
+   ``H``), and upper-casing the prototype is what makes the fold match whatever the
+   case; the capital is tried only for a character whose own prototype is not ASCII.
+
+``SUPPLEMENT`` holds what the curated look-alikes the fold had before (6a27b78) caught
+and confusables.txt does not map to ASCII: the Latin small capitals, a few letters of
+Cyrillic, Coptic, Armenian, Runic and Canadian Syllabics, and the angle-bracket
+ornaments.
+
+Every confusables.txt entry maps one code point, so the per-character table holds
+every one; a prototype of several characters (``æ`` to ``ae``, ``ʦ`` to ``ts``) becomes
+a fold of several. A confusion of several characters with one (``rn`` with ``m``, in
+ASCII) cannot be a per-character fold and is not one: see ``READS_AS``.
 
 The table keeps a character only when its fold differs from it and is empty or holds an
 ASCII character: everything the frame patterns can match is ASCII, so any other
-character may stand for itself. The look-alikes are those of Unicode's confusables
-(UTS #39) that read as the letters, brackets and slash of the folded frame names, and
-the Latin letters a frame name could be confused with, written out here from the
-scripts that carry them: Cyrillic, Greek, Coptic, Armenian, Cherokee, Lisu, Runic,
-Canadian Syllabics and Latin small capitals. It is a curated subset, not the whole of
-confusables.txt; a look-alike missing from it is a gap in the advisory alarm, not in
-what a job may do.
+character may stand for itself. A look-alike missing from it is a gap in the advisory
+alarm, not in what a job may do.
 """
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import unicodedata
 from pathlib import Path
@@ -73,165 +108,99 @@ DEFAULT_IGNORABLE: tuple[tuple[int, int], ...] = (
 #: Whitespace a reader sees: kept, though ``str.split`` treats more as whitespace.
 VISIBLE_CONTROLS = frozenset("\t\n\v\f\r")
 
-#: Characters that read as an ASCII letter, bracket or slash, by what they read as.
-LOOK_ALIKES: dict[str, str] = {
-    # Cyrillic, either case.
-    **dict.fromkeys("АаⲀ", "A"),
-    **dict.fromkeys("ВвⲂʙ", "B"),
-    **dict.fromkeys("СсϹϲⲤⲥ", "C"),
-    **dict.fromkeys("ԁ", "D"),
-    **dict.fromkeys("ЕеЀЁѐё", "E"),
-    **dict.fromkeys("Һһ", "H"),
-    **dict.fromkeys("ІіЇї", "I"),
-    **dict.fromkeys("Јј", "J"),
-    **dict.fromkeys("Кк", "K"),
-    **dict.fromkeys("ӀӏǀƖ", "L"),
-    **dict.fromkeys("Мм", "M"),
-    **dict.fromkeys("п", "N"),
-    **dict.fromkeys("Оо", "O"),
-    **dict.fromkeys("Рр", "P"),
-    **dict.fromkeys("Ԛԛ", "Q"),
-    **dict.fromkeys("г", "R"),
-    **dict.fromkeys("Ѕѕ", "S"),
-    **dict.fromkeys("Тт", "T"),
-    **dict.fromkeys("Ԝԝ", "W"),
-    **dict.fromkeys("Хх", "X"),
-    **dict.fromkeys("Ууү Ү".replace(" ", ""), "Y"),
-    # Greek.
-    **dict.fromkeys("Αα", "A"),
-    **dict.fromkeys("Ββ", "B"),
-    **dict.fromkeys("Εε", "E"),
-    **dict.fromkeys("Ϝϝ", "F"),
-    **dict.fromkeys("Ηη", "N"),
-    **dict.fromkeys("Ιι", "I"),
-    **dict.fromkeys("Κκϰ", "K"),
-    **dict.fromkeys("Μ", "M"),
-    **dict.fromkeys("Νν", "N"),
-    **dict.fromkeys("Οο", "O"),
-    **dict.fromkeys("Ρρ", "P"),
-    **dict.fromkeys("Ττ", "T"),
-    **dict.fromkeys("Υυ", "U"),
-    **dict.fromkeys("Χχ", "X"),
-    **dict.fromkeys("Ζ", "Z"),
-    # Coptic capitals (their small letters upper-case to these).
-    "Ⲉ": "E",
-    "Ⲓ": "I",
-    "Ⲕ": "K",
-    "Ⲙ": "M",
-    "Ⲛ": "N",
-    "Ⲟ": "O",
-    "Ⲣ": "P",
-    "Ⲧ": "T",
-    "Ⲩ": "Y",
-    "Ⲭ": "X",
+#: Unicode's confusables (UTS #39), committed beside this file with its notice intact.
+CONFUSABLES = Path(__file__).with_name("confusables-15.0.0.txt")
+CONFUSABLES_URL = "https://www.unicode.org/Public/security/15.0.0/confusables.txt"
+CONFUSABLES_SHA256 = "2b10130885c3370b101c52d7baedc452ab7f0e257b86c1e52ee657ecfc29ce64"
+CONFUSABLES_VERSION = "15.0.0"
+
+#: A prototype that stands for an ASCII letter it is not spelled with. Confusables
+#: gives ``m`` the prototype ``rn``, so a character drawn as an ``m`` (``ɱ``, ``₥``) has
+#: it too; the fold reads it as the ``M`` a frame name is spelled with.
+READS_AS: dict[str, str] = {"rn": "m"}
+
+#: What opens or closes a tag. Confusables maps a few letters to these -- the
+#: hiragana ``く`` and ``ぐ`` and the katakana ``ノ`` among them -- and a letter in running
+#: text is read as a letter: Japanese text often runs a Latin word straight on after
+#: one, and ``書くKernel`` is no tag. So a letter's prototype is not used when it holds
+#: one of these; the two such letters the curated look-alikes caught, the Canadian
+#: Syllabics ``ᐸ`` and ``ᐳ``, are in ``SUPPLEMENT``.
+TAG_PUNCTUATION = frozenset("</>")
+
+#: What the curated look-alikes of 6a27b78 caught and confusables.txt does not map to
+#: an ASCII prototype, kept so that no look-alike the fold caught before is lost. Each
+#: is read as the folded letter or bracket it is drawn as. An entry is read before the
+#: character's own prototype, and in place of a prototype's character, so ``τ`` and
+#: ``т``, whose prototype is the small capital ``ᴛ``, read as ``T``, and ``〈`` and ``⟨``,
+#: whose prototype is the ornament ``❬``, read as ``<``.
+SUPPLEMENT: dict[str, str] = {
+    # Latin small capitals: confusables maps them to no ASCII letter (several are the
+    # prototypes of Greek, Cyrillic and Cherokee small letters), but they read as the
+    # capitals they are drawn as.
+    "\u1d00": "A",  # ᴀ
+    "\u0299": "B",  # ʙ
+    "\u1d05": "D",  # ᴅ
+    "\u1d07": "E",  # ᴇ
+    "\ua730": "F",  # ꜰ
+    "\u0262": "G",  # ɢ
+    "\u029c": "H",  # ʜ
+    "\u1d0a": "J",  # ᴊ
+    "\u1d0b": "K",  # ᴋ, which confusables maps to the kra ĸ
+    "\u029f": "L",  # ʟ
+    "\u1d0d": "M",  # ᴍ, which confusables maps to the turned ʍ
+    "\u0274": "N",  # ɴ
+    "\u1d18": "P",  # ᴘ
+    "\u1d1b": "T",  # ᴛ
+    # Cyrillic.
+    "\u04ba": "H",  # Һ shha
+    "\u051a": "Q",  # Ԛ qa
+    "\u043f": "N",  # п pe, which confusables maps to the Greek π
+    "\u04cf": "L",  # ӏ small palochka: confusables reads it as i (by way of the dotless
+    # ı); it is drawn as the capital Ӏ is, which confusables reads as l.
+    # Coptic capitals.
+    "\u2c80": "A",  # Ⲁ alfa
+    "\u2c82": "B",  # Ⲃ vida
+    "\u2c88": "E",  # Ⲉ eie, which confusables maps to the barred Ꞓ
     # Armenian.
-    "Լ": "L",  # Լ
-    "Ս": "U",  # Ս
-    "ս": "U",  # ս
-    "Տ": "S",  # Տ
-    "Օ": "O",  # Օ
-    "օ": "O",  # օ
-    "ո": "N",  # ո
-    "հ": "H",  # հ
-    # Cherokee capitals (their small letters upper-case to these).
-    "Ꭰ": "D",
-    "Ꭱ": "R",
-    "Ꭲ": "T",
-    "Ꭺ": "A",
-    "Ꭻ": "J",
-    "Ꭼ": "E",
-    "Ꮃ": "W",
-    "Ꮇ": "M",
-    "Ꮋ": "H",
-    "Ꮐ": "G",
-    "Ꮓ": "Z",
-    "Ꮢ": "R",
-    "Ꮩ": "V",
-    "Ꮪ": "S",
-    "Ꮮ": "L",
-    "Ꮯ": "C",
-    "Ꮲ": "P",
-    "Ꮶ": "K",
-    "Ᏼ": "B",
-    # Lisu: the letters drawn as upright Latin capitals.
-    "ꓐ": "B",
-    "ꓑ": "P",
-    "ꓓ": "D",
-    "ꓔ": "T",
-    "ꓖ": "G",
-    "ꓗ": "K",
-    "ꓙ": "J",
-    "ꓚ": "C",
-    "ꓜ": "Z",
-    "ꓝ": "F",
-    "ꓟ": "M",
-    "ꓠ": "N",
-    "ꓡ": "L",
-    "ꓢ": "S",
-    "ꓣ": "R",
-    "ꓦ": "V",
-    "ꓧ": "H",
-    "ꓪ": "W",
-    "ꓫ": "X",
-    "ꓬ": "Y",
-    "ꓮ": "A",
-    "ꓰ": "E",
-    "ꓲ": "I",
-    "ꓳ": "O",
-    "ꓴ": "U",
+    "\u053c": "L",  # Լ liwn
     # Runic.
-    "ᚱ": "R",
-    "ᛁ": "I",
-    "ᛒ": "B",
-    "ᛕ": "K",
-    "ᛖ": "M",
+    "\u16b1": "R",  # ᚱ raido
+    "\u16d2": "B",  # ᛒ berkanan
     # Canadian Syllabics.
-    "ᐯ": "V",
-    "ᑌ": "U",
-    "ᑎ": "N",
-    "ᑕ": "C",
-    "ᑭ": "P",
-    "ᒍ": "J",
-    "ᒪ": "L",
-    "ᔕ": "S",
-    "ᕼ": "H",
-    "ᖇ": "R",
-    "ᗅ": "A",
-    "ᗪ": "D",
-    "ᗰ": "M",
-    "ᗷ": "B",
-    # Latin small capitals, which no case mapping reaches.
-    "ᴀ": "A",
-    "ᴄ": "C",
-    "ᴅ": "D",
-    "ᴇ": "E",
-    "ꜰ": "F",
-    "ɢ": "G",
-    "ʜ": "H",
-    "ɪ": "I",
-    "ᴊ": "J",
-    "ᴋ": "K",
-    "ʟ": "L",
-    "ᴍ": "M",
-    "ɴ": "N",
-    "ᴏ": "O",
-    "ᴘ": "P",
-    "ʀ": "R",
-    "ꜱ": "S",
-    "ᴛ": "T",
-    "ᴜ": "U",
-    "ᴠ": "V",
-    "ᴡ": "W",
-    "ʏ": "Y",
-    "ᴢ": "Z",
+    "\u144e": "N",  # ᑎ ti, which confusables maps to the Armenian Ո
+    "\u1455": "C",  # ᑕ ta
+    "\u1515": "S",  # ᔕ sha
     # Other Latin.
-    "ı": "I",  # dotless i
-    "ȷ": "J",  # dotless j
-    # Brackets and the slash.
-    **dict.fromkeys("‹〈⟨❬❮˂ᐸ⧼", "<"),
-    **dict.fromkeys("›〉⟩❭❯˃ᐳ⧽", ">"),
-    **dict.fromkeys("∕⁄⧸╱⟋〳", "/"),
+    "\u0237": "J",  # ȷ dotless j
+    # Canadian Syllabics letters drawn as angle brackets (see ``TAG_PUNCTUATION``).
+    "\u1438": "<",  # ᐸ pa
+    "\u1433": ">",  # ᐳ po
+    # Angle-bracket ornaments, the prototypes of 〈 〉 ⟨ ⟩, and the curved brackets.
+    "\u276c": "<",  # ❬
+    "\u276d": ">",  # ❭
+    "\u29fc": "<",  # ⧼
+    "\u29fd": ">",  # ⧽
 }
+
+
+def _confusables() -> dict[str, str]:
+    """confusables.txt's mappings, each source character to its prototype, after
+    checking the file is the one this generator was written for."""
+    data = CONFUSABLES.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != CONFUSABLES_SHA256:
+        raise SystemExit(f"{CONFUSABLES.name}: sha256 {digest}, expected {CONFUSABLES_SHA256}")
+    mappings: dict[str, str] = {}
+    for line in data.decode("utf-8").splitlines():
+        fields = line.split("#", 1)[0].split(";")
+        if len(fields) < 3:
+            continue
+        (source,) = fields[0].split()
+        mappings[chr(int(source, 16))] = "".join(chr(int(c, 16)) for c in fields[1].split())
+    return mappings
+
+
+PROTOTYPES = _confusables()
 
 
 def _ignorable(codepoint: int) -> bool:
@@ -244,21 +213,49 @@ def _ignorable(codepoint: int) -> bool:
     return category in ("Cf", "Mn", "Me")
 
 
-def _look(char: str) -> str:
-    return LOOK_ALIKES.get(char, char)
+def _decomposed(text: str) -> str:
+    """``text``'s compatibility decomposition, with what a reader does not see dropped."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not _ignorable(ord(c)))
+
+
+def _read(char: str) -> str | None:
+    """What a character other than ASCII reads as in folded ASCII: its ``SUPPLEMENT``
+    entry, or else its confusables prototype, decomposed, read through ``READS_AS``
+    and upper-cased, with any character of it other than ASCII read through
+    ``SUPPLEMENT``. ``None`` when neither gives ASCII."""
+    if char in SUPPLEMENT:
+        return SUPPLEMENT[char]
+    target = _decomposed(PROTOTYPES.get(char, ""))
+    target = READS_AS.get(target, target)
+    parts = [c.upper() if c.isascii() else SUPPLEMENT.get(c) for c in target]
+    if not parts or None in parts:
+        return None
+    read = "".join(p for p in parts if p is not None)
+    if unicodedata.category(char).startswith("L") and not TAG_PUNCTUATION.isdisjoint(read):
+        return None
+    return read
+
+
+def _fold_char(char: str) -> str:
+    """One character of a decomposition, folded: ASCII upper-cased; any other read as
+    it is drawn (``_read``), or else upper-cased and each character of that read."""
+    if char.isascii():
+        return char.upper()
+    read = _read(char)
+    if read is not None:
+        return read
+    upper = char.upper()
+    parts = [c if c.isascii() else _read(c) for c in upper]
+    if None in parts:
+        return upper
+    return "".join(p for p in parts if p is not None)
 
 
 def fold_of(codepoint: int) -> str:
     """One character's fold, as the module docstring defines it."""
     if 0xD800 <= codepoint <= 0xDFFF or _ignorable(codepoint):
         return ""
-    out: list[str] = []
-    for char in unicodedata.normalize("NFKD", chr(codepoint)):
-        if _ignorable(ord(char)):
-            continue
-        for upper in _look(char).upper():
-            out.extend(_look(c) for c in upper.upper())
-    return "".join(out)
+    return "".join(_fold_char(c) for c in _decomposed(chr(codepoint)))
 
 
 def build() -> tuple[list[tuple[int, int]], dict[int, str]]:
@@ -289,9 +286,11 @@ def render() -> str:
         "",
         '"""The spoof fold\'s table (``zeos.core.framing.fold``). Generated; do not edit.',
         "",
-        "    uv run python -m tests.fold.regenerate",
+        "    uv run --frozen python -m tests.fold.regenerate",
         "",
-        "``tests/fold/regenerate.py`` says what a fold is. ``DROPPED`` are the code-point",
+        "``tests/fold/regenerate.py`` says what a fold is: what a reader does not see",
+        f"dropped, NFKD, and look-alikes read through Unicode's confusables {CONFUSABLES_VERSION}",
+        "(UTS #39) and a small supplement, upper-cased. ``DROPPED`` are the code-point",
         "ranges that fold to nothing. ``MAPPED`` holds every other character whose fold",
         "differs from it and holds an ASCII character, as ``code:fold`` entries separated by",
         "``;``, the code point and the fold's code points in hexadecimal, the latter",
@@ -319,6 +318,11 @@ def render() -> str:
 
 
 def main() -> None:
+    if unicodedata.unidata_version != CONFUSABLES_VERSION:
+        raise SystemExit(
+            f"Unicode {unicodedata.unidata_version} here; the fold is generated from "
+            f"{CONFUSABLES_VERSION}, with confusables.txt of that version"
+        )
     was = TARGET.read_text("utf-8") if TARGET.is_file() else ""
     now = render()
     TARGET.write_text(now, encoding="utf-8")

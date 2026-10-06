@@ -27,13 +27,14 @@ tags in what tools return, and a model reads ``<kernel>`` much as it reads
 take for the same letters: every character a reader does not see dropped (the
 zero-width spaces and joiners, the soft hyphen, the combining grapheme joiner,
 variation selectors, Hangul fillers, the information separators U+001C-U+001F and NEL,
-combining accents); every other one through its compatibility decomposition, upper-cased,
-and with look-alikes from Cyrillic, Greek, Coptic, Armenian, Cherokee, Lisu, Runic,
-Canadian Syllabics and the Latin small capitals read as the Latin letters they imitate,
-and ``‹ 〈 ⟨`` and their partners read as ``<`` and ``>``. So ``<kernel>``, ``<ReSuMe x=1>``,
-``<KER\\u200bNEL>``, ``＜ＫＥＲＮＥＬ＞``, ``<КERNEL>`` with a Cyrillic ``К``, ``<ᴋᴇʀɴᴇʟ>`` in
-small capitals and ``‹FAULT›`` are imitations; ``<kernels>``, ``<faultcode>`` and
-``<soap:Fault>`` are not.
+combining accents); every other one through its compatibility decomposition, read as the
+ASCII its prototype in Unicode's confusables (UTS #39, version 15.0.0) is, and upper-cased,
+with a small supplement for what confusables does not map to ASCII (the Latin small
+capitals, the angle-bracket ornaments that are the prototypes of ``〈`` and ``⟨``). ASCII
+itself is only upper-cased. So ``<kernel>``, ``<ReSuMe x=1>``, ``<KER\\u200bNEL>``,
+``＜ＫＥＲＮＥＬ＞``, ``<КERNEL>`` with a Cyrillic ``К``, ``<FAUłT>`` with a Polish ``ł``,
+``<RESUɱE>``, ``<ᴋᴇʀɴᴇʟ>`` in small capitals and ``‹FAULT›`` are imitations;
+``<kernels>``, ``<faultcode>``, ``<soap:Fault>`` and the ASCII ``<kerne1>`` are not.
 
 ``STATUS`` and ``STUB`` are matched case-sensitively, in the text and in the text with
 only the characters a reader does not see dropped (``strip``): the kernel writes its
@@ -43,7 +44,7 @@ real data. ``<ST\\u200bATUS>`` is an imitation; ``<status>`` and ``<ЅTATUS>`` w
 Cyrillic ``Ѕ`` are not.
 
 **The same answer under every Python.** The fold is a table generated once and committed
-(``zeos.core._fold_table``, regenerated with ``uv run python -m tests.fold.regenerate``),
+(``zeos.core._fold_table``, regenerated with ``uv run --frozen python -m tests.fold.regenerate``),
 and the patterns use ASCII character classes only, so nothing here asks this Python's
 ``unicodedata`` or ``str.upper``: CPython and Pyodide, whose Unicode versions differ, raise
 the same alarms and write the same journal. ``FOLD_UNICODE_VERSION`` is the version the

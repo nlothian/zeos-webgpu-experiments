@@ -9,8 +9,9 @@
 
 A model reads ``<kernel>`` much as it reads ``<KERNEL>``, and those three names almost
 never appear as bare tags in real data, so they are matched whatever their case, through
-invisible format characters, and through NFKC and Cyrillic or Greek look-alikes. Lower-case
-``<status>`` and ``<stub>`` are common in genuine XML, so those two stay case-sensitive.
+invisible format characters, and through compatibility forms and the look-alikes of
+Unicode's confusables (UTS #39, 15.0.0) and a small supplement. Lower-case ``<status>``
+and ``<stub>`` are common in genuine XML, so those two stay case-sensitive.
 """
 
 from __future__ import annotations
@@ -204,6 +205,81 @@ NOT_EVASIONS = {
     "a Cyrillic STATUS": "<\u0405TATUS>",
     "a small-capital run-on": "<\u1d0b\u1d07\u0280\u0274\u1d07\u029f\ua731>",
 }
+
+
+# -- look-alikes from confusables.txt that the curated subset before it missed -----------
+
+#: Imitations spelled with look-alikes only Unicode's confusables reads as Latin.
+CONFUSABLES = {
+    "Polish l with stroke": "<FAU\u0142T>",
+    "Cyrillic Ka with descender": "<\u049aERNEL>",
+    "Greek capital Iota, whose prototype is l": "<KERNE\u0399>",
+    "Cyrillic Byelorussian-Ukrainian I, whose prototype is l": "</FAU\u0406T>",
+    "Hebrew paseq, whose prototype is l": "<KERNE\u05c0>",
+    "Arabic-Indic digit one, whose prototype is l": "<FAU\u0661T>",
+    "m with hook, whose prototype is rn": "<RESU\u0271E>",
+    "mill sign, whose prototype is rn": "<RESU\u20a5E>",
+    "Armenian small ra for n": "<KER\u057cEL>",
+    "Latin alpha for a": "<F\u0251ULT>",
+    "kip sign for K": "<\u20adERNEL>",
+    "union for U": "<FA\u222aLT>",
+    "Tifinagh yadd for E": "<K\u2d39RNEL>",
+    "Cherokee small de for s": "<RE\uaba5UME>",
+    "Old Italic letter for T": "<FAUL\U00010315>",
+    "Greek notation brackets": "\U0001d236KERNEL\U0001d237",
+    "CJK stroke as a bracket": "\u31dbFAULT>",
+    "caret insertion point as the slash": "<\u2041KERNEL>",
+}
+
+
+@pytest.mark.parametrize("text", CONFUSABLES.values(), ids=CONFUSABLES.keys())
+def test_a_confusables_look_alike_is_an_imitation(text: str) -> None:
+    assert spells_frame(text)
+    assert imitates_frame(tokens_from_text(_as_json(text), preserve_whitespace=True))
+    seen = "".join(shown_words(tokens_from_text(f"rows {text} end", preserve_whitespace=True)))
+    assert not spells_frame(seen)
+
+
+#: Ordinary text with the characters confusables maps within ASCII (``rn`` and ``m``,
+#: ``0`` and ``O``, ``1``, ``I``, ``l`` and ``|``) and with letters it maps to ``<`` and
+#: ``/``, none of which may raise an alarm. ASCII folds only by case, and a letter is not
+#: read as a tag's punctuation.
+ORDINARY_TEXT = {
+    "prose": "The kernel returned 0 rows; resume at line 1 after the fault in modern l10n.",
+    "C loop": "for (int i = 0; i<n; i++) { if (rn<0.5 || l|1) m |= 1 << i; }",
+    "comparisons": "if (a<0 || b<1 || c<l || d<|x|) return mern;",
+    "generics": "Map<String, List<FaultInfo>> kernels = new HashMap<>(); Optional<ResumeLink> r;",
+    "HTML": "<ul><li>Kernel 1.0</li><li>l|0</li></ul><form><return/><intern>",
+    "run-on names with digits": "<kernel1> <fault0> <RESUME_1> <FAULTS> </kernel10>",
+    "ASCII confusions": "<kerne1> <KERNEI> <FAU|T> <FAU1T> <resurne> <RESUrnE> <FAULT0>",
+    "shell": "grep -rn kernel /var/log | wc -l > /tmp/out 2>&1 </dev/null",
+    "markdown table": "| kernel | fault | resume |\n|---|---|---|\n| 0 | 1 | l |",
+    "Japanese with く and ノ before Latin words": "動くkernel、書くresume、ノ/fault、ぐFAULT",
+    "Arabic alef and digit one after a bracket": "<\u0627\u0644\u0646\u0648\u0627\u0629> <\u0661>",
+    "Hebrew vav after a bracket": "<\u05d5\u05df>",
+    "Polish": "<łódź> <Łukasz> <kernel_ł>",
+}
+
+
+@pytest.mark.parametrize("text", ORDINARY_TEXT.values(), ids=ORDINARY_TEXT.keys())
+def test_ordinary_text_raises_no_alarm(text: str) -> None:
+    assert not spells_frame(text)
+    for preserve in (False, True):
+        tokens = tokens_from_text(text, preserve_whitespace=preserve)
+        assert not imitates_frame(tokens)
+        assert shown_words(tokens) == tuple(t.text for t in tokens)
+
+
+def test_a_prototype_is_read_through_the_supplement() -> None:
+    # Confusables maps the Greek and Cyrillic small t to the small capital, and the
+    # angle brackets to an ornament; the supplement reads those as ASCII.
+    assert fold("\u03c4\u0442\u1d1b") == "TTT"
+    assert fold("\u3008\u27e8\u276c \u3009\u27e9\u276d") == "<<< >>>"
+
+
+def test_ascii_folds_by_case_alone() -> None:
+    ascii_ = "".join(map(chr, range(0x80)))
+    assert fold(ascii_) == framing.strip(ascii_).upper()
 
 
 @pytest.mark.parametrize("text", EVASIONS.values(), ids=EVASIONS.keys())

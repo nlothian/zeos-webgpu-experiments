@@ -3,6 +3,10 @@
 #
 #   uv run pre-commit install      # once, to enable the git hook
 #   uv run pre-commit run -a       # run on the whole tree
+#
+# Unicode's confusables.txt is vendored byte for byte (its sha256 is checked by
+# tests/fold/regenerate.py), trailing whitespace, size and all.
+exclude: ^tests/fold/confusables-15\.0\.0\.txt$
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 1f1e8bf348ff38fc88619a38d3ca4d9c56abea49  # v0.16.5
