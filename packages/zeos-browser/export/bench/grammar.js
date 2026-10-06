@@ -29,7 +29,7 @@ function log(line) {
 try {
   const began = performance.now();
   const model = await startBrowserModel({
-    modelUrl,
+    model: { url: modelUrl, cache: null },
     ortWebgpuUrl: ortUrl,
     tokenizersUrl: "/node_modules/@huggingface/tokenizers/dist/tokenizers.min.mjs",
   });
