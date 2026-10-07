@@ -418,7 +418,7 @@ disagree, this section says which holds.
   they settle first; on WebGPU at chunk 128 that is up to about 0.7-1.5 s (`cancel_ms`,
   rising with the context), and
   the loop stalls for it.
-- **Wave 3 defaults** (measured on WebGPU with no other GPU user, README *Measured*):
+- **Wave 3 defaults** (measured on WebGPU with no other GPU user; `bench/results/webgpu/q_c*.json`):
   `DEFAULT_MAX_CHUNK` is 128, superseding the machine notes' 256; the pilot's context
   window is 32,768 (`page.DEFAULT_PILOT_CONTEXT`, laid over the native `goals/pilot.md`'s
   4096 on the built kernel, so the native case is unchanged and there is no copy of
