@@ -1,0 +1,661 @@
+{
+  "note": "Current defaults at the kernel's own starvation limit (8), local model export, both arms on both boards, each to game over or the 600-tick default game's end. The contention check flagged an idle (0% CPU) everyday Chrome GPU process throughout.",
+  "tune": null,
+  "rows": [
+    {
+      "arm": "zeos",
+      "board": "default",
+      "seed": 11,
+      "stopped": false,
+      "contention": {
+        "other_gpu_processes": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          }
+        ],
+        "before": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ],
+        "after": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ]
+      },
+      "quiet_gpu": false,
+      "lives": 3,
+      "kills": 11,
+      "ticks": 600,
+      "decisions": 111,
+      "lag_ticks": {
+        "mean": 9.09,
+        "p95": 18,
+        "max": 23
+      },
+      "preemptions": 47,
+      "cancellations": 43,
+      "reflexes": 47,
+      "overrun_ms": {
+        "mean": 25.34,
+        "p95": 7.485,
+        "max": 2570.86
+      },
+      "catchup_ticks": 16,
+      "warm_s": {
+        "page": 17.55,
+        "python": 16.217,
+        "prewarm_ms": 5202
+      },
+      "parse_rate": null,
+      "verdicts": [
+        "fire-reaches-a-handler:true",
+        "the-reflex-displaces-deliberation:true",
+        "the-dodge-lands-inside-the-budget:true",
+        "the-pilot-is-told-the-ship-moved:true"
+      ],
+      "worker_calls": {
+        "append": {
+          "calls": 349,
+          "total_ms": 20.9,
+          "max_ms": 0.3
+        },
+        "beginDecodeStep": {
+          "calls": 367,
+          "total_ms": 30.5,
+          "max_ms": 1.2
+        },
+        "cancelDecode": {
+          "calls": 43,
+          "total_ms": 0.5,
+          "max_ms": 0.1
+        },
+        "createContext": {
+          "calls": 1,
+          "total_ms": 0.3,
+          "max_ms": 0.3
+        },
+        "info": {
+          "calls": 1,
+          "total_ms": 0.6,
+          "max_ms": 0.6
+        },
+        "length": {
+          "calls": 549,
+          "total_ms": 77.1,
+          "max_ms": 24.3
+        },
+        "piece": {
+          "calls": 248077,
+          "total_ms": 364.6,
+          "max_ms": 5.2
+        },
+        "pollDecode": {
+          "calls": 37252,
+          "total_ms": 246533.4,
+          "max_ms": 1005.1
+        },
+        "tokenize": {
+          "calls": 743,
+          "total_ms": 67.4,
+          "max_ms": 2.2
+        }
+      },
+      "gc": {
+        "gen1": {
+          "count": 2355,
+          "total_ms": 755.3,
+          "max_ms": 10.4
+        }
+      },
+      "cancel_ms": {
+        "mean": 915.669,
+        "p95": 1892.92,
+        "max": 2833.68
+      },
+      "roundtrip_s": {
+        "mean": 3.424,
+        "p95": 6.176,
+        "max": 10.973
+      },
+      "syscall_adherence": {
+        "moves": 64,
+        "valid": 64,
+        "exits": 0
+      },
+      "step_totals": {
+        "token": 323,
+        "stall": 36876,
+        "cancelled": 18,
+        "native": 158
+      },
+      "biggest_step": {
+        "job": "1",
+        "outcome": "token",
+        "positions": 222,
+        "chunks": 3,
+        "fill_ms": 5144.259999990463,
+        "wall_ms": 7.225000000005366
+      },
+      "splices": 0,
+      "journal_splices": 0,
+      "context_ids": {
+        "1": 21689
+      },
+      "pilot_context": {
+        "window": 32768
+      },
+      "kernel_options": {},
+      "longest_pilot_gap": {
+        "ticks": 23,
+        "seconds": 11.5,
+        "from_tick": 339,
+        "to_tick": 362,
+        "splices": 0
+      },
+      "faults": []
+    },
+    {
+      "arm": "prompt",
+      "board": "default",
+      "seed": 11,
+      "stopped": false,
+      "contention": {
+        "other_gpu_processes": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          }
+        ],
+        "before": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ],
+        "after": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ]
+      },
+      "quiet_gpu": false,
+      "lives": 0,
+      "kills": 6,
+      "ticks": 409,
+      "decisions": 80,
+      "lag_ticks": {
+        "mean": 5.09,
+        "p95": 6,
+        "max": 7
+      },
+      "preemptions": 0,
+      "cancellations": 0,
+      "reflexes": 0,
+      "overrun_ms": {
+        "mean": 6.381,
+        "p95": 5.105,
+        "max": 250.42
+      },
+      "catchup_ticks": 0,
+      "warm_s": {
+        "page": 7.17,
+        "python": 7.17,
+        "prewarm_ms": null
+      },
+      "parse_rate": 0.988,
+      "verdicts": [],
+      "worker_calls": {
+        "append": {
+          "calls": 198,
+          "total_ms": 25.8,
+          "max_ms": 2.2
+        },
+        "beginDecodeStep": {
+          "calls": 197,
+          "total_ms": 14.9,
+          "max_ms": 0.4
+        },
+        "createContext": {
+          "calls": 1,
+          "total_ms": 0.2,
+          "max_ms": 0.2
+        },
+        "decodeStep": {
+          "calls": 1,
+          "total_ms": 7163,
+          "max_ms": 7163
+        },
+        "destroyContext": {
+          "calls": 80,
+          "total_ms": 43.9,
+          "max_ms": 18.2
+        },
+        "fork": {
+          "calls": 81,
+          "total_ms": 9.6,
+          "max_ms": 5.1
+        },
+        "info": {
+          "calls": 1,
+          "total_ms": 0,
+          "max_ms": 0
+        },
+        "piece": {
+          "calls": 12,
+          "total_ms": 0.1,
+          "max_ms": 0
+        },
+        "pollDecode": {
+          "calls": 8503,
+          "total_ms": 193189.2,
+          "max_ms": 31.6
+        },
+        "tokenize": {
+          "calls": 245,
+          "total_ms": 106.1,
+          "max_ms": 6
+        }
+      },
+      "gc": {
+        "gen1": {
+          "count": 627,
+          "total_ms": 227,
+          "max_ms": 6.2
+        }
+      },
+      "replies": 80,
+      "reply_latency_s": {
+        "mean": 2.423,
+        "p95": 2.713,
+        "max": 2.862
+      },
+      "unparsed": [
+        "```\nincoming fire: row"
+      ],
+      "begin_max_ms": 268.7,
+      "poll_over_max_ms": 11.7
+    },
+    {
+      "arm": "zeos",
+      "board": "ablation",
+      "seed": 11,
+      "stopped": false,
+      "contention": {
+        "other_gpu_processes": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          }
+        ],
+        "before": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ],
+        "after": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ]
+      },
+      "quiet_gpu": false,
+      "lives": 3,
+      "kills": 6,
+      "ticks": 76,
+      "decisions": 20,
+      "lag_ticks": {
+        "mean": 6,
+        "p95": 9,
+        "max": 9
+      },
+      "preemptions": 9,
+      "cancellations": 9,
+      "reflexes": 17,
+      "overrun_ms": {
+        "mean": 21.56,
+        "p95": 102.13,
+        "max": 451.8
+      },
+      "catchup_ticks": 4,
+      "warm_s": {
+        "page": 14.05,
+        "python": 13.167,
+        "prewarm_ms": 3507
+      },
+      "parse_rate": null,
+      "verdicts": [
+        "fire-reaches-a-handler:true",
+        "the-reflex-displaces-deliberation:true",
+        "the-dodge-lands-inside-the-budget:true",
+        "the-pilot-is-told-the-ship-moved:true"
+      ],
+      "worker_calls": {
+        "append": {
+          "calls": 24,
+          "total_ms": 1.4,
+          "max_ms": 0.1
+        },
+        "beginDecodeStep": {
+          "calls": 27,
+          "total_ms": 2.1,
+          "max_ms": 0.1
+        },
+        "cancelDecode": {
+          "calls": 9,
+          "total_ms": 0.1,
+          "max_ms": 0
+        },
+        "createContext": {
+          "calls": 1,
+          "total_ms": 0.1,
+          "max_ms": 0.1
+        },
+        "destroyContext": {
+          "calls": 1,
+          "total_ms": 0.9,
+          "max_ms": 0.9
+        },
+        "info": {
+          "calls": 1,
+          "total_ms": 0,
+          "max_ms": 0
+        },
+        "length": {
+          "calls": 45,
+          "total_ms": 3.9,
+          "max_ms": 0.3
+        },
+        "piece": {
+          "calls": 248077,
+          "total_ms": 343.2,
+          "max_ms": 0.4
+        },
+        "pollDecode": {
+          "calls": 2666,
+          "total_ms": 18240.6,
+          "max_ms": 517.8
+        },
+        "tokenize": {
+          "calls": 599,
+          "total_ms": 28.4,
+          "max_ms": 1.4
+        }
+      },
+      "gc": {
+        "gen1": {
+          "count": 17,
+          "total_ms": 0.1,
+          "max_ms": 0
+        }
+      },
+      "cancel_ms": {
+        "mean": 338.561,
+        "p95": 518.23,
+        "max": 518.23
+      },
+      "roundtrip_s": {
+        "mean": 4.444,
+        "p95": 9.628,
+        "max": 9.628
+      },
+      "syscall_adherence": {
+        "moves": 3,
+        "valid": 3,
+        "exits": 0
+      },
+      "step_totals": {
+        "token": 18,
+        "stall": 2639,
+        "cancelled": 3,
+        "native": 37
+      },
+      "biggest_step": {
+        "job": "1",
+        "outcome": "token",
+        "positions": 2095,
+        "chunks": 17,
+        "fill_ms": 9415.520000100136,
+        "wall_ms": 2.6249999999663487
+      },
+      "splices": 0,
+      "journal_splices": 0,
+      "context_ids": {},
+      "pilot_context": {
+        "window": 32768
+      },
+      "kernel_options": {},
+      "longest_pilot_gap": {
+        "ticks": 58,
+        "seconds": 11.6,
+        "from_tick": 18,
+        "to_tick": 76,
+        "splices": 0
+      },
+      "faults": [
+        {
+          "job": "1",
+          "fault": "scheduler_fault_starvation",
+          "detail": "preempted 9 times without progress (limit 8)"
+        }
+      ]
+    },
+    {
+      "arm": "prompt",
+      "board": "ablation",
+      "seed": 11,
+      "stopped": false,
+      "contention": {
+        "other_gpu_processes": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          }
+        ],
+        "before": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ],
+        "after": [
+          {
+            "pid": 33626,
+            "cpu": 0,
+            "active": true,
+            "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.98/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+          },
+          {
+            "pid": 63248,
+            "cpu": 0,
+            "active": false,
+            "command": "/Users/nlothian/.nvm/versions/node/v22.20.0/bin/node tep-client/node_modules/.pnpm/@playwright+test@1.57.0/node_modules/@playwright/test/cli.js test-server -c t"
+          }
+        ]
+      },
+      "quiet_gpu": false,
+      "lives": 0,
+      "kills": 3,
+      "ticks": 91,
+      "decisions": 10,
+      "lag_ticks": {
+        "mean": 8.5,
+        "p95": 10,
+        "max": 10
+      },
+      "preemptions": 0,
+      "cancellations": 0,
+      "reflexes": 0,
+      "overrun_ms": {
+        "mean": 1.718,
+        "p95": 4.03,
+        "max": 5.33
+      },
+      "catchup_ticks": 0,
+      "warm_s": {
+        "page": 6.51,
+        "python": 6.496,
+        "prewarm_ms": null
+      },
+      "parse_rate": 1,
+      "verdicts": [],
+      "worker_calls": {
+        "append": {
+          "calls": 28,
+          "total_ms": 3.2,
+          "max_ms": 0.5
+        },
+        "beginDecodeStep": {
+          "calls": 27,
+          "total_ms": 2,
+          "max_ms": 0.1
+        },
+        "createContext": {
+          "calls": 1,
+          "total_ms": 0.2,
+          "max_ms": 0.2
+        },
+        "decodeStep": {
+          "calls": 1,
+          "total_ms": 6490.5,
+          "max_ms": 6490.5
+        },
+        "destroyContext": {
+          "calls": 10,
+          "total_ms": 2.6,
+          "max_ms": 0.3
+        },
+        "fork": {
+          "calls": 11,
+          "total_ms": 0.7,
+          "max_ms": 0.2
+        },
+        "info": {
+          "calls": 1,
+          "total_ms": 0,
+          "max_ms": 0
+        },
+        "piece": {
+          "calls": 8,
+          "total_ms": 0.1,
+          "max_ms": 0
+        },
+        "pollDecode": {
+          "calls": 829,
+          "total_ms": 18057.9,
+          "max_ms": 27.2
+        },
+        "tokenize": {
+          "calls": 35,
+          "total_ms": 16.4,
+          "max_ms": 4.4
+        }
+      },
+      "gc": {},
+      "replies": 10,
+      "reply_latency_s": {
+        "mean": 1.715,
+        "p95": 1.998,
+        "max": 1.998
+      },
+      "unparsed": [],
+      "begin_max_ms": 9.9,
+      "poll_over_max_ms": 7.3
+    }
+  ]
+}

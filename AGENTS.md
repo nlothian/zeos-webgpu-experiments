@@ -71,3 +71,14 @@ work-in-progress, AI assistance disclosed.
 - Demos live in `demo/`, each as a uv workspace member with its own pyproject;
   a demo's package must never ship inside the zeos wheel.
 - `runs/` directories and `.env` files are gitignored artifacts and secrets.
+
+## Real-model browser runs
+
+- Build with `build.py --model` before a Playwright WebGPU run (`tests/*_webgpu.mjs`)
+  so the page loads the local export in `packages/zeos-browser/models/`. Each run
+  starts a fresh Chrome profile, so a Hub build downloads the model (~2.4 GB) every
+  time.
+- Run one real-model run at a time, and nothing else on the GPU beside it: WebGPU is
+  shared, and contention changes the timings being measured.
+- Leave the Chrome window the driver opens alone until it closes; a reload or click
+  there aborts the run.
