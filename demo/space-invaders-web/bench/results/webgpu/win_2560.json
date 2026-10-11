@@ -1,0 +1,184 @@
+{
+ "note": "Window sweep: window 2560, chunk 128, zeos arm on the default board, seed 7, full 600-tick game (11 October 2026).",
+ "tune": "{\"context\":{\"window\":2560}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     },
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "before": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "after": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ]
+   },
+   "quiet_gpu": false,
+   "lives": 0,
+   "kills": 9,
+   "ticks": 370,
+   "decisions": 61,
+   "lag_ticks": {
+    "mean": 7.38,
+    "p95": 15,
+    "max": 16
+   },
+   "preemptions": 28,
+   "cancellations": 34,
+   "reflexes": 40,
+   "overrun_ms": {
+    "mean": 36.913,
+    "p95": 7.57,
+    "max": 2306.64
+   },
+   "catchup_ticks": 14,
+   "warm_s": {
+    "page": 17.04,
+    "python": 15.651,
+    "prewarm_ms": 5254.3
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "worker_calls": {
+    "append": {
+     "calls": 130,
+     "total_ms": 8.5,
+     "max_ms": 1.3
+    },
+    "beginDecodeStep": {
+     "calls": 139,
+     "total_ms": 9.2,
+     "max_ms": 0.3
+    },
+    "cancelDecode": {
+     "calls": 34,
+     "total_ms": 0.4,
+     "max_ms": 0.1
+    },
+    "createContext": {
+     "calls": 1,
+     "total_ms": 0.1,
+     "max_ms": 0.1
+    },
+    "destroyContext": {
+     "calls": 1,
+     "total_ms": 0.4,
+     "max_ms": 0.4
+    },
+    "info": {
+     "calls": 1,
+     "total_ms": 0.4,
+     "max_ms": 0.4
+    },
+    "length": {
+     "calls": 225,
+     "total_ms": 20.6,
+     "max_ms": 5.1
+    },
+    "piece": {
+     "calls": 248077,
+     "total_ms": 365.6,
+     "max_ms": 3.1
+    },
+    "pollDecode": {
+     "calls": 16886,
+     "total_ms": 125016,
+     "max_ms": 1010.1
+    },
+    "tokenize": {
+     "calls": 682,
+     "total_ms": 48.4,
+     "max_ms": 2.4
+    },
+    "truncate": {
+     "calls": 8,
+     "total_ms": 3.1,
+     "max_ms": 0.9
+    }
+   },
+   "gc": {
+    "gen1": {
+     "count": 1673,
+     "total_ms": 495,
+     "max_ms": 7.5
+    }
+   },
+   "cancel_ms": {
+    "mean": 669.619,
+    "p95": 1294.625,
+    "max": 1511.91
+   },
+   "roundtrip_s": {
+    "mean": 2.768,
+    "p95": 3.809,
+    "max": 10.354
+   },
+   "syscall_adherence": {
+    "moves": 21,
+    "valid": 21,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 105,
+    "stall": 16743,
+    "cancelled": 9,
+    "native": 101
+   },
+   "positions_total": 9977,
+   "fill_ms_total": 71178.4,
+   "biggest_step": null,
+   "splices": 8,
+   "journal_splices": 8,
+   "context_ids": {},
+   "pilot_context": {
+    "window": 2560
+   },
+   "kernel_options": {},
+   "longest_pilot_gap": {
+    "ticks": 215,
+    "seconds": 107.5,
+    "from_tick": 155,
+    "to_tick": 370,
+    "splices": 3
+   },
+   "faults": [
+    {
+     "job": "1",
+     "fault": "scheduler_fault_starvation",
+     "detail": "preempted 9 times without progress (limit 8)"
+    }
+   ]
+  }
+ ]
+}

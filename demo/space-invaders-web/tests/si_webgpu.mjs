@@ -127,6 +127,8 @@ function metrics(entry, warmWallS, contention) {
       roundtrip_s: x.roundtrip_s,
       syscall_adherence: { moves: x.pilot_moves, valid: x.pilot_valid_moves, exits: x.pilot_exits },
       step_totals: x.step_totals,
+      positions_total: x.positions_total,
+      fill_ms_total: x.fill_ms_total,
       biggest_step: x.biggest_step,
       splices: x.splices,
       journal_splices: x.journal_splices,

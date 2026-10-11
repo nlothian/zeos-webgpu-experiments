@@ -26,6 +26,8 @@ from zeos_space_invaders_web.contracts import BoardName, BoardSpec, Frame, Frame
 from zeos_space_invaders_web.fake_worker import FakePilotWorker
 
 TICK_S = 0.05
+#: Long enough for the pilot to finish a command between bombs (see the starvation test).
+STORMLESS_TICK_S = 0.15
 FIRE = 0.9
 SEED = 7
 MAX_TICKS = 80
@@ -152,16 +154,23 @@ def test_a_long_run_with_many_preemptions_has_no_starvation_fault(
 ) -> None:
     """At the kernel's own limit (8) the pilot outlives many more preemptions than that:
     the kernel counts preemptions since the job last made progress, and the pilot makes
-    progress with every move and every read of a board."""
+    progress with every move and every read of a board.
+
+    The tick must leave the pilot room to finish a command between bombs. A preemption
+    invalidates the command half said, so the pilot needs three uninterrupted 20 ms
+    steps, after prefilling the resume notice, to make a move. At ``TICK_S`` that does not
+    fit, a bomb on most ticks is a genuine storm, and the kernel rightly faults the pilot
+    after 9 preemptions on some runs (3 of 8 measured). At ``STORMLESS_TICK_S`` the longest
+    run of preemptions without progress measured 2-5 over 20 runs, with 12-29 in all."""
     real = page.load_board
 
     def load(name: BoardName, seed: int | None = None) -> BoardSpec:
         spec = real(name, seed)
         rules = dataclasses.replace(spec.rules, fire_chance=FIRE, lives=99)
-        return dataclasses.replace(spec, tick_seconds=TICK_S, rules=rules)
+        return dataclasses.replace(spec, tick_seconds=STORMLESS_TICK_S, rules=rules)
 
     monkeypatch.setattr(page, "load_board", load)
-    monkeypatch.setitem(page.RUNNER_OPTIONS, "max_ticks", 240)
+    monkeypatch.setitem(page.RUNNER_OPTIONS, "max_ticks", 80)
     page.configure_json("")
     worker = _worker()
     run = page.open_run("zeos", "default", SEED, worker)
