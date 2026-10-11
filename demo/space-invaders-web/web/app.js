@@ -214,6 +214,11 @@ function resetLive() {
   }
   state.catchup = 0;
   state.lastFrame = null;
+  // The result pane holds one run: a previous run's verdicts must not sit beside this
+  // run's live numbers.
+  state.last = null;
+  $("summary").textContent = "The result appears when the run finishes.";
+  $("verdicts").replaceChildren();
   $("measures").replaceChildren();
   $("measures-h").hidden = true;
 }
