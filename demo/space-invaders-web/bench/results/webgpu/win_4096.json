@@ -1,0 +1,191 @@
+{
+ "note": "Window sweep: window 4096, chunk 128, zeos arm on the default board, seed 7, full 600-tick game (11 October 2026).",
+ "tune": "{\"context\":{\"window\":4096}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     },
+     {
+      "pid": 58757,
+      "cpu": 0.3,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "before": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "after": [
+     {
+      "pid": 58757,
+      "cpu": 0.3,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ]
+   },
+   "quiet_gpu": false,
+   "lives": 3,
+   "kills": 10,
+   "ticks": 600,
+   "decisions": 93,
+   "lag_ticks": {
+    "mean": 6.14,
+    "p95": 9,
+    "max": 10
+   },
+   "preemptions": 22,
+   "cancellations": 21,
+   "reflexes": 71,
+   "overrun_ms": {
+    "mean": 12.871,
+    "p95": 11.12,
+    "max": 638.16
+   },
+   "catchup_ticks": 3,
+   "warm_s": {
+    "page": 17.57,
+    "python": 16.086,
+    "prewarm_ms": 5229.8
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "worker_calls": {
+    "append": {
+     "calls": 127,
+     "total_ms": 7,
+     "max_ms": 0.3
+    },
+    "beginDecodeStep": {
+     "calls": 134,
+     "total_ms": 9.2,
+     "max_ms": 0.5
+    },
+    "cancelDecode": {
+     "calls": 21,
+     "total_ms": 0.3,
+     "max_ms": 0.1
+    },
+    "createContext": {
+     "calls": 1,
+     "total_ms": 0.2,
+     "max_ms": 0.2
+    },
+    "destroyContext": {
+     "calls": 1,
+     "total_ms": 1,
+     "max_ms": 1
+    },
+    "info": {
+     "calls": 1,
+     "total_ms": 0.5,
+     "max_ms": 0.5
+    },
+    "length": {
+     "calls": 205,
+     "total_ms": 18.6,
+     "max_ms": 1.9
+    },
+    "piece": {
+     "calls": 248077,
+     "total_ms": 349.7,
+     "max_ms": 2.8
+    },
+    "pollDecode": {
+     "calls": 12656,
+     "total_ms": 94295.7,
+     "max_ms": 958.5
+    },
+    "tokenize": {
+     "calls": 654,
+     "total_ms": 45.1,
+     "max_ms": 2.5
+    },
+    "truncate": {
+     "calls": 1,
+     "total_ms": 1,
+     "max_ms": 1
+    }
+   },
+   "gc": {
+    "gen1": {
+     "count": 2721,
+     "total_ms": 769.5,
+     "max_ms": 7.9
+    }
+   },
+   "cancel_ms": {
+    "mean": 538.062,
+    "p95": 912.23,
+    "max": 958.695
+   },
+   "roundtrip_s": {
+    "mean": 2.641,
+    "p95": 3.74,
+    "max": 10.811
+   },
+   "syscall_adherence": {
+    "moves": 22,
+    "valid": 22,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 113,
+    "stall": 12522,
+    "cancelled": 7,
+    "native": 164
+   },
+   "positions_total": 8396,
+   "fill_ms_total": 60860.3,
+   "biggest_step": {
+    "job": "1",
+    "outcome": "cancelled",
+    "positions": 256,
+    "chunks": 2,
+    "fill_ms": 1825.5049999952316,
+    "wall_ms": 2.1649999999908687
+   },
+   "splices": 1,
+   "journal_splices": 1,
+   "context_ids": {},
+   "pilot_context": {
+    "window": 4096
+   },
+   "kernel_options": {},
+   "longest_pilot_gap": {
+    "ticks": 466,
+    "seconds": 233,
+    "from_tick": 134,
+    "to_tick": 600,
+    "splices": 1
+   },
+   "faults": [
+    {
+     "job": "1",
+     "fault": "scheduler_fault_starvation",
+     "detail": "preempted 9 times without progress (limit 8)"
+    }
+   ]
+  }
+ ]
+}

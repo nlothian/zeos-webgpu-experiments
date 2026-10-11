@@ -1,0 +1,177 @@
+{
+ "note": "Window sweep: window 32768, chunk 128, zeos arm on the default board, seed 7, full 600-tick game (11 October 2026).",
+ "tune": "{\"context\":{\"window\":32768}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     },
+     {
+      "pid": 58757,
+      "cpu": 0.1,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "before": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "after": [
+     {
+      "pid": 58757,
+      "cpu": 0.1,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ]
+   },
+   "quiet_gpu": false,
+   "lives": 3,
+   "kills": 12,
+   "ticks": 600,
+   "decisions": 113,
+   "lag_ticks": {
+    "mean": 9.14,
+    "p95": 16,
+    "max": 23
+   },
+   "preemptions": 48,
+   "cancellations": 47,
+   "reflexes": 48,
+   "overrun_ms": {
+    "mean": 24.929,
+    "p95": 7.065,
+    "max": 1569.915
+   },
+   "catchup_ticks": 17,
+   "warm_s": {
+    "page": 17.32,
+    "python": 15.896,
+    "prewarm_ms": 5475.8
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "worker_calls": {
+    "append": {
+     "calls": 364,
+     "total_ms": 18.4,
+     "max_ms": 0.4
+    },
+    "beginDecodeStep": {
+     "calls": 381,
+     "total_ms": 28.8,
+     "max_ms": 1.1
+    },
+    "cancelDecode": {
+     "calls": 47,
+     "total_ms": 0.5,
+     "max_ms": 0.1
+    },
+    "createContext": {
+     "calls": 1,
+     "total_ms": 0.1,
+     "max_ms": 0.1
+    },
+    "info": {
+     "calls": 1,
+     "total_ms": 4.4,
+     "max_ms": 4.4
+    },
+    "length": {
+     "calls": 573,
+     "total_ms": 47.3,
+     "max_ms": 3.5
+    },
+    "piece": {
+     "calls": 248077,
+     "total_ms": 361.1,
+     "max_ms": 2.7
+    },
+    "pollDecode": {
+     "calls": 37123,
+     "total_ms": 244993.6,
+     "max_ms": 1005.1
+    },
+    "tokenize": {
+     "calls": 749,
+     "total_ms": 75.6,
+     "max_ms": 8.2
+    }
+   },
+   "gc": {
+    "gen1": {
+     "count": 3064,
+     "total_ms": 916.5,
+     "max_ms": 8.8
+    }
+   },
+   "cancel_ms": {
+    "mean": 763.809,
+    "p95": 1884.29,
+    "max": 2142.705
+   },
+   "roundtrip_s": {
+    "mean": 3.34,
+    "p95": 5.294,
+    "max": 10.379
+   },
+   "syscall_adherence": {
+    "moves": 65,
+    "valid": 65,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 333,
+    "stall": 36732,
+    "cancelled": 17,
+    "native": 161
+   },
+   "positions_total": 18357,
+   "fill_ms_total": 224084.7,
+   "biggest_step": {
+    "job": "1",
+    "outcome": "token",
+    "positions": 225,
+    "chunks": 3,
+    "fill_ms": 4303.299999952316,
+    "wall_ms": 10.71999999999207
+   },
+   "splices": 0,
+   "journal_splices": 0,
+   "context_ids": {
+    "1": 22469
+   },
+   "pilot_context": {
+    "window": 32768
+   },
+   "kernel_options": {},
+   "longest_pilot_gap": {
+    "ticks": 23,
+    "seconds": 11.5,
+    "from_tick": 259,
+    "to_tick": 282,
+    "splices": 0
+   },
+   "faults": []
+  }
+ ]
+}

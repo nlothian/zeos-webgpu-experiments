@@ -1,0 +1,191 @@
+{
+ "note": "Window sweep: window 3072, chunk 128, zeos arm on the default board, seed 7, full 600-tick game (11 October 2026).",
+ "tune": "{\"context\":{\"window\":3072}}",
+ "rows": [
+  {
+   "arm": "zeos",
+   "board": "default",
+   "seed": 7,
+   "stopped": false,
+   "contention": {
+    "other_gpu_processes": [
+     {
+      "pid": 58757,
+      "cpu": 0.2,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     },
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "before": [
+     {
+      "pid": 58757,
+      "cpu": 0.2,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ],
+    "after": [
+     {
+      "pid": 58757,
+      "cpu": 0,
+      "active": true,
+      "command": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/154.0.8037.99/Helpers/Google Chrome Helper.app/Contents/MacOS/Goo"
+     }
+    ]
+   },
+   "quiet_gpu": false,
+   "lives": 0,
+   "kills": 6,
+   "ticks": 366,
+   "decisions": 60,
+   "lag_ticks": {
+    "mean": 10.29,
+    "p95": 10,
+    "max": 106
+   },
+   "preemptions": 28,
+   "cancellations": 29,
+   "reflexes": 36,
+   "overrun_ms": {
+    "mean": 19.652,
+    "p95": 6.4,
+    "max": 1623.495
+   },
+   "catchup_ticks": 6,
+   "warm_s": {
+    "page": 16.99,
+    "python": 15.652,
+    "prewarm_ms": 5269.1
+   },
+   "parse_rate": null,
+   "verdicts": [
+    "fire-reaches-a-handler:true",
+    "the-reflex-displaces-deliberation:true",
+    "the-dodge-lands-inside-the-budget:true",
+    "the-pilot-is-told-the-ship-moved:true"
+   ],
+   "worker_calls": {
+    "append": {
+     "calls": 142,
+     "total_ms": 8.1,
+     "max_ms": 0.3
+    },
+    "beginDecodeStep": {
+     "calls": 152,
+     "total_ms": 9.9,
+     "max_ms": 0.3
+    },
+    "cancelDecode": {
+     "calls": 29,
+     "total_ms": 0.3,
+     "max_ms": 0.1
+    },
+    "createContext": {
+     "calls": 1,
+     "total_ms": 0.2,
+     "max_ms": 0.2
+    },
+    "destroyContext": {
+     "calls": 1,
+     "total_ms": 0.5,
+     "max_ms": 0.5
+    },
+    "info": {
+     "calls": 1,
+     "total_ms": 1,
+     "max_ms": 1
+    },
+    "length": {
+     "calls": 241,
+     "total_ms": 16.6,
+     "max_ms": 0.8
+    },
+    "piece": {
+     "calls": 248077,
+     "total_ms": 348.5,
+     "max_ms": 3
+    },
+    "pollDecode": {
+     "calls": 22128,
+     "total_ms": 143953.7,
+     "max_ms": 998.6
+    },
+    "tokenize": {
+     "calls": 697,
+     "total_ms": 51.3,
+     "max_ms": 2.1
+    },
+    "truncate": {
+     "calls": 5,
+     "total_ms": 3.5,
+     "max_ms": 1.1
+    }
+   },
+   "gc": {
+    "gen1": {
+     "count": 2256,
+     "total_ms": 701.7,
+     "max_ms": 7.4
+    }
+   },
+   "cancel_ms": {
+    "mean": 518.684,
+    "p95": 983.47,
+    "max": 998.635
+   },
+   "roundtrip_s": {
+    "mean": 3.158,
+    "p95": 10.34,
+    "max": 14.635
+   },
+   "syscall_adherence": {
+    "moves": 24,
+    "valid": 24,
+    "exits": 0
+   },
+   "step_totals": {
+    "token": 123,
+    "stall": 21976,
+    "cancelled": 10,
+    "native": 96
+   },
+   "positions_total": 12698,
+   "fill_ms_total": 91210.3,
+   "biggest_step": {
+    "job": "1",
+    "outcome": "cancelled",
+    "positions": 1152,
+    "chunks": 9,
+    "fill_ms": 6527.939999938011,
+    "wall_ms": 2.6900000000011914
+   },
+   "splices": 11,
+   "journal_splices": 11,
+   "context_ids": {},
+   "pilot_context": {
+    "window": 3072
+   },
+   "kernel_options": {},
+   "longest_pilot_gap": {
+    "ticks": 119,
+    "seconds": 59.5,
+    "from_tick": 247,
+    "to_tick": 366,
+    "splices": 8
+   },
+   "faults": [
+    {
+     "job": "1",
+     "fault": "scheduler_fault_starvation",
+     "detail": "preempted 9 times without progress (limit 8)"
+    }
+   ]
+  }
+ ]
+}
